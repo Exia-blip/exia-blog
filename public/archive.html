@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>归档</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml">
+</head>
+<body>
+
+<div id="site-header" data-site="Exia Blog"></div>
+
+<main class="wrap">
+  <section class="hero">
+    <h1 id="hero-title">归档</h1>
+    <p id="hero-sub">加载中…</p>
+  </section>
+
+  <div class="arch-bar">
+    <div class="seg" id="view-switch">
+      <button type="button" data-view="timeline" class="on">时间线</button>
+      <button type="button" data-view="list">归档</button>
+    </div>
+    <div class="year-filter" id="year-filter"></div>
+  </div>
+
+  <div id="arch-body"><div class="empty">加载中…</div></div>
+</main>
+
+<script type="module">
+import { api, esc, mountHeader, site, toast } from '/app.js';
+
+const bodyEl = document.getElementById('arch-body');
+const subEl = document.getElementById('hero-sub');
+const filterEl = document.getElementById('year-filter');
+const switchEl = document.getElementById('view-switch');
+
+const SITE = await site();
+document.title = `归档 · ${SITE.name}`;
+mountHeader('archive');
+
+/* 路径 /archive/2026 与 ?year=2026 等价 */
+const seg = location.pathname.split('/').filter(Boolean);
+const pathYear = /^\d{4}$/.test(seg[1] || '') ? seg[1] : '';
+const qYear = new URLSearchParams(location.search).get('year') || '';
+let currentYear = /^\d{4}$/.test(qYear) ? qYear : pathYear;
+let view = localStorage.getItem('arch:view') === 'list' ? 'list' : 'timeline';
+let DATA = null;
+
+/* ---------- 工具 ---------- */
+const pad = (n) => String(n).padStart(2, '0');
+
+function monthDay(s) {
+  const d = new Date(String(s).replace(' ', 'T') + (String(s).includes('Z') ? '' : 'Z'));
+  if (isNaN(d)) return { md: String(s).slice(5, 10), full: String(s).slice(0, 10) };
+  return { md: `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, full: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` };
+}
+
+function fmtSpan(first, last) {
+  const a = String(first || '').slice(0, 7).replace('-', '.');
+  const b = String(last || '').slice(0, 7).replace('-', '.');
+  if (!a) return '';
+  return a === b ? a : `${a} — ${b}`;
+}
+
+/* ---------- 渲染：时间线 ---------- */
+function renderTimeline(years) {
+  return `<div class="timeline">${years
+    .map(
+      (y) => `<section class="tl-year">
+      <div class="tl-yhead">
+        <b>${esc(y.year)}</b>
+        <span class="tiny muted">${y.count} 篇</span>
+      </div>
+      ${y.months
+        .map(
+          (m) => `<div class="tl-month">
+        <div class="tl-mlabel">${esc(m.label)}<span class="tiny muted">${m.count}</span></div>
+        <div class="tl-items">
+          ${m.posts
+            .map((p) => {
+              const t = monthDay(p.created_at);
+              return `<a class="tl-item" href="/p/${encodeURIComponent(p.slug)}" title="${esc(p.title)}">
+              <span class="tl-day">${t.md}</span>
+              <span class="tl-body">
+                <span class="tl-title">${esc(p.title)}</span>
+                <span class="tl-meta">
+                  ${p.category ? `<span class="chi cat">${esc(p.category)}</span>` : ''}
+                  ${(p.tags || []).slice(0, 3).map((x) => `<span class="chi">#${esc(x)}</span>`).join('')}
+                  <span class="tl-dim">${p.reading} 分钟</span>
+                  ${p.comments ? `<span class="tl-dim">${p.comments} 条评论</span>` : ''}
+                </span>
+              </span>
+            </a>`;
+            })
+            .join('')}
+        </div>
+      </div>`
+        )
+        .join('')}
+    </section>`
+    )
+    .join('')}</div>`;
+}
+
+/* ---------- 渲染：紧凑归档 ---------- */
+function renderList(years) {
+  return `<div class="arch">${years
+    .map(
+      (y) => `<section class="arch-year">
+      <div class="arch-yhead">
+        <b>${esc(y.year)}</b>
+        <span class="tiny muted">${y.count} 篇</span>
+      </div>
+      ${y.months
+        .map(
+          (m) => `<div class="arch-month">
+        <div class="arch-mlabel">${esc(m.label)}</div>
+        <div class="arch-rows">
+          ${m.posts
+            .map((p) => {
+              const t = monthDay(p.created_at);
+              return `<a class="arch-row" href="/p/${encodeURIComponent(p.slug)}">
+              <span class="arch-day">${t.md}</span>
+              <span class="arch-title">${esc(p.title)}</span>
+              <span class="arch-side">
+                ${p.category ? `<span class="chi cat">${esc(p.category)}</span>` : ''}
+              </span>
+            </a>`;
+            })
+            .join('')}
+        </div>
+      </div>`
+        )
+        .join('')}
+    </section>`
+    )
+    .join('')}</div>`;
+}
+
+/* ---------- 主流程 ---------- */
+function renderFilters() {
+  if (!DATA) return;
+  const years = DATA.years.map((y) => y.year);
+  if (years.length < 2 && !currentYear) {
+    filterEl.innerHTML = '';
+    return;
+  }
+  filterEl.innerHTML =
+    `<a class="tag${currentYear ? '' : ' on'}" href="/archive">全部</a>` +
+    years
+      .map((y) => {
+        const n = DATA.years.find((x) => x.year === y)?.count || 0;
+        const active = currentYear === y;
+        return `<a class="tag${active ? ' on' : ''}" href="/archive/${y}">${y}<span class="tag-n">${n}</span></a>`;
+      })
+      .join('');
+}
+
+function render() {
+  if (!DATA) return;
+
+  if (!DATA.total) {
+    subEl.textContent = '还没有公开文章';
+    bodyEl.innerHTML = '<div class="empty">站点还是空的。登录后在后台写第一篇，这里就会长出时间线。</div>';
+    filterEl.innerHTML = '';
+    return;
+  }
+
+  const shown = DATA.years.reduce((a, y) => a + y.count, 0);
+  subEl.innerHTML = currentYear
+    ? `${esc(currentYear)} 年共 <b>${shown}</b> 篇 · <a href="/archive" class="lnk">看全部 ${DATA.total} 篇</a>`
+    : `共 <b>${DATA.total}</b> 篇 · ${esc(fmtSpan(DATA.first_at, DATA.last_at))} · 跨越 ${DATA.years.length} 个年份`;
+
+  if (!shown) {
+    bodyEl.innerHTML = `<div class="empty">${esc(currentYear)} 年还没有文章。<a class="lnk" href="/archive">看全部</a></div>`;
+    renderFilters();
+    return;
+  }
+
+  bodyEl.innerHTML = view === 'list' ? renderList(DATA.years) : renderTimeline(DATA.years);
+  renderFilters();
+}
+
+async function load() {
+  try {
+    const q = currentYear ? `?year=${currentYear}` : '';
+    DATA = await api('/api/archive' + q);
+    render();
+  } catch (e) {
+    subEl.textContent = '加载失败';
+    bodyEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+/* 视图切换 */
+switchEl.querySelectorAll('button').forEach((btn) => {
+  btn.classList.toggle('on', btn.dataset.view === view);
+  btn.addEventListener('click', () => {
+    const v = btn.dataset.view;
+    if (v === view) return;
+    view = v;
+    localStorage.setItem('arch:view', v);
+    switchEl.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.view === v));
+    render();
+  });
+});
+
+/* 年份切换不整页刷新，走 history + 局部重绘 */
+document.addEventListener('click', async (e) => {
+  const a = e.target.closest('#year-filter a');
+  if (!a) return;
+  e.preventDefault();
+  const href = a.getAttribute('href');
+  const m = href.match(/^\/archive\/(\d{4})$/);
+  currentYear = m ? m[1] : '';
+  history.pushState({}, '', href);
+  bodyEl.innerHTML = '<div class="empty">加载中…</div>';
+  await load();
+});
+
+window.addEventListener('popstate', () => {
+  const p = location.pathname.split('/').filter(Boolean);
+  currentYear = /^\d{4}$/.test(p[1] || '') ? p[1] : '';
+  load();
+});
+
+await load();
+</script>
+</body>
+</html>

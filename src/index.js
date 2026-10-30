@@ -141,7 +141,7 @@ ${items}
 
 async function serveSitemap(env, request) {
   const { results } = await env.DB.prepare(
-    'SELECT slug, updated_at FROM posts WHERE is_private = 0 ORDER BY created_at DESC LIMIT 1000'
+    'SELECT slug, updated_at FROM posts WHERE is_private = 0 AND hidden = 0 ORDER BY created_at DESC LIMIT 1000'
   ).all();
   const origin = new URL(request.url).origin;
   const urls = results
@@ -151,7 +151,7 @@ async function serveSitemap(env, request) {
     )
     .join('\n');
   return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${origin}/</loc></url>\n${urls}\n</urlset>`,
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${origin}/</loc></url>\n  <url><loc>${origin}/archive</loc></url>\n  <url><loc>${origin}/categories</loc></url>\n${urls}\n</urlset>`,
     { headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=600' } }
   );
 }
@@ -178,9 +178,16 @@ export default {
         return html(body);
       }
 
+      // 归档 / 时间线
+      if (path === '/archive' || /^\/archive\/\d{4}\/?$/.test(path)) {
+        // 注意用无后缀路径：/xxx.html 会被 Assets 以 307 重定向到 /xxx
+        const res = await env.ASSETS.fetch(new Request(new URL('/archive', request.url), request));
+        if (res.status === 200) return html(await res.text());
+      }
+
       // 栏目总览（分类 + 标签）
       if (path === '/categories') {
-        const res = await env.ASSETS.fetch(new Request(new URL('/categories.html', request.url), request));
+        const res = await env.ASSETS.fetch(new Request(new URL('/categories', request.url), request));
         if (res.status === 200) return html(await res.text());
       }
 

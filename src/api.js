@@ -182,6 +182,68 @@ export async function handleApi(env, request, url) {
     return json({ ok: true, tags: results });
   }
 
+  /* ---- 归档（按年月分组的全部公开文章） ---- */
+  if (path === '/archive' && method === 'GET') {
+    const year = (url.searchParams.get('year') || '').trim();
+    const where = ['p.is_private = 0', 'p.hidden = 0'];
+    const args = [];
+    if (/^\d{4}$/.test(year)) {
+      where.push("substr(p.created_at, 1, 4) = ?");
+      args.push(year);
+    }
+
+    const { results } = await db
+      .prepare(
+        `SELECT p.*, ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
+         FROM posts p ${AUTHOR_JOIN}
+         WHERE ${where.join(' AND ')}
+         ORDER BY p.created_at DESC, p.id DESC
+         LIMIT 2000`
+      )
+      .bind(...args)
+      .all();
+
+    await attachTags(db, results);
+
+    const yearMap = new Map();
+    for (const p of results) {
+      const stamp = String(p.created_at || '');
+      const y = stamp.slice(0, 4) || '未知';
+      const m = stamp.slice(5, 7) || '00';
+      if (!yearMap.has(y)) yearMap.set(y, { year: y, count: 0, months: new Map() });
+      const yb = yearMap.get(y);
+      yb.count += 1;
+      if (!yb.months.has(m)) yb.months.set(m, { month: m, label: `${Number(m) || '?'} 月`, count: 0, posts: [] });
+      const mb = yb.months.get(m);
+      mb.count += 1;
+      mb.posts.push(shapePost(p));
+    }
+
+    const years = [...yearMap.values()].map((y) => ({
+      year: y.year,
+      count: y.count,
+      months: [...y.months.values()],
+    }));
+
+    // 全站跨度（不受 year 过滤影响）
+    const spanRow = await db
+      .prepare(
+        `SELECT MIN(created_at) AS first_at, MAX(created_at) AS last_at, COUNT(*) AS total
+         FROM posts WHERE is_private = 0 AND hidden = 0`
+      )
+      .first();
+
+    return json({
+      ok: true,
+      total: spanRow?.total || 0,
+      filtered: results.length,
+      year: /^\d{4}$/.test(year) ? year : '',
+      first_at: spanRow?.first_at || '',
+      last_at: spanRow?.last_at || '',
+      years,
+    });
+  }
+
   /* ---- 分类云 ---- */
   if (path === '/categories' && method === 'GET') {
     const { results } = await db
