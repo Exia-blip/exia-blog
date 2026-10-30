@@ -103,6 +103,7 @@ export async function mountHeader(active = '') {
     { href: '/categories', label: '栏目', key: 'categories' },
     { href: '/archive', label: '归档', key: 'archive' },
     { href: '/friends', label: '友链', key: 'friends' },
+    { href: '/about', label: '关于', key: 'about' },
   ];
 
   host.outerHTML = `
