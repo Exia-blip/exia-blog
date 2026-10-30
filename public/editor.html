@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>写作</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="editor-page">
+
+<div class="editor-top">
+  <a class="btn sm" href="/" title="返回首页">←</a>
+  <input class="title-input" id="title" placeholder="无标题" autocomplete="off">
+  <span class="save-state" id="state"><span class="pulse"></span><span id="state-text">已同步</span></span>
+  <button class="btn sm" id="btn-new" title="新建文章">新建</button>
+  <button class="btn primary sm" id="btn-save">保存</button>
+</div>
+
+<div class="editor-body">
+  <div class="pane left">
+    <textarea id="md-input" placeholder="开始写作…&#10;&#10;支持 Markdown。拖拽或粘贴图片可直接上传。&#10;写 #标签 会自动归类。"></textarea>
+  </div>
+  <div class="pane">
+    <div class="preview md" id="preview"></div>
+  </div>
+  <aside class="editor-side">
+    <div class="field">
+      <label>别名（访问路径）</label>
+      <input type="text" id="slug" placeholder="如 about → /about" autocomplete="off">
+      <span class="tiny muted" id="slug-hint"></span>
+    </div>
+
+    <div class="field">
+      <label>发布设置</label>
+      <label class="switch"><input type="checkbox" id="is_private"> 私密（仅自己可见，未登录 404）</label>
+      <label class="switch"><input type="checkbox" id="hidden"> 不列入首页（链接仍可直达）</label>
+    </div>
+
+    <div class="field">
+      <label>自动标签</label>
+      <div class="tagbar" id="tags" style="margin:0"></div>
+    </div>
+
+    <div class="field" style="margin-top:4px">
+      <label>我的文章</label>
+      <div class="cat-list" id="cat-list"></div>
+    </div>
+
+    <div style="margin-top:auto;display:flex;gap:8px">
+      <a class="btn sm" id="btn-view" href="#" target="_blank" style="flex:1;justify-content:center">预览</a>
+      <button class="btn sm danger" id="btn-del">删除</button>
+    </div>
+  </aside>
+</div>
+
+<div class="drop-hint" id="drop-hint">松开上传图片</div>
+
+<script type="module">
+import { api, esc, toast, fmtDate, me, bindCopyButtons } from '/app.js';
+import { renderMarkdown, extractTags, extractCover } from '/md.js';
+
+bindCopyButtons(document.getElementById('preview'));
+
+const $ = (id) => document.getElementById(id);
+const titleEl = $('title');
+const inputEl = $('md-input');
+const previewEl = $('preview');
+const slugEl = $('slug');
+const privateEl = $('is_private');
+const hiddenEl = $('hidden');
+const stateEl = $('state');
+const stateText = $('state-text');
+
+let postId = null;      // 服务端 id
+let currentSlug = '';
+let dirty = false;
+let saving = false;
+let saveTimer = null;
+let draftKey = 'draft:new';
+let hasServerRecord = false;
+
+/* ---------- 状态提示 ---------- */
+function setState(kind, text) {
+  stateEl.className = 'save-state ' + kind;
+  stateText.textContent = text;
+}
+
+/* ---------- 本地草稿 ---------- */
+function snapshot() {
+  return {
+    id: postId,
+    title: titleEl.value,
+    content: inputEl.value,
+    slug: slugEl.value,
+    is_private: privateEl.checked,
+    hidden: hiddenEl.checked,
+    at: Date.now(),
+  };
+}
+
+function saveLocal() {
+  try {
+    localStorage.setItem(draftKey, JSON.stringify(snapshot()));
+  } catch {}
+}
+
+function readLocal(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function applyDraft(d) {
+  if (!d) return;
+  titleEl.value = d.title || '';
+  inputEl.value = d.content || '';
+  slugEl.value = d.slug || '';
+  privateEl.checked = !!d.is_private;
+  hiddenEl.checked = !!d.hidden;
+}
+
+/* ---------- 预览 ---------- */
+let previewTimer = null;
+function updatePreview() {
+  const md = inputEl.value;
+  previewEl.innerHTML = renderMarkdown(md);
+  renderTagPreview(md);
+  document.querySelectorAll('.copy-btn').forEach((b) => (b.onclick = null));
+}
+
+function renderTagPreview(md) {
+  const tags = extractTags(md);
+  $('tags').innerHTML = tags.length
+    ? tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join('')
+    : '<span class="tiny muted">正文里写 #标签 自动识别</span>';
+}
+
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(updatePreview, 60);
+}
+
+/* ---------- 保存到服务端 ---------- */
+async function saveNow(manual = false) {
+  if (saving) return;
+  if (!dirty && !manual) return;
+  saving = true;
+  setState('saving', '保存中…');
+
+  const payload = {
+    title: titleEl.value.trim() || '无标题',
+    content: inputEl.value,
+    slug: slugEl.value.trim(),
+    is_private: privateEl.checked,
+    hidden: hiddenEl.checked,
+  };
+
+  try {
+    let res;
+    if (postId) {
+      res = await api('/api/posts/' + postId, { method: 'PUT', body: payload });
+    } else {
+      res = await api('/api/posts', { method: 'POST', body: payload });
+      postId = res.id;
+      // 迁移本地草稿 key，避免新建后丢失
+      const old = draftKey;
+      draftKey = 'draft:' + postId;
+      const d = readLocal(old);
+      if (d) {
+        localStorage.setItem(draftKey, JSON.stringify({ ...d, id: postId }));
+        localStorage.removeItem(old);
+      }
+      history.replaceState(null, '', '/editor?id=' + postId);
+      hasServerRecord = true;
+    }
+
+    currentSlug = res.slug || currentSlug;
+    slugEl.placeholder = currentSlug ? `/${currentSlug}` : '如 about → /about';
+    $('btn-view').href = '/p/' + encodeURIComponent(currentSlug || '');
+
+    dirty = false;
+    saveLocal();
+    setState('', '已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
+    if (manual) toast('已保存');
+    loadList();
+  } catch (e) {
+    setState('error', e.message || '保存失败');
+    toast(e.message || '保存失败');
+  } finally {
+    saving = false;
+  }
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  setState('', '编辑中…');
+  saveTimer = setTimeout(() => saveNow(false), 3000);
+}
+
+/* ---------- 输入绑定 ---------- */
+function onInput() {
+  dirty = true;
+  saveLocal();          // 每次输入即写 localStorage
+  schedulePreview();
+  scheduleSave();       // 停顿 3 秒落库
+}
+
+titleEl.addEventListener('input', onInput);
+inputEl.addEventListener('input', onInput);
+[slugEl, privateEl, hiddenEl].forEach((el) => el.addEventListener('change', onInput));
+
+// Tab 插入缩进
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const s = inputEl.selectionStart;
+    inputEl.setRangeText('  ', s, inputEl.selectionEnd, 'end');
+    onInput();
+  }
+});
+
+// Ctrl/Cmd + S
+window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    saveNow(true);
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    saveNow(true);
+  }
+});
+
+// 离开前提醒
+window.addEventListener('beforeunload', (e) => {
+  saveLocal();
+  if (dirty) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+/* ---------- 图片上传：拖拽 / 粘贴 ---------- */
+async function uploadFile(file) {
+  if (!file || !file.type.startsWith('image/')) return null;
+  if (file.size > 12 * 1024 * 1024) {
+    toast('图片超过 12MB');
+    return null;
+  }
+
+  toast('上传中…', 8000);
+  try {
+    const r = await api('/api/upload-url', {
+      method: 'POST',
+      body: { name: file.name || 'pasted.png', type: file.type },
+    });
+
+    if (r.mode === 'direct') {
+      try {
+        const put = await fetch(r.uploadUrl, {
+          method: 'PUT',
+          headers: { 'content-type': file.type },
+          body: file,
+        });
+        if (!put.ok) throw new Error('R2 直传失败 ' + put.status);
+      } catch (err) {
+        // 直传失败（多半是 R2 CORS 没配）时回退到 Worker 中转
+        const fd = new FormData();
+        fd.append('file', file);
+        const r2 = await api('/api/upload', { method: 'POST', body: fd });
+        r.publicUrl = r2.publicUrl;
+      }
+    } else {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r2 = await api('/api/upload', { method: 'POST', body: fd });
+      r.publicUrl = r2.publicUrl;
+    }
+
+    insertAtCursor(`\n![${file.name || 'image'}](${r.publicUrl})\n`);
+    toast('图片已插入');
+    return r.publicUrl;
+  } catch (e) {
+    toast('上传失败：' + e.message);
+    return null;
+  }
+}
+
+function insertAtCursor(text) {
+  const s = inputEl.selectionStart;
+  const e = inputEl.selectionEnd;
+  inputEl.setRangeText(text, s, e, 'end');
+  inputEl.focus();
+  onInput();
+}
+
+inputEl.addEventListener('paste', async (e) => {
+  const items = [...(e.clipboardData?.items || [])];
+  const img = items.find((i) => i.type.startsWith('image/'));
+  if (img) {
+    e.preventDefault();
+    await uploadFile(img.getAsFile());
+  }
+});
+
+const dropHint = $('drop-hint');
+let dragDepth = 0;
+window.addEventListener('dragenter', (e) => {
+  if ([...(e.dataTransfer?.types || [])].includes('Files')) {
+    dragDepth++;
+    dropHint.classList.add('on');
+  }
+});
+window.addEventListener('dragleave', () => {
+  if (--dragDepth <= 0) { dragDepth = 0; dropHint.classList.remove('on'); }
+});
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  dropHint.classList.remove('on');
+  const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/'));
+  for (const f of files) await uploadFile(f);
+});
+
+/* ---------- 文章列表 ---------- */
+let allPosts = [];
+async function loadList() {
+  try {
+    const { posts } = await api('/api/mine');
+    allPosts = posts;
+    $('cat-list').innerHTML = posts.length
+      ? posts.map((p) => `
+        <div class="cat-item ${p.id === postId ? 'active' : ''}" data-id="${p.id}" data-slug="${esc(p.slug)}">
+          <span class="t">${esc(p.title)}</span>
+          ${p.is_private ? '<span class="flag">私</span>' : p.hidden ? '<span class="flag">隐</span>' : ''}
+        </div>`).join('')
+      : '<span class="tiny muted">还没有文章</span>';
+  } catch {}
+}
+
+$('cat-list').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-id]');
+  if (!item) return;
+  if (dirty && !confirm('当前有未保存的改动，确定切换？')) return;
+  location.href = '/editor?id=' + item.dataset.id;
+});
+
+/* ---------- 载入 ---------- */
+function resetEditor() {
+  postId = null;
+  currentSlug = '';
+  draftKey = 'draft:new';
+  titleEl.value = '';
+  inputEl.value = '';
+  slugEl.value = '';
+  privateEl.checked = false;
+  hiddenEl.checked = false;
+  $('btn-view').href = '#';
+  dirty = false;
+  setState('', '新文章');
+  updatePreview();
+  history.replaceState(null, '', '/editor');
+}
+
+$('btn-new').onclick = () => {
+  if (dirty && !confirm('当前有未保存的改动，确定新建？')) return;
+  resetEditor();
+  loadList();
+  titleEl.focus();
+};
+
+$('btn-save').onclick = () => saveNow(true);
+
+$('btn-del').onclick = async () => {
+  if (!postId) return toast('还没保存，无需删除');
+  if (!confirm('删除这篇文章？不可恢复。')) return;
+  try {
+    await api('/api/posts/' + postId, { method: 'DELETE' });
+    localStorage.removeItem('draft:' + postId);
+    toast('已删除');
+    dirty = false;
+    resetEditor();
+    loadList();
+  } catch (e) {
+    toast(e.message);
+  }
+};
+
+// 切到后台时先把本地草稿写死
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && dirty) saveLocal();
+});
+
+const user = await me();
+if (!user) {
+  location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+} else {
+  const idParam = new URLSearchParams(location.search).get('id');
+
+  if (idParam && /^\d+$/.test(idParam)) {
+    postId = parseInt(idParam, 10);
+    draftKey = 'draft:' + postId;
+    hasServerRecord = true;
+
+    try {
+      const { posts } = await api('/api/mine');
+      const p = posts.find((x) => x.id === postId);
+      if (!p) throw new Error('文章不存在');
+
+      titleEl.value = p.title;
+      inputEl.value = p.content;
+      slugEl.value = p.slug;
+      privateEl.checked = !!p.is_private;
+      hiddenEl.checked = !!p.hidden;
+      currentSlug = p.slug;
+      $('btn-view').href = '/p/' + encodeURIComponent(p.slug);
+      slugEl.placeholder = `/${p.slug}`;
+
+      // 本地草稿比服务器新 → 恢复本地
+      const d = readLocal(draftKey);
+      const serverTime = new Date(String(p.updated_at).replace(' ', 'T') + 'Z').getTime();
+      if (d && d.at > serverTime + 1000 && (d.title !== p.title || d.content !== p.content)) {
+        applyDraft(d);
+        dirty = true;
+        setState('', '已恢复本地草稿');
+        toast('已恢复未同步的本地草稿');
+      } else {
+        setState('', '已同步');
+      }
+    } catch (e) {
+      toast(e.message);
+      resetEditor();
+    }
+  } else {
+    // 新建：若有未保存的本地草稿则恢复
+    const d = readLocal('draft:new');
+    if (d && (d.title || d.content)) {
+      applyDraft(d);
+      dirty = true;
+      setState('', '已恢复本地草稿');
+    } else {
+      setState('', '新文章');
+    }
+  }
+
+  updatePreview();
+  loadList();
+  inputEl.focus();
+}
+</script>
+</body>
+</html>

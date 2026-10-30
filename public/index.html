@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>首页</title>
+<!--SEO-->
+<link rel="stylesheet" href="/style.css">
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml">
+</head>
+<body>
+
+<div id="site-header" data-site="Exia Blog"></div>
+
+<main class="wrap">
+  <section class="hero">
+    <h1 id="hero-title">写字的地方</h1>
+    <p id="hero-sub">记录思考、代码与生活。</p>
+  </section>
+
+  <div class="toolbar">
+    <div class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="text" placeholder="搜索标题或正文…" autocomplete="off">
+    </div>
+    <a class="btn sm" href="/friends">友链</a>
+  </div>
+
+  <div class="tagbar" id="tagbar"></div>
+
+  <div class="post-list" id="list">
+    <div class="empty">加载中…</div>
+  </div>
+
+  <div class="pagination" id="pager"></div>
+</main>
+
+<script type="module">
+import { api, fmtDate, esc, mountHeader, toast, site } from '/app.js';
+
+const listEl = document.getElementById('list');
+const tagbarEl = document.getElementById('tagbar');
+const pagerEl = document.getElementById('pager');
+const qInput = document.getElementById('q');
+
+// 路由：/tag/名字 或 /?q=
+const pathParts = location.pathname.split('/').filter(Boolean);
+let currentTag = pathParts[0] === 'tag' ? decodeURIComponent(pathParts[1] || '') : '';
+let currentQ = new URLSearchParams(location.search).get('q') || '';
+let page = parseInt(new URLSearchParams(location.search).get('page') || '1', 10) || 1;
+
+qInput.value = currentQ;
+
+const SITE = await site();
+
+if (currentTag) {
+  document.getElementById('hero-title').textContent = `#${currentTag}`;
+  document.getElementById('hero-sub').textContent = `标签「${currentTag}」下的全部文章`;
+  document.title = `#${currentTag} · ${SITE.name}`;
+} else if (currentQ) {
+  document.getElementById('hero-title').textContent = `搜索：${currentQ}`;
+  document.getElementById('hero-sub').textContent = '标题与正文关键词匹配';
+  document.title = `${currentQ} · 搜索`;
+} else {
+  document.getElementById('hero-title').textContent = SITE.name;
+  document.getElementById('hero-sub').textContent = SITE.desc || '记录思考、代码与生活。';
+  document.title = SITE.name;
+}
+
+async function load() {
+  listEl.innerHTML = '<div class="empty">加载中…</div>';
+  const params = new URLSearchParams({ page: String(page), size: '10' });
+  if (currentTag) params.set('tag', currentTag);
+  if (currentQ) params.set('q', currentQ);
+
+  try {
+    const { posts, total, pages } = await api('/api/posts?' + params);
+    if (!posts.length) {
+      listEl.innerHTML = `<div class="empty">${currentQ ? '没有找到匹配的文章' : '还没有文章，去写第一篇吧'}</div>`;
+      pagerEl.innerHTML = '';
+      return;
+    }
+    listEl.innerHTML = posts.map(card).join('');
+    renderPager(pages, total);
+  } catch (e) {
+    listEl.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+function card(p) {
+  return `
+  <a class="post-card" href="/p/${encodeURIComponent(p.slug)}">
+    ${p.cover ? `<img class="thumb" src="${esc(p.cover)}" alt="" loading="lazy">` : ''}
+    <div class="body">
+      <h2>${esc(p.title)}${p.is_private ? ' <span class="tiny muted">私密</span>' : ''}</h2>
+      <p class="excerpt">${esc(p.excerpt)}</p>
+      <div class="meta">
+        <span>${fmtDate(p.created_at)}</span>
+        <span class="sep-dot">${p.reading} 分钟</span>
+        ${p.comments ? `<span class="sep-dot">${p.comments} 条评论</span>` : ''}
+        ${(p.tags || []).slice(0, 3).map((t) => `<a class="tag" href="/tag/${encodeURIComponent(t)}">#${esc(t)}</a>`).join('')}
+      </div>
+    </div>
+  </a>`;
+}
+
+function renderPager(pages, total) {
+  if (pages <= 1) { pagerEl.innerHTML = ''; return; }
+  const qs = (p) => {
+    const u = new URLSearchParams();
+    if (currentQ) u.set('q', currentQ);
+    u.set('page', String(p));
+    return (currentTag ? `/tag/${encodeURIComponent(currentTag)}?` : '/?') + u.toString();
+  };
+  pagerEl.innerHTML = `
+    ${page > 1 ? `<a class="btn sm" href="${qs(page - 1)}">← 上一页</a>` : ''}
+    <span class="page-info">${page} / ${pages}　共 ${total} 篇</span>
+    ${page < pages ? `<a class="btn sm" href="${qs(page + 1)}">下一页 →</a>` : ''}`;
+}
+
+async function loadTags() {
+  try {
+    const { tags } = await api('/api/tags');
+    if (!tags.length) return;
+    tagbarEl.innerHTML =
+      `<a class="tag" href="/" style="${!currentTag ? 'background:var(--accent-soft);color:var(--accent)' : ''}">全部</a>` +
+      tags.map((t) => `<a class="tag" href="/tag/${encodeURIComponent(t.name)}"
+        style="${currentTag === t.name ? 'background:var(--accent-soft);color:var(--accent)' : ''}">#${esc(t.name)} ${t.count}</a>`).join('');
+  } catch {}
+}
+
+let timer;
+qInput.addEventListener('input', () => {
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    const v = qInput.value.trim();
+    const url = new URL(location.href);
+    if (v) url.searchParams.set('q', v); else url.searchParams.delete('q');
+    url.searchParams.delete('page');
+    if (currentTag) {
+      location.href = `/tag/${encodeURIComponent(currentTag)}${v ? '?q=' + encodeURIComponent(v) : ''}`;
+    } else {
+      history.replaceState(null, '', url);
+      currentQ = v;
+      page = 1;
+      document.getElementById('hero-title').textContent = v ? `搜索：${v}` : '写字的地方';
+      load();
+    }
+  }, 320);
+});
+
+mountHeader(currentTag ? 'tag' : 'home');
+load();
+loadTags();
+</script>
+</body>
+</html>

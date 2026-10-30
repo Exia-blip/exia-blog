@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!--SEO-->
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div id="site-header" data-site="Exia Blog"></div>
+
+<main class="wrap" id="page">
+  <div class="empty">加载中…</div>
+</main>
+
+<script type="module">
+import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons } from '/app.js';
+
+bindCopyButtons(document);
+
+const segs = location.pathname.split('/').filter(Boolean);
+const slug = decodeURIComponent(segs[0] === 'p' ? segs[1] || '' : segs[0] || '');
+
+const page = document.getElementById('page');
+let POST = null;
+let USER = null;
+let replyTo = null;
+
+async function load() {
+  try {
+    const { post } = await api('/api/posts/' + encodeURIComponent(slug));
+    POST = post;
+    const S = await site();
+    document.title = `${post.title} · ${S.name}`;
+    render();
+    loadComments();
+  } catch (e) {
+    page.innerHTML = `<div class="empty">${e.status === 404 ? '文章不存在或已被删除' : '加载失败：' + esc(e.message)}</div>`;
+  }
+}
+
+function render() {
+  const p = POST;
+  const privateTag = p.is_private ? '<span class="tag" style="background:var(--accent-soft);color:var(--accent)">私密</span>' : '';
+  const editBtn = USER && (USER.is_admin || USER.id === p.author_id)
+    ? `<a class="btn sm" href="/editor?id=${p.id}">编辑</a>` : '';
+
+  page.innerHTML = `
+    <article>
+      <header class="post-head">
+        <h1>${esc(p.title)} ${privateTag}</h1>
+        <div class="meta">
+          ${p.avatar ? `<img class="avatar-xs" src="${esc(p.avatar)}" alt="">` : ''}
+          <span>${esc(p.author || '')}</span>
+          <span class="sep-dot">${fmtDate(p.created_at)}</span>
+          <span class="sep-dot">${p.reading} 分钟阅读</span>
+          ${p.updated_at && p.updated_at !== p.created_at ? `<span class="sep-dot">更新于 ${fmtDate(p.updated_at)}</span>` : ''}
+          <span style="margin-left:auto">${editBtn}</span>
+        </div>
+      </header>
+      <div class="md post-body">${p.html}</div>
+      <footer class="post-foot">
+        <div class="tagbar" style="margin:0">
+          ${(p.tags || []).map((t) => `<a class="tag" href="/tag/${encodeURIComponent(t)}">#${esc(t)}</a>`).join('')}
+        </div>
+      </footer>
+    </article>
+
+    <section class="comments" id="comments">
+      <h3>评论 <span class="muted" id="cmt-count"></span></h3>
+      <div id="cmt-list"></div>
+      <form class="cmt-form" id="cmt-form">
+        <div id="reply-hint" class="tiny muted" style="display:none"></div>
+        <div class="row" id="guest-fields">
+          <input type="text" name="name" placeholder="昵称 *" maxlength="40" required>
+          <input type="email" name="email" placeholder="邮箱（可选，不公开）" maxlength="120">
+          <input type="url" name="website" placeholder="网站（可选）" maxlength="200">
+        </div>
+        <textarea name="content" placeholder="说点什么…" maxlength="2000" required></textarea>
+        <div class="foot">
+          <span class="tiny muted" id="cmt-hint"></span>
+          <button class="btn primary sm" type="submit">发表评论</button>
+        </div>
+      </form>
+    </section>`;
+
+  bindReply();
+  bindForm();
+}
+
+/* ---------- 评论 ---------- */
+async function loadComments() {
+  const box = document.getElementById('cmt-list');
+  if (!box) return;
+  try {
+    const { comments, total } = await api('/api/comments?slug=' + encodeURIComponent(slug));
+    document.getElementById('cmt-count').textContent = total ? `(${total})` : '';
+    if (!comments.length) {
+      box.innerHTML = '<div class="muted small" style="padding:14px 0">还没有评论，来抢沙发。</div>';
+      return;
+    }
+    box.innerHTML = comments.map(renderCmt).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="muted small">评论加载失败</div>`;
+  }
+}
+
+function avatarText(name) {
+  return esc(String(name || '?').slice(0, 1).toUpperCase());
+}
+
+function renderCmt(c, isChild = false) {
+  const del = USER && USER.is_admin
+    ? `<button data-del="${c.id}">删除</button>` : '';
+  const reply = !isChild ? `<button data-reply="${c.id}" data-name="${esc(c.name)}">回复</button>` : '';
+  const homepage = c.website
+    ? `<a href="${esc(c.website)}" target="_blank" rel="noopener nofollow" class="muted">${esc(c.name)}</a>`
+    : esc(c.name);
+
+  return `
+  <div class="cmt" data-cid="${c.id}">
+    <div class="ava">${avatarText(c.name)}</div>
+    <div class="main">
+      <div class="head">
+        <b>${c.is_admin ? homepage : homepage}</b>
+        ${c.is_admin ? '<span class="badge-owner">博主</span>' : ''}
+        <span class="when">${fmtRelative(c.created_at)}</span>
+      </div>
+      <div class="text">${esc(c.content)}</div>
+      <div class="acts">${reply}${del}</div>
+      ${c.replies && c.replies.length ? `<div class="replies">${c.replies.map((r) => renderCmt(r, true)).join('')}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function bindReply() {
+  const box = document.getElementById('cmt-list');
+  if (!box) return;
+  box.addEventListener('click', async (e) => {
+    const r = e.target.closest('[data-reply]');
+    if (r) {
+      replyTo = { id: +r.dataset.reply, name: r.dataset.name };
+      const hint = document.getElementById('reply-hint');
+      hint.style.display = 'block';
+      hint.innerHTML = `回复 <b>${esc(replyTo.name)}</b> · <a href="javascript:;" id="cancel-reply">取消</a>`;
+      document.getElementById('cancel-reply').onclick = () => {
+        replyTo = null;
+        hint.style.display = 'none';
+      };
+      document.querySelector('#cmt-form textarea').focus();
+      return;
+    }
+    const d = e.target.closest('[data-del]');
+    if (d) {
+      if (!confirm('删除这条评论？其下的回复也会一并删除。')) return;
+      try {
+        await api('/api/comments/' + d.dataset.del, { method: 'DELETE' });
+        toast('已删除');
+        loadComments();
+      } catch (err) { toast(err.message); }
+    }
+  });
+}
+
+function bindForm() {
+  const form = document.getElementById('cmt-form');
+  const guestFields = document.getElementById('guest-fields');
+
+  if (USER) {
+    guestFields.style.display = 'none';
+  }
+
+  // 记住游客信息
+  if (!USER) {
+    try {
+      const saved = JSON.parse(localStorage.getItem('cmt:guest') || '{}');
+      form.name.value = saved.name || '';
+      form.email.value = saved.email || '';
+      form.website.value = saved.website || '';
+    } catch {}
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const content = form.content.value.trim();
+    if (!content) return;
+
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    btn.textContent = '发送中…';
+
+    try {
+      await api('/api/comments', {
+        method: 'POST',
+        body: {
+          slug,
+          content,
+          parent_id: replyTo?.id || null,
+          name: form.name?.value || '',
+          email: form.email?.value || '',
+          website: form.website?.value || '',
+        },
+      });
+      if (!USER) {
+        localStorage.setItem('cmt:guest', JSON.stringify({
+          name: form.name.value, email: form.email.value, website: form.website.value,
+        }));
+      }
+      form.content.value = '';
+      replyTo = null;
+      document.getElementById('reply-hint').style.display = 'none';
+      toast('评论已发布');
+      loadComments();
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '发表评论';
+    }
+  });
+}
+
+USER = await mountHeader();
+load();
+</script>
+</body>
+</html>

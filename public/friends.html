@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>友链</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div id="site-header" data-site="Exia Blog"></div>
+
+<main class="wrap">
+  <section class="hero">
+    <h1>友链</h1>
+    <p>每 20 分钟自动检测一次可访问状态，绿点表示当前在线。</p>
+  </section>
+
+  <div class="friend-grid" id="grid">
+    <div class="empty">加载中…</div>
+  </div>
+
+  <section id="admin-box" style="display:none;margin-bottom:70px">
+    <h3 style="font-size:15px;font-family:var(--serif);margin:0 0 12px">添加友链</h3>
+    <form id="add-form" style="display:grid;gap:9px;grid-template-columns:1fr 1fr;max-width:560px">
+      <input type="text" name="name" placeholder="站点名称 *" required maxlength="60">
+      <input type="url" name="url" placeholder="https://... *" required maxlength="300">
+      <input type="url" name="avatar" placeholder="头像地址（可选）" maxlength="300">
+      <input type="text" name="desc" placeholder="一句话描述（可选）" maxlength="120">
+      <div style="grid-column:1/-1;display:flex;gap:9px">
+        <button class="btn primary sm" type="submit">添加</button>
+        <button class="btn sm" type="button" id="recheck">立即重新检测</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<script type="module">
+import { api, esc, mountHeader, toast } from '/app.js';
+
+const grid = document.getElementById('grid');
+
+function favicon(f) {
+  if (f.avatar) return f.avatar;
+  try { return `https://www.google.com/s2/favicons?domain=${new URL(f.url).hostname}&sz=64`; }
+  catch { return ''; }
+}
+
+async function load() {
+  try {
+    const { friends } = await api('/api/friends');
+    if (!friends.length) {
+      grid.innerHTML = '<div class="empty">还没有友链</div>';
+      return;
+    }
+    grid.innerHTML = friends.map((f) => `
+      <a class="friend-card" href="${esc(f.url)}" target="_blank" rel="noopener">
+        <img class="fav" src="${esc(favicon(f))}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+        <div class="info">
+          <div class="nm">
+            <span class="dot ${f.status ? 'on' : 'off'}" title="${f.status ? '可访问' : '无法访问'}"></span>
+            ${esc(f.name)}
+          </div>
+          <div class="ds">${esc(f.desc || new URL(f.url).hostname)}</div>
+        </div>
+        ${USER_ADMIN ? `<button class="btn sm" data-del="${f.id}">×</button>` : ''}
+      </a>`).join('');
+
+    if (USER_ADMIN) {
+      grid.querySelectorAll('[data-del]').forEach((b) => {
+        b.onclick = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!confirm('删除这条友链？')) return;
+          await api('/api/friends/' + b.dataset.del, { method: 'DELETE' });
+          toast('已删除');
+          load();
+        };
+      });
+    }
+  } catch (e) {
+    grid.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+let USER_ADMIN = false;
+const user = await mountHeader('friends');
+USER_ADMIN = !!(user && user.is_admin);
+if (USER_ADMIN) document.getElementById('admin-box').style.display = 'block';
+
+document.getElementById('add-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    await api('/api/friends', {
+      method: 'POST',
+      body: { name: f.name.value, url: f.url.value, avatar: f.avatar.value, desc: f.desc.value },
+    });
+    f.reset();
+    toast('已添加，正在检测状态…');
+    setTimeout(load, 1500);
+  } catch (err) { toast(err.message); }
+});
+
+document.getElementById('recheck')?.addEventListener('click', async () => {
+  toast('检测中…', 6000);
+  try {
+    const r = await api('/api/friends/check', { method: 'POST' });
+    toast(`检测完成，共 ${r.checked} 个`);
+    load();
+  } catch (e) { toast(e.message); }
+});
+
+load();
+</script>
+</body>
+</html>
