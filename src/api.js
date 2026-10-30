@@ -4,7 +4,7 @@ import { renderMarkdown, extractTags, extractCover, extractExcerpt, readingTime 
 import { presignPut, makeKey, IMAGE_TYPES } from './s3.js';
 import { notifyComment } from './webhook.js';
 import { checkFriends } from './cron.js';
-import { getSite, setSite } from './settings.js';
+import { getSite, setSite, THEME_IDS, MODE_IDS } from './settings.js';
 
 /* ---------- 小工具 ---------- */
 
@@ -74,7 +74,7 @@ export async function handleApi(env, request, url) {
   /* ---- 站点信息 ---- */
   if (path === '/site' && method === 'GET') {
     const s = await getSite(env);
-    return json({ ok: true, name: s.name, desc: s.desc });
+    return json({ ok: true, name: s.name, desc: s.desc, theme: s.theme, mode: s.mode });
   }
 
   /* ---- 站点设置（管理员读写） ---- */
@@ -82,7 +82,7 @@ export async function handleApi(env, request, url) {
     const { res } = await requireAdmin(env, request);
     if (res) return res;
     const s = await getSite(env);
-    return json({ ok: true, name: s.name, desc: s.desc });
+    return json({ ok: true, name: s.name, desc: s.desc, theme: s.theme, mode: s.mode });
   }
 
   if (path === '/settings' && method === 'PUT') {
@@ -95,9 +95,16 @@ export async function handleApi(env, request, url) {
     if (name.length > 60) return err('站点名称太长（限 60 字）');
     const desc = String(body.desc ?? '').trim();
     if (desc.length > 200) return err('站点介绍太长（限 200 字）');
+    if (body.theme !== undefined && !THEME_IDS.includes(String(body.theme))) return err('未知的风格');
+    if (body.mode !== undefined && !MODE_IDS.includes(String(body.mode))) return err('未知的外观模式');
 
-    const s = await setSite(env, { name, desc });
-    return json({ ok: true, name: s.name, desc: s.desc });
+    const s = await setSite(env, {
+      name,
+      desc,
+      theme: body.theme === undefined ? undefined : String(body.theme),
+      mode: body.mode === undefined ? undefined : String(body.mode),
+    });
+    return json({ ok: true, name: s.name, desc: s.desc, theme: s.theme, mode: s.mode });
   }
 
   /* ---- 当前用户 ---- */

@@ -5,10 +5,12 @@
   "compatibility_date": "2024-11-06",
 
   // 静态资源：public/ 下的文件优先命中，未命中的交给 Worker 处理 /:slug
+  // run_worker_first：HTML 也走 Worker，好把站点默认风格注入 <head>（首访不闪）
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "not_found_handling": "none"
+    "not_found_handling": "none",
+    "run_worker_first": true
   },
 
   "d1_databases": [
@@ -38,6 +40,10 @@
   "vars": {
     "SITE_NAME": "Exia Blog",
     "SITE_DESC": "写字的地方",
+    // 默认风格：paper | ink | forest | ocean | plum | mono
+    "SITE_THEME": "paper",
+    // 默认外观：auto（跟随系统）| light | dark
+    "SITE_MODE": "auto",
     // OAuth 回调地址，必须是 https://你的域名/auth/callback
     "OAUTH_REDIRECT": "https://exia-blog.meitu.workers.dev/auth/callback",
     "GITHUB_CLIENT_ID": "Ov23liBYcJtW33DLooEd",

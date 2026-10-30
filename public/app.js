@@ -92,6 +92,7 @@ export async function site() {
 
 /* 顶部导航 */
 export async function mountHeader(active = '') {
+  const { buttonHTML, initSwitcher } = await import('/theme.js');
   const host = document.getElementById('site-header');
   if (!host) return null;
   const [user, s] = await Promise.all([me(), site()]);
@@ -121,9 +122,11 @@ export async function mountHeader(active = '') {
                <a href="/auth/logout" title="退出">${user.avatar ? `<img class="avatar-xs" src="${esc(user.avatar)}" alt="">` : '退出'}</a>`
             : `<a href="/login">登录</a>`
         }
+        ${buttonHTML}
       </nav>
     </div>
   </header>`;
+  initSwitcher();
   return user;
 }
 

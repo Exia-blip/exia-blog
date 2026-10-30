@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>写作</title>
+<!--THEME-->
+<script>(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m)})();</script>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body class="editor-page">
@@ -12,6 +14,14 @@
   <a class="btn sm" href="/" title="返回首页">←</a>
   <input class="title-input" id="title" placeholder="无标题" autocomplete="off">
   <span class="save-state" id="state"><span class="pulse"></span><span id="state-text">已同步</span></span>
+  <button class="theme-btn" data-theme-btn type="button" aria-label="切换风格" aria-expanded="false" title="切换风格">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3a9 9 0 1 0 0 18 2.2 2.2 0 0 0 1.7-3.6 2.2 2.2 0 0 1 1.7-3.6H18A3 3 0 0 0 21 10.8 9 9 0 0 0 12 3Z"/>
+      <circle cx="8" cy="9.2" r="1.1" fill="currentColor" stroke="none"/>
+      <circle cx="12.4" cy="7" r="1.1" fill="currentColor" stroke="none"/>
+      <circle cx="16.4" cy="9.4" r="1.1" fill="currentColor" stroke="none"/>
+    </svg>
+  </button>
   <button class="btn sm" id="btn-new" title="新建文章">新建</button>
   <button class="btn primary sm" id="btn-save">保存</button>
 </div>
@@ -58,6 +68,18 @@
       <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
         <input type="text" id="site-name" placeholder="站点名称" maxlength="60" autocomplete="off">
         <textarea id="site-desc" placeholder="站点介绍（一句话，显示在搜索引擎与社交卡片）" maxlength="200" rows="3"></textarea>
+        <div class="field">
+          <label>默认风格（首次访问的读者）</label>
+          <select id="site-theme"></select>
+        </div>
+        <div class="field">
+          <label>默认外观</label>
+          <select id="site-mode">
+            <option value="auto">跟随系统</option>
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
+        </div>
         <button class="btn sm primary" id="btn-site-save" style="justify-content:center">保存站点信息</button>
       </div>
     </details>
@@ -74,7 +96,9 @@
 <script type="module">
 import { api, esc, toast, fmtDate, me, bindCopyButtons } from '/app.js';
 import { renderMarkdown, extractTags, extractCover } from '/md.js';
+import { THEMES, initSwitcher } from '/theme.js';
 
+initSwitcher();
 bindCopyButtons(document.getElementById('preview'));
 
 const $ = (id) => document.getElementById(id);
@@ -489,10 +513,14 @@ async function initSiteSettings() {
   if (!box) return;
   box.style.display = 'block';
 
+  $('site-theme').innerHTML = THEMES.map((t) => `<option value="${t.id}">${t.name} · ${t.desc}</option>`).join('');
+
   try {
     const s = await api('/api/settings');
     $('site-name').value = s.name || '';
     $('site-desc').value = s.desc || '';
+    $('site-theme').value = s.theme || 'paper';
+    $('site-mode').value = s.mode || 'auto';
   } catch (e) {
     toast('站点设置读取失败：' + e.message);
   }
@@ -507,7 +535,12 @@ async function initSiteSettings() {
     try {
       const r = await api('/api/settings', {
         method: 'PUT',
-        body: { name, desc: $('site-desc').value.trim() },
+        body: {
+          name,
+          desc: $('site-desc').value.trim(),
+          theme: $('site-theme').value,
+          mode: $('site-mode').value,
+        },
       });
       $('site-name').value = r.name;
       document.title = r.name + ' · 后台';

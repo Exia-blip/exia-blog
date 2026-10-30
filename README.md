@@ -23,8 +23,9 @@
 | 栏目总览 | `/categories` 汇总全部分类与标签及篇数 |
 | 归档 | `/archive` 按年月倒序，时间线 / 紧凑两种视图，年份筛选 `/archive/2026` |
 | 搜索 | 标题 + 正文关键词，分页列表 |
+| 风格主题 | 6 套预设（纸韵 / 水墨 / 苔原 / 静海 / 暮紫 / 终端），读者自选，浅色·深色·跟随系统三档 |
 
-额外：RSS、sitemap、暗色模式、移动端适配、文章内 `#标签` 自动转为可点击链接。
+额外：RSS、sitemap、移动端适配、文章内 `#标签` 自动转为可点击链接。
 
 ## 目录结构
 
@@ -34,17 +35,19 @@ exia-blog/
 ├── schema.sql          # D1 建表
 ├── cors.json           # R2 CORS（图片直传需要）
 ├── src/
-│   ├── index.js        # 入口：路由、SSR meta 注入、图片代理、RSS
+│   ├── index.js        # 入口：路由、SSR meta / 主题注入、图片代理、RSS
 │   ├── api.js          # 全部 API
 │   ├── auth.js         # GitHub OAuth + 签名会话
 │   ├── s3.js           # R2 presigned PUT（SigV4，纯 WebCrypto）
 │   ├── cron.js         # 友链巡检
 │   ├── webhook.js      # 评论通知
+│   ├── settings.js     # 站点名 / 介绍 / 默认风格（D1 覆盖 vars）
 │   └── utils.js        # cookie / token / 分页
 └── public/
     ├── md.js           # Markdown 渲染器（前后端同构，预览与线上一致）
+    ├── theme.js        # 6 套风格定义 + 切换面板
     ├── app.js          # 前端公共层
-    ├── style.css
+    ├── style.css       # 变量体系：主题 × 明暗
     ├── index.html      # 首页 / 搜索 / 标签
     ├── post.html       # 文章 + 评论
     ├── editor.html     # 编辑器
@@ -162,9 +165,27 @@ npx wrangler deploy
 - 写作区：Markdown 编辑 + 实时预览 + 自动保存
 - 侧栏「我的文章」：切换/新建/删除
 - 侧栏「分类」：填一个分类名，已存在的分类会在输入时提示（datalist）
-- 侧栏「站点设置」（仅管理员）：改站点名与介绍，存进 D1 的 `settings` 表，**即时生效，不用重新 deploy**
+- 侧栏「站点设置」（仅管理员）：改站点名、介绍、默认风格与默认外观，存进 D1 的 `settings` 表，**即时生效，不用重新 deploy**
 
-`SITE_NAME` / `SITE_DESC` 只是没设置过时的兜底默认值。
+`SITE_NAME` / `SITE_DESC` / `SITE_THEME` / `SITE_MODE` 只是没设置过时的兜底默认值。
+
+## 风格主题
+
+六套预设，只换 CSS 变量，不改结构；标题字、圆角、阴影、代码高亮配色都跟着变。
+
+| id | 名字 | 气质 |
+|---|---|---|
+| `paper` | 纸韵 | 暖白纸面 + 陶土橙，默认 |
+| `ink` | 水墨 | 纸白墨黑，正文转衬线，近直角 |
+| `forest` | 苔原 | 米绿纸面 + 森林绿，圆角柔和 |
+| `ocean` | 静海 | 冷白蓝调 + 靛蓝强调 |
+| `plum` | 暮紫 | 淡紫纸面 + 梅色强调 |
+| `mono` | 终端 | 灰阶 + 等宽字，硬边 |
+
+- 读者：导航栏右侧调色板图标 → 选风格 / 选外观，存 `localStorage`（`x_theme` / `x_mode`），只影响本机
+- 站长：后台「站点设置」里定**默认风格 / 默认外观**，给第一次来的读者用
+- 首访不闪：Worker 把默认风格注入 `<head>` 的 `window.__THEME_DEFAULT__`，CSS 加载前就定好 `data-theme` / `data-mode`
+- 深色不再依赖 `prefers-color-scheme`，改为显式 `html[data-mode]`，系统配色只在你选「跟随系统」时生效
 
 ## 配置项
 
@@ -172,6 +193,8 @@ npx wrangler deploy
 |---|---|---|---|
 | `SITE_NAME` | var | 否 | 站点名默认值，后台「站点设置」可覆盖 |
 | `SITE_DESC` | var | 否 | 副标题默认值，后台可覆盖 |
+| `SITE_THEME` | var | 否 | 默认风格 `paper`/`ink`/`forest`/`ocean`/`plum`/`mono`，后台可覆盖 |
+| `SITE_MODE` | var | 否 | 默认外观 `auto`/`light`/`dark`，后台可覆盖 |
 | `OAUTH_REDIRECT` | var | 是 | 必须与 GitHub 回调地址完全一致 |
 | `GITHUB_CLIENT_ID` | var | 是 | |
 | `R2_PUBLIC_BASE` | var | 否 | R2 自定义公开域名；留空则用 `/img/` 代理 |
