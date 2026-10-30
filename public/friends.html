@@ -90,13 +90,19 @@ if (USER_ADMIN) document.getElementById('admin-box').style.display = 'block';
 
 document.getElementById('add-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const f = e.target;
+  // 用 FormData 取值：form.name 拿到的是 <form> 的 name 属性（空串），不是输入框
+  const d = new FormData(e.target);
   try {
     await api('/api/friends', {
       method: 'POST',
-      body: { name: f.name.value, url: f.url.value, avatar: f.avatar.value, desc: f.desc.value },
+      body: {
+        name: d.get('name') || '',
+        url: d.get('url') || '',
+        avatar: d.get('avatar') || '',
+        desc: d.get('desc') || '',
+      },
     });
-    f.reset();
+    e.target.reset();
     toast('已添加，正在检测状态…');
     setTimeout(load, 1500);
   } catch (err) { toast(err.message); }

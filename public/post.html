@@ -70,14 +70,14 @@ function render() {
     <section class="comments" id="comments">
       <h3>评论 <span class="muted" id="cmt-count"></span></h3>
       <div id="cmt-list"></div>
-      <form class="cmt-form" id="cmt-form">
+      <form class="cmt-form" id="cmt-form" novalidate>
         <div id="reply-hint" class="tiny muted" style="display:none"></div>
         <div class="row" id="guest-fields">
-          <input type="text" name="name" placeholder="昵称 *" maxlength="40" required>
-          <input type="email" name="email" placeholder="邮箱（可选，不公开）" maxlength="120">
+          <input type="text" name="name" placeholder="昵称 *" maxlength="40" autocomplete="nickname">
+          <input type="email" name="email" placeholder="邮箱（可选，不公开）" maxlength="120" autocomplete="email">
           <input type="url" name="website" placeholder="网站（可选）" maxlength="200">
         </div>
-        <textarea name="content" placeholder="说点什么…" maxlength="2000" required></textarea>
+        <textarea name="content" placeholder="说点什么…" maxlength="2000"></textarea>
         <div class="foot">
           <span class="tiny muted" id="cmt-hint"></span>
           <button class="btn primary sm" type="submit">发表评论</button>
@@ -166,6 +166,10 @@ function bindReply() {
 function bindForm() {
   const form = document.getElementById('cmt-form');
   const guestFields = document.getElementById('guest-fields');
+  // 注意：form.name 是 <form> 自身的 name 属性，不是叫 name 的输入框，
+  // 必须走 form.elements 取字段，否则拿到的是空字符串。
+  const f = form.elements;
+  const field = (n) => f.namedItem(n);
 
   if (USER) {
     guestFields.style.display = 'none';
@@ -175,16 +179,19 @@ function bindForm() {
   if (!USER) {
     try {
       const saved = JSON.parse(localStorage.getItem('cmt:guest') || '{}');
-      form.name.value = saved.name || '';
-      form.email.value = saved.email || '';
-      form.website.value = saved.website || '';
+      if (saved.name) field('name').value = saved.name;
+      if (saved.email) field('email').value = saved.email;
+      if (saved.website) field('website').value = saved.website;
     } catch {}
   }
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const content = form.content.value.trim();
-    if (!content) return;
+    const content = field('content').value.trim();
+    const name = USER ? '' : field('name').value.trim();
+
+    if (!content) { toast('说点什么吧'); field('content').focus(); return; }
+    if (!USER && !name) { toast('请先填昵称'); field('name').focus(); return; }
 
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
@@ -197,17 +204,17 @@ function bindForm() {
           slug,
           content,
           parent_id: replyTo?.id || null,
-          name: form.name?.value || '',
-          email: form.email?.value || '',
-          website: form.website?.value || '',
+          name,
+          email: USER ? '' : field('email').value,
+          website: USER ? '' : field('website').value,
         },
       });
       if (!USER) {
         localStorage.setItem('cmt:guest', JSON.stringify({
-          name: form.name.value, email: form.email.value, website: form.website.value,
+          name, email: field('email').value, website: field('website').value,
         }));
       }
-      form.content.value = '';
+      field('content').value = '';
       replyTo = null;
       document.getElementById('reply-hint').style.display = 'none';
       toast('评论已发布');
