@@ -34,6 +34,7 @@ function shapePost(p, full = false) {
     cover: p.cover || extractCover(p.content) || '',
     excerpt: extractExcerpt(p.content, 140),
     tags: p.tags || [],
+    category: p.category || '',
     is_private: !!p.is_private,
     hidden: !!p.hidden,
     author: p.author_name || p.login || '',
@@ -108,6 +109,7 @@ export async function handleApi(env, request, url) {
   if (path === '/posts' && method === 'GET') {
     const { page, size, offset } = pageParams(url, 10);
     const tag = url.searchParams.get('tag');
+    const cat = (url.searchParams.get('cat') || '').trim();
     const q = (url.searchParams.get('q') || '').trim();
 
     const where = ['p.is_private = 0', 'p.hidden = 0'];
@@ -116,6 +118,10 @@ export async function handleApi(env, request, url) {
     if (tag) {
       where.push('p.id IN (SELECT pt.post_id FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE t.name = ?)');
       args.push(tag);
+    }
+    if (cat) {
+      where.push('p.category = ?');
+      args.push(cat);
     }
     if (q) {
       where.push('(p.title LIKE ? OR p.content LIKE ?)');
@@ -176,6 +182,19 @@ export async function handleApi(env, request, url) {
     return json({ ok: true, tags: results });
   }
 
+  /* ---- 分类云 ---- */
+  if (path === '/categories' && method === 'GET') {
+    const { results } = await db
+      .prepare(
+        `SELECT category AS name, COUNT(*) AS count
+         FROM posts
+         WHERE is_private = 0 AND hidden = 0 AND TRIM(COALESCE(category,'')) != ''
+         GROUP BY category ORDER BY count DESC, category ASC`
+      )
+      .all();
+    return json({ ok: true, categories: results });
+  }
+
   /* ---- 单篇文章 ---- */
   if (path.startsWith('/posts/') && method === 'GET') {
     const slug = decodeURIComponent(path.slice('/posts/'.length));
@@ -219,14 +238,15 @@ export async function handleApi(env, request, url) {
     }
 
     const cover = body.cover ? String(body.cover) : extractCover(content) || '';
+    const category = String(body.category || '').trim().slice(0, 30);
     const stamp = nowISO();
 
     const info = await db
       .prepare(
-        `INSERT INTO posts (slug, title, content, cover, is_private, hidden, author_id, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO posts (slug, title, content, cover, category, is_private, hidden, author_id, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`
       )
-      .bind(slug, title, content, cover, body.is_private ? 1 : 0, body.hidden ? 1 : 0, u.id, stamp, stamp)
+      .bind(slug, title, content, cover, category, body.is_private ? 1 : 0, body.hidden ? 1 : 0, u.id, stamp, stamp)
       .run();
 
     const id = info.meta.last_row_id;
@@ -259,16 +279,19 @@ export async function handleApi(env, request, url) {
     }
 
     const cover = body.cover !== undefined ? String(body.cover || '') : p.cover || extractCover(content) || '';
+    const category =
+      body.category !== undefined ? String(body.category || '').trim().slice(0, 30) : p.category || '';
 
     await db
       .prepare(
-        `UPDATE posts SET slug=?, title=?, content=?, cover=?, is_private=?, hidden=?, updated_at=? WHERE id=?`
+        `UPDATE posts SET slug=?, title=?, content=?, cover=?, category=?, is_private=?, hidden=?, updated_at=? WHERE id=?`
       )
       .bind(
         slug,
         title,
         content,
         cover,
+        category,
         body.is_private !== undefined ? (body.is_private ? 1 : 0) : p.is_private,
         body.hidden !== undefined ? (body.hidden ? 1 : 0) : p.hidden,
         nowISO(),

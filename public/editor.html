@@ -31,6 +31,13 @@
     </div>
 
     <div class="field">
+      <label>分类</label>
+      <input type="text" id="category" list="cat-options" placeholder="如 技术、随笔（可留空）" maxlength="30" autocomplete="off">
+      <datalist id="cat-options"></datalist>
+      <span class="tiny muted">一篇文章一个分类，标签写在正文里</span>
+    </div>
+
+    <div class="field">
       <label>发布设置</label>
       <label class="switch"><input type="checkbox" id="is_private"> 私密（仅自己可见，未登录 404）</label>
       <label class="switch"><input type="checkbox" id="hidden"> 不列入首页（链接仍可直达）</label>
@@ -75,6 +82,7 @@ const titleEl = $('title');
 const inputEl = $('md-input');
 const previewEl = $('preview');
 const slugEl = $('slug');
+const catEl = $('category');
 const privateEl = $('is_private');
 const hiddenEl = $('hidden');
 const stateEl = $('state');
@@ -101,6 +109,7 @@ function snapshot() {
     title: titleEl.value,
     content: inputEl.value,
     slug: slugEl.value,
+    category: catEl.value,
     is_private: privateEl.checked,
     hidden: hiddenEl.checked,
     at: Date.now(),
@@ -126,6 +135,7 @@ function applyDraft(d) {
   titleEl.value = d.title || '';
   inputEl.value = d.content || '';
   slugEl.value = d.slug || '';
+  catEl.value = d.category || '';
   privateEl.checked = !!d.is_private;
   hiddenEl.checked = !!d.hidden;
 }
@@ -162,6 +172,7 @@ async function saveNow(manual = false) {
     title: titleEl.value.trim() || '无标题',
     content: inputEl.value,
     slug: slugEl.value.trim(),
+    category: catEl.value.trim(),
     is_private: privateEl.checked,
     hidden: hiddenEl.checked,
   };
@@ -365,6 +376,7 @@ function resetEditor() {
   titleEl.value = '';
   inputEl.value = '';
   slugEl.value = '';
+  catEl.value = '';
   privateEl.checked = false;
   hiddenEl.checked = false;
   $('btn-view').href = '#';
@@ -423,6 +435,7 @@ if (!user) {
       titleEl.value = p.title;
       inputEl.value = p.content;
       slugEl.value = p.slug;
+      catEl.value = p.category || '';
       privateEl.checked = !!p.is_private;
       hiddenEl.checked = !!p.hidden;
       currentSlug = p.slug;
@@ -458,7 +471,16 @@ if (!user) {
 
   updatePreview();
   loadList();
+  loadCategoryOptions();
   inputEl.focus();
+}
+
+/* 已有分类塞进 datalist，输入时可直接选 */
+async function loadCategoryOptions() {
+  try {
+    const { categories } = await api('/api/categories');
+    $('cat-options').innerHTML = categories.map((c) => `<option value="${esc(c.name)}">`).join('');
+  } catch {}
 }
 
 /* ---------- 站点设置（仅管理员） ---------- */

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>栏目</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml">
+</head>
+<body>
+
+<div id="site-header" data-site="Exia Blog"></div>
+
+<main class="wrap">
+  <section class="hero">
+    <h1 id="hero-title">栏目</h1>
+    <p id="hero-sub">按分类或标签找文章</p>
+  </section>
+
+  <section class="tax-section">
+    <div class="tax-head">
+      <h2>分类</h2>
+      <span class="tiny muted" id="cat-total"></span>
+    </div>
+    <div class="tax-grid" id="cat-grid"><div class="empty">加载中…</div></div>
+  </section>
+
+  <section class="tax-section">
+    <div class="tax-head">
+      <h2>标签</h2>
+      <span class="tiny muted" id="tag-total"></span>
+    </div>
+    <div class="tax-grid" id="tag-grid"><div class="empty">加载中…</div></div>
+  </section>
+</main>
+
+<script type="module">
+import { api, esc, mountHeader, site } from '/app.js';
+
+const catGrid = document.getElementById('cat-grid');
+const tagGrid = document.getElementById('tag-grid');
+const catTotal = document.getElementById('cat-total');
+const tagTotal = document.getElementById('tag-total');
+
+const SITE = await site();
+document.title = `栏目 · ${SITE.name}`;
+
+function cell(name, count, href, prefix = '') {
+  return `<a class="tax-cell" href="${href}">
+    <span class="tax-name">${prefix}${esc(name)}</span>
+    <span class="tax-count">${count}</span>
+  </a>`;
+}
+
+async function load() {
+  const [cats, tags] = await Promise.all([
+    api('/api/categories').catch(() => ({ categories: [] })),
+    api('/api/tags').catch(() => ({ tags: [] })),
+  ]);
+
+  if (!cats.categories.length) {
+    catGrid.innerHTML = '<div class="empty">还没有分类。写文章时在侧栏「分类」填一个即可。</div>';
+    catTotal.textContent = '';
+  } else {
+    catGrid.innerHTML = cats.categories
+      .map((c) => cell(c.name, c.count, '/cat/' + encodeURIComponent(c.name)))
+      .join('');
+    const sum = cats.categories.reduce((a, b) => a + b.count, 0);
+    catTotal.textContent = `${cats.categories.length} 个分类 · ${sum} 篇`;
+  }
+
+  if (!tags.tags.length) {
+    tagGrid.innerHTML = '<div class="empty">还没有标签。正文里写 <code>#标签</code> 会自动归集。</div>';
+    tagTotal.textContent = '';
+  } else {
+    tagGrid.innerHTML = tags.tags
+      .map((t) => cell(t.name, t.count, '/tag/' + encodeURIComponent(t.name), '#'))
+      .join('');
+    tagTotal.textContent = `${tags.tags.length} 个标签`;
+  }
+}
+
+mountHeader('categories');
+load();
+</script>
+</body>
+</html>

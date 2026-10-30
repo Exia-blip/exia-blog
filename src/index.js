@@ -171,11 +171,17 @@ export default {
       if (path === '/rss.xml') return await serveRss(env, request);
       if (path === '/sitemap.xml') return await serveSitemap(env, request);
 
-      // 标签页复用首页骨架，前端读路径
-      if (path.startsWith('/tag/')) {
+      // 标签页 / 分类页复用首页骨架，前端读路径
+      if (path.startsWith('/tag/') || path.startsWith('/cat/')) {
         const res = await env.ASSETS.fetch(new Request(new URL('/', request.url), request));
         const body = await res.text();
         return html(body);
+      }
+
+      // 栏目总览（分类 + 标签）
+      if (path === '/categories') {
+        const res = await env.ASSETS.fetch(new Request(new URL('/categories.html', request.url), request));
+        if (res.status === 200) return html(await res.text());
       }
 
       // /p/:slug 与 /:slug 都指向文章

@@ -26,6 +26,8 @@
     <a class="btn sm" href="/friends">友链</a>
   </div>
 
+  <div class="tagbar" id="catbar"></div>
+
   <div class="tagbar" id="tagbar"></div>
 
   <div class="post-list" id="list">
@@ -40,12 +42,14 @@ import { api, fmtDate, esc, mountHeader, toast, site } from '/app.js';
 
 const listEl = document.getElementById('list');
 const tagbarEl = document.getElementById('tagbar');
+const catbarEl = document.getElementById('catbar');
 const pagerEl = document.getElementById('pager');
 const qInput = document.getElementById('q');
 
 // 路由：/tag/名字 或 /?q=
 const pathParts = location.pathname.split('/').filter(Boolean);
 let currentTag = pathParts[0] === 'tag' ? decodeURIComponent(pathParts[1] || '') : '';
+let currentCat = pathParts[0] === 'cat' ? decodeURIComponent(pathParts[1] || '') : '';
 let currentQ = new URLSearchParams(location.search).get('q') || '';
 let page = parseInt(new URLSearchParams(location.search).get('page') || '1', 10) || 1;
 
@@ -53,7 +57,11 @@ qInput.value = currentQ;
 
 const SITE = await site();
 
-if (currentTag) {
+if (currentCat) {
+  document.getElementById('hero-title').textContent = currentCat;
+  document.getElementById('hero-sub').textContent = `分类「${currentCat}」下的全部文章`;
+  document.title = `${currentCat} · ${SITE.name}`;
+} else if (currentTag) {
   document.getElementById('hero-title').textContent = `#${currentTag}`;
   document.getElementById('hero-sub').textContent = `标签「${currentTag}」下的全部文章`;
   document.title = `#${currentTag} · ${SITE.name}`;
@@ -71,6 +79,7 @@ async function load() {
   listEl.innerHTML = '<div class="empty">加载中…</div>';
   const params = new URLSearchParams({ page: String(page), size: '10' });
   if (currentTag) params.set('tag', currentTag);
+  if (currentCat) params.set('cat', currentCat);
   if (currentQ) params.set('q', currentQ);
 
   try {
@@ -98,7 +107,8 @@ function card(p) {
         <span>${fmtDate(p.created_at)}</span>
         <span class="sep-dot">${p.reading} 分钟</span>
         ${p.comments ? `<span class="sep-dot">${p.comments} 条评论</span>` : ''}
-        ${(p.tags || []).slice(0, 3).map((t) => `<a class="tag" href="/tag/${encodeURIComponent(t)}">#${esc(t)}</a>`).join('')}
+        ${p.category ? `<span class="tag cat-chip">${esc(p.category)}</span>` : ''}
+        ${(p.tags || []).slice(0, 3).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}
       </div>
     </div>
   </a>`;
@@ -110,7 +120,12 @@ function renderPager(pages, total) {
     const u = new URLSearchParams();
     if (currentQ) u.set('q', currentQ);
     u.set('page', String(p));
-    return (currentTag ? `/tag/${encodeURIComponent(currentTag)}?` : '/?') + u.toString();
+    const base = currentCat
+      ? `/cat/${encodeURIComponent(currentCat)}?`
+      : currentTag
+        ? `/tag/${encodeURIComponent(currentTag)}?`
+        : '/?';
+    return base + u.toString();
   };
   pagerEl.innerHTML = `
     ${page > 1 ? `<a class="btn sm" href="${qs(page - 1)}">← 上一页</a>` : ''}
@@ -118,11 +133,24 @@ function renderPager(pages, total) {
     ${page < pages ? `<a class="btn sm" href="${qs(page + 1)}">下一页 →</a>` : ''}`;
 }
 
+async function loadCats() {
+  try {
+    const { categories } = await api('/api/categories');
+    if (!categories.length) { catbarEl.innerHTML = ''; return; }
+    catbarEl.innerHTML =
+      `<span class="bar-label">分类</span>` +
+      `<a class="tag" href="/" style="${!currentCat && !currentTag ? 'background:var(--accent-soft);color:var(--accent)' : ''}">全部</a>` +
+      categories.map((c) => `<a class="tag cat-chip" href="/cat/${encodeURIComponent(c.name)}"
+        style="${currentCat === c.name ? 'background:var(--accent-soft);color:var(--accent)' : ''}">${esc(c.name)} ${c.count}</a>`).join('');
+  } catch {}
+}
+
 async function loadTags() {
   try {
     const { tags } = await api('/api/tags');
     if (!tags.length) return;
     tagbarEl.innerHTML =
+      `<span class="bar-label">标签</span>` +
       `<a class="tag" href="/" style="${!currentTag ? 'background:var(--accent-soft);color:var(--accent)' : ''}">全部</a>` +
       tags.map((t) => `<a class="tag" href="/tag/${encodeURIComponent(t.name)}"
         style="${currentTag === t.name ? 'background:var(--accent-soft);color:var(--accent)' : ''}">#${esc(t.name)} ${t.count}</a>`).join('');
@@ -137,7 +165,9 @@ qInput.addEventListener('input', () => {
     const url = new URL(location.href);
     if (v) url.searchParams.set('q', v); else url.searchParams.delete('q');
     url.searchParams.delete('page');
-    if (currentTag) {
+    if (currentCat) {
+      location.href = `/cat/${encodeURIComponent(currentCat)}${v ? '?q=' + encodeURIComponent(v) : ''}`;
+    } else if (currentTag) {
       location.href = `/tag/${encodeURIComponent(currentTag)}${v ? '?q=' + encodeURIComponent(v) : ''}`;
     } else {
       history.replaceState(null, '', url);
@@ -149,8 +179,9 @@ qInput.addEventListener('input', () => {
   }, 320);
 });
 
-mountHeader(currentTag ? 'tag' : 'home');
+mountHeader(currentTag ? 'tag' : currentCat ? 'cat' : 'home');
 load();
+loadCats();
 loadTags();
 </script>
 </body>
