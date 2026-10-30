@@ -152,12 +152,22 @@ npx wrangler deploy
 
 ---
 
+## 后台
+
+登录后顶部只有一个 **后台** 入口（`/editor`），页面里同时包含：
+
+- 写作区：Markdown 编辑 + 实时预览 + 自动保存
+- 侧栏「我的文章」：切换/新建/删除
+- 侧栏「站点设置」（仅管理员）：改站点名与介绍，存进 D1 的 `settings` 表，**即时生效，不用重新 deploy**
+
+`SITE_NAME` / `SITE_DESC` 只是没设置过时的兜底默认值。
+
 ## 配置项
 
 | 名称 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `SITE_NAME` | var | 是 | 站点名 |
-| `SITE_DESC` | var | 否 | 副标题 |
+| `SITE_NAME` | var | 否 | 站点名默认值，后台「站点设置」可覆盖 |
+| `SITE_DESC` | var | 否 | 副标题默认值，后台可覆盖 |
 | `OAUTH_REDIRECT` | var | 是 | 必须与 GitHub 回调地址完全一致 |
 | `GITHUB_CLIENT_ID` | var | 是 | |
 | `R2_PUBLIC_BASE` | var | 否 | R2 自定义公开域名；留空则用 `/img/` 代理 |

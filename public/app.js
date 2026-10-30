@@ -114,8 +114,7 @@ export async function mountHeader(active = '') {
         ${active === 'tag' ? `<a href="javascript:;" class="active">#${esc(new URLSearchParams(location.search).get('t') || '')}</a>` : ''}
         ${
           user
-            ? `<a href="/editor" class="${active === 'editor' ? 'active' : ''}">写作</a>
-               <a href="/editor?list=1" class="${active === 'mine' ? 'active' : ''}">我的</a>
+            ? `<a href="/editor" class="${active === 'editor' || active === 'mine' ? 'active' : ''}">${user.is_admin ? '后台' : '写作'}</a>
                <a href="/auth/logout" title="退出">${user.avatar ? `<img class="avatar-xs" src="${esc(user.avatar)}" alt="">` : '退出'}</a>`
             : `<a href="/login">登录</a>`
         }

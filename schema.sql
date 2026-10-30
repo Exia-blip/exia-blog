@@ -1,3 +1,9 @@
+-- 站点设置（后台可改，覆盖 wrangler.jsonc 的 vars）
+CREATE TABLE IF NOT EXISTS settings (
+  key    TEXT PRIMARY KEY,
+  value  TEXT NOT NULL DEFAULT ''
+);
+
 -- 用户
 CREATE TABLE IF NOT EXISTS users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,

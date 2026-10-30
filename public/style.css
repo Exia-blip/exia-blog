@@ -358,6 +358,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+
+/* 站点设置折叠块 */
+.site-box > summary {
+  font-size: 12px; color: var(--muted); font-weight: 500; cursor: pointer;
+  list-style: none; user-select: none;
+}
+.site-box > summary::-webkit-details-marker { display: none; }
+.site-box > summary::before { content: '▸ '; font-size: 10px; }
+.site-box[open] > summary::before { content: '▾ '; }
+.site-box textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 62px; font: inherit; }
+.site-box input { width: 100%; box-sizing: border-box; }
 .switch { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; user-select: none; }
 .switch input { width: auto; margin: 0; accent-color: var(--accent); }
 .save-state { font-size: 12px; color: var(--muted); margin-left: auto; display: flex; align-items: center; gap: 6px; }

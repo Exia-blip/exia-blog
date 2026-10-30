@@ -46,6 +46,15 @@
       <div class="cat-list" id="cat-list"></div>
     </div>
 
+    <details class="field site-box" id="site-box" style="display:none">
+      <summary>站点设置</summary>
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+        <input type="text" id="site-name" placeholder="站点名称" maxlength="60" autocomplete="off">
+        <textarea id="site-desc" placeholder="站点介绍（一句话，显示在搜索引擎与社交卡片）" maxlength="200" rows="3"></textarea>
+        <button class="btn sm primary" id="btn-site-save" style="justify-content:center">保存站点信息</button>
+      </div>
+    </details>
+
     <div style="margin-top:auto;display:flex;gap:8px">
       <a class="btn sm" id="btn-view" href="#" target="_blank" style="flex:1;justify-content:center">预览</a>
       <button class="btn sm danger" id="btn-del">删除</button>
@@ -395,6 +404,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 const user = await me();
+if (user && user.is_admin) initSiteSettings();
 if (!user) {
   location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
 } else {
@@ -449,6 +459,44 @@ if (!user) {
   updatePreview();
   loadList();
   inputEl.focus();
+}
+
+/* ---------- 站点设置（仅管理员） ---------- */
+async function initSiteSettings() {
+  const box = $('site-box');
+  if (!box) return;
+  box.style.display = 'block';
+
+  try {
+    const s = await api('/api/settings');
+    $('site-name').value = s.name || '';
+    $('site-desc').value = s.desc || '';
+  } catch (e) {
+    toast('站点设置读取失败：' + e.message);
+  }
+
+  $('btn-site-save').addEventListener('click', async () => {
+    const btn = $('btn-site-save');
+    const name = $('site-name').value.trim();
+    if (!name) { toast('站点名称不能为空'); $('site-name').focus(); return; }
+
+    btn.disabled = true;
+    btn.textContent = '保存中…';
+    try {
+      const r = await api('/api/settings', {
+        method: 'PUT',
+        body: { name, desc: $('site-desc').value.trim() },
+      });
+      $('site-name').value = r.name;
+      document.title = r.name + ' · 后台';
+      toast('站点信息已更新');
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '保存站点信息';
+    }
+  });
 }
 </script>
 </body>

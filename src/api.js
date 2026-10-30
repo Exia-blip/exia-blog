@@ -4,6 +4,7 @@ import { renderMarkdown, extractTags, extractCover, extractExcerpt, readingTime 
 import { presignPut, makeKey, IMAGE_TYPES } from './s3.js';
 import { notifyComment } from './webhook.js';
 import { checkFriends } from './cron.js';
+import { getSite, setSite } from './settings.js';
 
 /* ---------- 小工具 ---------- */
 
@@ -71,11 +72,31 @@ export async function handleApi(env, request, url) {
 
   /* ---- 站点信息 ---- */
   if (path === '/site' && method === 'GET') {
-    return json({
-      ok: true,
-      name: env.SITE_NAME || 'Exia Blog',
-      desc: env.SITE_DESC || '',
-    });
+    const s = await getSite(env);
+    return json({ ok: true, name: s.name, desc: s.desc });
+  }
+
+  /* ---- 站点设置（管理员读写） ---- */
+  if (path === '/settings' && method === 'GET') {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+    const s = await getSite(env);
+    return json({ ok: true, name: s.name, desc: s.desc });
+  }
+
+  if (path === '/settings' && method === 'PUT') {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+
+    const body = await request.json();
+    const name = String(body.name ?? '').trim();
+    if (!name) return err('站点名称不能为空');
+    if (name.length > 60) return err('站点名称太长（限 60 字）');
+    const desc = String(body.desc ?? '').trim();
+    if (desc.length > 200) return err('站点介绍太长（限 200 字）');
+
+    const s = await setSite(env, { name, desc });
+    return json({ ok: true, name: s.name, desc: s.desc });
   }
 
   /* ---- 当前用户 ---- */

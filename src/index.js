@@ -2,6 +2,7 @@ import { handleApi } from './api.js';
 import { loginRedirect, handleCallback, logout, currentUser } from './auth.js';
 import { html, json } from './utils.js';
 import { checkFriends } from './cron.js';
+import { getSite } from './settings.js';
 import { extractExcerpt } from '../public/md.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -37,9 +38,9 @@ async function servePostPage(env, request, slug) {
     .bind(slug)
     .first();
 
-  if (!post) return notFoundPage(env, request, '页面走丢了');
+  if (!post) return await notFoundPage(env, request, '页面走丢了');
   if (post.is_private && (!user || (user.id !== post.author_id && !user.is_admin))) {
-    return notFoundPage(env, request, '页面走丢了');
+    return await notFoundPage(env, request, '页面走丢了');
   }
 
   const tpl = await assetText(env, request, '/post');
@@ -47,7 +48,7 @@ async function servePostPage(env, request, slug) {
 
   const desc = extractExcerpt(post.content, 150);
   const cover = post.cover || '';
-  const siteName = env.SITE_NAME || 'Exia Blog';
+  const siteName = (await getSite(env)).name;
   const canonical = new URL(`/${post.slug}`, request.url).toString();
 
   const meta = [
@@ -79,8 +80,9 @@ async function servePostPage(env, request, slug) {
 }
 
 /* ---------- 404 ---------- */
-function notFoundPage(env, request, message = '页面走丢了') {
-  const siteName = esc(env.SITE_NAME || 'Exia Blog');
+async function notFoundPage(env, request, message = '页面走丢了') {
+  const site = await getSite(env);
+  const siteName = esc(site.name);
   return html(
     `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -109,7 +111,7 @@ async function serveRss(env, request) {
   ).all();
 
   const origin = new URL(request.url).origin;
-  const siteName = env.SITE_NAME || 'Exia Blog';
+  const { name: siteName, desc: siteDesc } = await getSite(env);
   const items = results
     .map((p) => {
       const link = `${origin}/p/${encodeURIComponent(p.slug)}`;
@@ -127,7 +129,7 @@ async function serveRss(env, request) {
 <rss version="2.0"><channel>
   <title>${esc(siteName)}</title>
   <link>${origin}</link>
-  <description>${esc(env.SITE_DESC || '')}</description>
+  <description>${esc(siteDesc)}</description>
   <language>zh-CN</language>
 ${items}
 </channel></rss>`;
@@ -191,7 +193,7 @@ export default {
 
       // 其它交给静态资源
       const res = await env.ASSETS.fetch(request);
-      if (res.status === 404) return notFoundPage(env, request);
+      if (res.status === 404) return await notFoundPage(env, request);
       return res;
     } catch (e) {
       console.error(e);
