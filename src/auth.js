@@ -4,11 +4,59 @@ const COOKIE = 'sid';
 
 /* ---------------- GitHub OAuth ---------------- */
 
+/* client_id 没配时不要把用户甩到 GitHub（那边会返回 404），直接给出配置页 */
+function missingOAuthApp(cid, redirect) {
+  const bad = !cid || cid === 'REPLACE_ME' || cid.length < 10;
+  if (!bad) return null;
+  const cb = redirect;
+  const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>还没配置 GitHub OAuth · 一步即可</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f7f9;color:#1a1a1a;
+font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;padding:24px}
+.card{max-width:640px;background:#fff;border:1px solid #e6e8eb;border-radius:14px;padding:32px 34px;
+box-shadow:0 1px 3px rgba(0,0,0,.04)}
+h1{font-size:20px;margin:0 0 6px}p.sub{color:#6b7280;margin:0 0 22px;font-size:14px}
+ol{padding-left:20px;margin:0 0 20px}ol li{margin:10px 0}
+code{background:#f2f3f5;border:1px solid #e6e8eb;border-radius:5px;padding:2px 6px;font-size:13px;
+font-family:ui-monospace,SFMono-Regular,Consolas,monospace;word-break:break-all}
+a{color:#2563eb;text-decoration:none}a:hover{text-decoration:underline}
+.box{background:#f8f9fb;border:1px solid #e6e8eb;border-radius:10px;padding:14px 16px;margin:16px 0;font-size:13.5px}
+.box b{display:block;margin-bottom:6px;font-size:13px;color:#374151}
+.tag{display:inline-block;background:#fef3c7;color:#92400e;border-radius:5px;padding:1px 7px;font-size:12px}
+</style></head><body><div class="card">
+<h1>站已上线，只差 GitHub OAuth 一处</h1>
+<p class="sub">当前 Worker 里没有有效的 <code>GITHUB_CLIENT_ID</code>，所以不能直接跳转登录。
+GitHub 对无效 client_id 返回 404 —— 你刚才看到的就是这个。</p>
+<ol>
+<li>打开 <a href="https://github.com/settings/applications/new" target="_blank" rel="noopener">github.com/settings/applications/new</a></li>
+<li><b>Application name</b>：随便填，例如 <code>Exia Blog</code><br>
+<b>Homepage URL</b>：<code>${new URL(cb).origin}</code></li>
+<li><b>Authorization callback URL</b> 必须一字不差：<div class="box"><b>回调地址</b><code>${cb}</code></div></li>
+<li>点 <b>Register application</b>，复制上方 <b>Client ID</b></li>
+<li>点 <b>Generate a new client secret</b>，复制（<span class="tag">只显示一次</span>）</li>
+</ol>
+<div class="box"><b>然后在本机项目目录执行</b>
+<code>npx wrangler secret put GITHUB_CLIENT_SECRET</code><br>
+把 Client ID 填进 <code>wrangler.jsonc</code> 的 <code>GITHUB_CLIENT_ID</code>，再 <code>npx wrangler deploy</code>。
+</div>
+<p class="sub" style="margin:0">配好后刷新本页，就会自动跳转 GitHub 授权；<b>第一个登录的账号自动成为管理员</b>。</p>
+</div></body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+  });
+}
+
 export function loginRedirect(env, request) {
   const url = new URL(request.url);
   const state = crypto.randomUUID();
   const next = url.searchParams.get('next') || '/';
   const redirect = env.OAUTH_REDIRECT || `${url.origin}/auth/callback`;
+
+  const setup = missingOAuthApp(env.GITHUB_CLIENT_ID, redirect);
+  if (setup) return setup;
+
   const gh = new URL('https://github.com/login/oauth/authorize');
   gh.searchParams.set('client_id', env.GITHUB_CLIENT_ID);
   gh.searchParams.set('redirect_uri', redirect);
