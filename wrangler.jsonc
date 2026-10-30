@@ -40,7 +40,7 @@
     "SITE_DESC": "写字的地方",
     // OAuth 回调地址，必须是 https://你的域名/auth/callback
     "OAUTH_REDIRECT": "https://exia-blog.meitu.workers.dev/auth/callback",
-    "GITHUB_CLIENT_ID": "REPLACE_ME",
+    "GITHUB_CLIENT_ID": "Ov23liBYcJtW33DLooEd",
     // R2 公开访问域名，留空则走 /img/ 代理
     "R2_PUBLIC_BASE": ""
     // 以下 secrets 用 wrangler secret put 写入：
