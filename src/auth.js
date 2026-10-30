@@ -105,6 +105,21 @@ export async function handleCallback(env, request) {
 
   if (!ghUser || !ghUser.id) return new Response('获取 GitHub 用户失败', { status: 400 });
 
+  // 拿联系邮箱：/user 的 email 常为 null（用户设了隐私），再查 /user/emails 取主邮箱
+  let ghEmail = ghUser.email || '';
+  if (!ghEmail) {
+    try {
+      const r = await fetch('https://api.github.com/user/emails', {
+        headers: { authorization: `Bearer ${accessToken}`, 'user-agent': 'exia-blog', accept: 'application/vnd.github+json' },
+      });
+      if (r.ok) {
+        const arr = await r.json();
+        const pick = arr.find((e) => e.primary && e.verified) || arr.find((e) => e.verified) || arr[0];
+        ghEmail = pick?.email || '';
+      }
+    } catch {}
+  }
+
   const db = env.DB;
   let user = await db.prepare('SELECT * FROM users WHERE github_id = ?').bind(String(ghUser.id)).first();
 
@@ -112,14 +127,22 @@ export async function handleCallback(env, request) {
     const count = await db.prepare('SELECT COUNT(*) AS c FROM users').first();
     const isFirst = !count || count.c === 0;
     await db
-      .prepare('INSERT INTO users (github_id, login, name, avatar, is_admin, created_at) VALUES (?,?,?,?,?,?)')
-      .bind(String(ghUser.id), ghUser.login, ghUser.name || ghUser.login, ghUser.avatar_url || '', isFirst ? 1 : 0, nowISO())
+      .prepare('INSERT INTO users (github_id, login, name, avatar, email, is_admin, created_at) VALUES (?,?,?,?,?,?,?)')
+      .bind(
+        String(ghUser.id),
+        ghUser.login,
+        ghUser.name || ghUser.login,
+        ghUser.avatar_url || '',
+        ghEmail,
+        isFirst ? 1 : 0,
+        nowISO()
+      )
       .run();
     user = await db.prepare('SELECT * FROM users WHERE github_id = ?').bind(String(ghUser.id)).first();
   } else {
     await db
-      .prepare('UPDATE users SET login = ?, name = ?, avatar = ? WHERE id = ?')
-      .bind(ghUser.login, ghUser.name || ghUser.login, ghUser.avatar_url || '', user.id)
+      .prepare('UPDATE users SET login = ?, name = ?, avatar = ?, email = ? WHERE id = ?')
+      .bind(ghUser.login, ghUser.name || ghUser.login, ghUser.avatar_url || '', ghEmail || user.email || '', user.id)
       .run();
   }
 
@@ -144,7 +167,7 @@ export async function currentUser(env, request) {
   if (!token) return null;
   const payload = await verifyToken(env.SESSION_SECRET, token);
   if (!payload || !payload.uid) return null;
-  const user = await env.DB.prepare('SELECT id, login, name, avatar, is_admin FROM users WHERE id = ?')
+  const user = await env.DB.prepare('SELECT id, login, name, avatar, email, is_admin FROM users WHERE id = ?')
     .bind(payload.uid)
     .first();
   return user || null;

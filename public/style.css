@@ -310,6 +310,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .cmt .head { display: flex; gap: 8px; align-items: center; font-size: 13px; margin-bottom: 3px; flex-wrap: wrap; }
 .cmt .head b { font-weight: 600; font-size: 13.5px; }
 .cmt .head .when { color: var(--muted); font-size: 12px; }
+.cmt .head .cmt-mail {
+  font-size: 12px; color: var(--accent); text-decoration: none;
+  border: 1px dashed var(--border, #e3e5e8); border-radius: 5px; padding: 0 6px;
+}
+.cmt .head .cmt-mail:hover { background: var(--accent-soft, #eef2ff); }
 .cmt .text { font-size: 14.5px; line-height: 1.7; color: var(--fg-soft); white-space: pre-wrap; word-break: break-word; }
 .cmt .acts { margin-top: 5px; display: flex; gap: 10px; font-size: 12px; color: var(--muted); }
 .cmt .acts button { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0; font-size: 12px; }

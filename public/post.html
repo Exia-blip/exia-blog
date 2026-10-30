@@ -74,7 +74,7 @@ function render() {
         <div id="reply-hint" class="tiny muted" style="display:none"></div>
         <div class="row" id="guest-fields">
           <input type="text" name="name" placeholder="昵称 *" maxlength="40" autocomplete="nickname">
-          <input type="email" name="email" placeholder="邮箱（可选，不公开）" maxlength="120" autocomplete="email">
+          <input type="email" name="email" placeholder="联系邮箱 *（不公开，仅博主可见）" maxlength="120" autocomplete="email">
           <input type="url" name="website" placeholder="网站（可选）" maxlength="200">
         </div>
         <textarea name="content" placeholder="说点什么…" maxlength="2000"></textarea>
@@ -123,9 +123,12 @@ function renderCmt(c, isChild = false) {
     <div class="ava">${avatarText(c.name)}</div>
     <div class="main">
       <div class="head">
-        <b>${c.is_admin ? homepage : homepage}</b>
+        <b>${homepage}</b>
         ${c.is_admin ? '<span class="badge-owner">博主</span>' : ''}
         <span class="when">${fmtRelative(c.created_at)}</span>
+        ${USER && USER.is_admin && c.email
+          ? `<a class="cmt-mail" href="mailto:${esc(c.email)}" title="联系邮箱，仅管理员可见">${esc(c.email)}</a>`
+          : ''}
       </div>
       <div class="text">${esc(c.content)}</div>
       <div class="acts">${reply}${del}</div>
@@ -165,33 +168,43 @@ function bindReply() {
 
 function bindForm() {
   const form = document.getElementById('cmt-form');
-  const guestFields = document.getElementById('guest-fields');
   // 注意：form.name 是 <form> 自身的 name 属性，不是叫 name 的输入框，
   // 必须走 form.elements 取字段，否则拿到的是空字符串。
   const f = form.elements;
   const field = (n) => f.namedItem(n);
 
   if (USER) {
-    guestFields.style.display = 'none';
+    // 登录用户：昵称锁定成账号名，邮箱预填账号邮箱（可改，用于联系）
+    const nameEl = field('name');
+    nameEl.value = USER.name || USER.login || '';
+    nameEl.readOnly = true;
+    nameEl.title = '登录账号的昵称，无需填写';
   }
 
-  // 记住游客信息
-  if (!USER) {
-    try {
-      const saved = JSON.parse(localStorage.getItem('cmt:guest') || '{}');
+  // 记住游客信息 / 预填邮箱
+  try {
+    const saved = JSON.parse(localStorage.getItem('cmt:guest') || '{}');
+    if (!USER) {
       if (saved.name) field('name').value = saved.name;
       if (saved.email) field('email').value = saved.email;
       if (saved.website) field('website').value = saved.website;
-    } catch {}
-  }
+    } else {
+      field('email').value = USER.email || saved.email || '';
+      if (saved.website) field('website').value = saved.website;
+    }
+  } catch {}
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const content = field('content').value.trim();
-    const name = USER ? '' : field('name').value.trim();
+    const name = field('name').value.trim();
+    const email = field('email').value.trim();
+    const website = field('website').value.trim();
 
     if (!content) { toast('说点什么吧'); field('content').focus(); return; }
-    if (!USER && !name) { toast('请先填昵称'); field('name').focus(); return; }
+    if (!name) { toast('请先填昵称'); field('name').focus(); return; }
+    if (!email) { toast('请填写联系邮箱'); field('email').focus(); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('邮箱格式不正确'); field('email').focus(); return; }
 
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
@@ -205,15 +218,11 @@ function bindForm() {
           content,
           parent_id: replyTo?.id || null,
           name,
-          email: USER ? '' : field('email').value,
-          website: USER ? '' : field('website').value,
+          email,
+          website,
         },
       });
-      if (!USER) {
-        localStorage.setItem('cmt:guest', JSON.stringify({
-          name, email: field('email').value, website: field('website').value,
-        }));
-      }
+      localStorage.setItem('cmt:guest', JSON.stringify({ name: USER ? '' : name, email, website }));
       field('content').value = '';
       replyTo = null;
       document.getElementById('reply-hint').style.display = 'none';

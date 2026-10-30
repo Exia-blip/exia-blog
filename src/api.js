@@ -286,15 +286,20 @@ export async function handleApi(env, request, url) {
     if (p.is_private && (!user || (user.id !== p.author_id && !user.is_admin))) return err('文章不存在', 404);
 
     const { results } = await db
-      .prepare('SELECT id, parent_id, name, website, content, is_admin, created_at FROM comments WHERE post_id = ? ORDER BY created_at ASC')
+      .prepare(
+        'SELECT id, parent_id, name, email, website, content, is_admin, created_at FROM comments WHERE post_id = ? ORDER BY created_at ASC'
+      )
       .bind(p.id)
       .all();
 
-    const roots = results.filter((c) => !c.parent_id);
-    const children = results.filter((c) => c.parent_id);
+    // 邮箱只给管理员看，游客/普通用户拿不到
+    const rows = user && user.is_admin ? results : results.map(({ email, ...rest }) => rest);
+
+    const roots = rows.filter((c) => !c.parent_id);
+    const children = rows.filter((c) => c.parent_id);
     const tree = roots.map((r) => ({ ...r, replies: children.filter((c) => c.parent_id === r.id) }));
 
-    return json({ ok: true, total: results.length, comments: tree });
+    return json({ ok: true, total: rows.length, comments: tree });
   }
 
   /* ---- 发评论 ---- */
@@ -315,6 +320,12 @@ export async function handleApi(env, request, url) {
 
     const name = user ? user.name || user.login : String(body.name || '').trim();
     if (!name) return err('请填写昵称');
+
+    // 联系邮箱必填；登录用户没填就用账号邮箱兜底
+    const email = String(body.email || '').trim() || (user && user.email) || '';
+    if (!email) return err('请填写联系邮箱');
+    if (email.length > 120) return err('邮箱太长');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('邮箱格式不正确');
 
     let parentId = null;
     if (body.parent_id) {
@@ -337,7 +348,7 @@ export async function handleApi(env, request, url) {
         p.id,
         parentId,
         name.slice(0, 40),
-        String(body.email || '').slice(0, 120),
+        email.slice(0, 120),
         String(body.website || '').slice(0, 200),
         content,
         isAdmin,

@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
   login       TEXT NOT NULL,
   name        TEXT,
   avatar      TEXT,
+  email       TEXT,                         -- 联系邮箱，仅自己与管理员可见
   is_admin    INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
