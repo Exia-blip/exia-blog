@@ -22,6 +22,7 @@
       <circle cx="16.4" cy="9.4" r="1.1" fill="currentColor" stroke="none"/>
     </svg>
   </button>
+  <button class="btn sm side-toggle" id="btn-side" title="文章与站点设置">设置</button>
   <button class="btn sm" id="btn-new" title="新建文章">新建</button>
   <button class="btn primary sm" id="btn-save">保存</button>
 </div>
@@ -34,6 +35,7 @@
     <div class="preview md" id="preview"></div>
   </div>
   <aside class="editor-side">
+    <div class="side-sec">文章信息</div>
     <div class="field">
       <label>别名（访问路径）</label>
       <input type="text" id="slug" placeholder="如 about → /about" autocomplete="off">
@@ -72,9 +74,17 @@
       <div class="cat-list" id="cat-list"></div>
     </div>
 
-    <details class="field site-box" id="site-box" style="display:none">
-      <summary>站点设置</summary>
-      <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+    <div class="side-sec" id="site-sec" style="display:none">站点</div>
+
+    <details class="site-box" id="site-box" style="display:none">
+      <summary>
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09A1.7 1.7 0 0 0 21 10.1H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/>
+        </svg>
+        站点设置
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+      </summary>
+      <div class="site-body">
         <div class="field">
           <label>站点名称</label>
           <input type="text" id="site-name" placeholder="例如 Exia Blog" maxlength="60" autocomplete="off">
@@ -116,16 +126,18 @@
             <option value="dark">深色</option>
           </select>
         </div>
-        <button class="btn sm primary" id="btn-site-save" style="justify-content:center">保存站点信息</button>
+        <button class="btn sm primary side-save" id="btn-site-save">保存站点信息</button>
       </div>
     </details>
 
-    <div style="margin-top:auto;display:flex;gap:8px">
-      <a class="btn sm" id="btn-view" href="#" target="_blank" style="flex:1;justify-content:center">预览</a>
+    <div class="side-foot">
+      <a class="btn sm side-view" id="btn-view" href="#" target="_blank">预览</a>
       <button class="btn sm danger" id="btn-del">删除</button>
     </div>
   </aside>
 </div>
+
+<div class="side-mask" id="side-mask"></div>
 
 <div class="drop-hint" id="drop-hint">松开上传图片</div>
 
@@ -138,6 +150,23 @@ initSwitcher();
 bindCopyButtons(document.getElementById('preview'));
 
 const $ = (id) => document.getElementById(id);
+
+/* 窄屏：设置侧栏收成抽屉，顶部「设置」按钮开合 */
+(function initSideDrawer() {
+  const side = document.querySelector('.editor-side');
+  const mask = $('side-mask');
+  const btn = $('btn-side');
+  if (!side || !mask || !btn) return;
+  const setOpen = (open) => {
+    side.classList.toggle('open', open);
+    mask.classList.toggle('on', open);
+  };
+  btn.addEventListener('click', () => setOpen(!side.classList.contains('open')));
+  mask.addEventListener('click', () => setOpen(false));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') setOpen(false);
+  });
+})();
 const titleEl = $('title');
 const inputEl = $('md-input');
 const previewEl = $('preview');
@@ -704,6 +733,8 @@ async function initSiteSettings() {
   const box = $('site-box');
   if (!box) return;
   box.style.display = 'block';
+  const sec = $('site-sec');
+  if (sec) sec.style.display = 'flex';
 
   $('site-theme').innerHTML = THEMES.map((t) => `<option value="${t.id}">${t.name} · ${t.desc}</option>`).join('');
   initAvatarField();
