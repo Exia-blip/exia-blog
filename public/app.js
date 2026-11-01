@@ -100,7 +100,13 @@ export async function mountHeader(active = '') {
   if (!host) return null;
   const [user, s] = await Promise.all([me(), site()]);
   const siteName = s.name || host.dataset.site || 'Exia Blog';
-  document.title = document.title.replace(/^首页$/, siteName);
+  const siteDesc = (s.desc || '').trim();
+
+  // 标签页标题统一「页面 · 站点名」，SSR 没注入到（静态资源缓存/直连）时前端再兜一层
+  const curTitle = document.title.trim();
+  if (curTitle !== siteName && !curTitle.includes(siteName)) {
+    document.title = !curTitle || curTitle === '首页' ? siteName : `${curTitle} · ${siteName}`;
+  }
 
   const links = [
     { href: '/', label: '首页', key: 'home' },
@@ -120,6 +126,7 @@ export async function mountHeader(active = '') {
   <header class="site">
     <div class="inner">
       <a class="brand" href="/">${brandMark}<span class="brand-name">${esc(siteName)}<span class="dot">.</span></span></a>
+      ${siteDesc ? `<span class="brand-desc" title="${esc(siteDesc)}">${esc(siteDesc)}</span>` : ''}
       <nav class="top">
         ${links
           .map((l) => `<a href="${l.href}" class="${active === l.key ? 'active' : ''}">${l.label}</a>`)

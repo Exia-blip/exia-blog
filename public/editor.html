@@ -75,8 +75,16 @@
     <details class="field site-box" id="site-box" style="display:none">
       <summary>站点设置</summary>
       <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
-        <input type="text" id="site-name" placeholder="站点名称" maxlength="60" autocomplete="off">
-        <textarea id="site-desc" placeholder="站点介绍（一句话，显示在搜索引擎与社交卡片）" maxlength="200" rows="3"></textarea>
+        <div class="field">
+          <label>站点名称</label>
+          <input type="text" id="site-name" placeholder="例如 Exia Blog" maxlength="60" autocomplete="off">
+          <small class="site-hint">显示在浏览器标签页标题和导航栏左侧</small>
+        </div>
+        <div class="field">
+          <label>站点描述</label>
+          <textarea id="site-desc" maxlength="200" rows="3" placeholder="一句话介绍这个站点"></textarea>
+          <small class="site-hint">显示在导航栏站名右侧，窄屏自动隐藏；同时作为首页的搜索引擎描述</small>
+        </div>
         <div class="field">
           <label>站点头像（显示在导航栏左上角）</label>
           <div class="ava-row">

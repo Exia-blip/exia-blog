@@ -82,6 +82,30 @@ async function servePostPage(env, request, slug) {
   });
 }
 
+/* ---------- 静态页 SEO：站点名进标签页标题、站点描述进 meta ----------
+   文章页的 <!--SEO--> 已在 servePostPage 里换掉，这里只兜静态页（首页/归档/栏目/友链…） */
+function fillSeo(body, site) {
+  if (!body.includes('<!--SEO-->')) return body;
+
+  const m = body.match(/<title>([\s\S]*?)<\/title>/i);
+  const label = (m?.[1] || '').replace(/\s+/g, ' ').trim();
+  const home = !label || label === '首页';
+  const title = home ? site.name : `${label} · ${site.name}`;
+  const desc = site.desc || `${site.name} · 记录思考、代码与生活`;
+
+  const block = [
+    `<title>${esc(title)}</title>`,
+    `<meta name="description" content="${esc(desc)}">`,
+    `<meta property="og:type" content="${home ? 'website' : 'article'}">`,
+    `<meta property="og:site_name" content="${esc(site.name)}">`,
+    `<meta property="og:title" content="${esc(title)}">`,
+    `<meta property="og:description" content="${esc(desc)}">`,
+  ].join('\n  ');
+
+  const stripped = m ? body.replace(/<title>[\s\S]*?<\/title>\s*/i, '') : body;
+  return stripped.replace('<!--SEO-->', block);
+}
+
 /* ---------- 主题默认值注入（首访不闪） ---------- */
 async function injectTheme(env, res) {
   const ct = res.headers.get('content-type') || '';
@@ -100,7 +124,7 @@ async function injectTheme(env, res) {
 
   const headers = new Headers(res.headers);
   headers.delete('content-length');
-  return new Response(body.replace('<!--THEME-->', inject), {
+  return new Response(fillSeo(body, s).replace('<!--THEME-->', inject), {
     status: res.status,
     statusText: res.statusText,
     headers,
