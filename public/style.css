@@ -332,6 +332,10 @@ header.site .inner {
   gap: 18px;
 }
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
   font-family: var(--serif);
   font-size: 17px;
   font-weight: 600;
@@ -339,6 +343,27 @@ header.site .inner {
   white-space: nowrap;
 }
 .brand .dot { color: var(--accent); }
+.brand-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.brand-avatar {
+  flex: 0 0 auto;
+  display: block;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+}
+.brand-avatar.ph {
+  display: grid;
+  place-items: center;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--muted);
+  user-select: none;
+}
 nav.top { display: flex; gap: 4px; margin-left: auto; align-items: center; flex-wrap: wrap; }
 nav.top a, nav.top button {
   padding: 6px 11px;
@@ -714,19 +739,34 @@ a.cat-chip:hover { filter: brightness(0.96); }
   .post-head h1 { font-size: 24px; }
   .post-body { font-size: 15.5px; }
   .wrap, .wrap-wide { padding: 0 16px; }
-  header.site .inner { padding: 0 14px; height: 52px; gap: 10px; position: relative; }
-  .brand { font-size: 15px; }
+  header.site .inner { padding: 0 44px 0 14px; height: 52px; gap: 10px; position: relative; }
+  .brand { font-size: 15px; gap: 7px; }
+  .brand-avatar { width: 23px; height: 23px; }
+  .brand-name { max-width: 30vw; }
   /* 窄屏导航单行横向滚动，风格按钮固定在右侧不随滚动 */
   nav.top {
     gap: 0; flex-wrap: nowrap; overflow-x: auto; min-width: 0;
-    justify-content: flex-end; scrollbar-width: none;
-    padding-right: 30px;
+    /* flex-end 在内容溢出时会让整排向左溢出、压到品牌名上，改用 flex-start */
+    justify-content: flex-start; scrollbar-width: none;
+    padding-right: 0;
+    margin-left: auto;
   }
   nav.top::-webkit-scrollbar { display: none; }
+  /* 右端渐隐，暗示还能横向滑；放在按钮左边，别盖住调到色板 */
+  header.site .inner::after {
+    content: '';
+    position: absolute;
+    right: 42px;
+    top: 0;
+    bottom: 0;
+    width: 20px;
+    pointer-events: none;
+    background: linear-gradient(to right, transparent, var(--bg));
+  }
   nav.top a, nav.top button { padding: 5px 6px; font-size: 12.5px; flex: 0 0 auto; }
   nav.top .theme-btn {
     position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-    width: 26px; height: 26px; padding: 0; margin: 0;
+    width: 26px; height: 26px; padding: 0; margin: 0; z-index: 2;
   }
   nav.top .theme-btn svg { width: 15px; height: 15px; }
   .editor-top { padding: 8px 12px; gap: 8px; }
@@ -903,3 +943,32 @@ body { transition: background-color .26s ease, color .26s ease; }
 @media (max-width: 640px) {
   .theme-pop { width: 260px; padding: 11px; }
 }
+
+/* ============ 站点头像设置 ============ */
+.ava-row { display: flex; gap: 11px; align-items: center; }
+.ava-drop {
+  position: relative;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--line);
+  background: var(--bg-soft);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  transition: border-color .16s, background-color .16s, color .16s;
+}
+.ava-drop:hover { border-color: var(--muted); color: var(--fg); }
+.ava-drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.ava-drop.busy { opacity: .5; pointer-events: none; }
+.ava-drop img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ava-note { font-size: 11.5px; color: var(--muted); line-height: 1.55; }
+.ava-note small { display: block; margin-top: 2px; opacity: .82; }
+#site-avatar { width: 100%; min-width: 0; font-size: 13px; }
+.ava-btns { display: flex; gap: 6px; }
+.ava-btns .btn { flex: 1; justify-content: center; }

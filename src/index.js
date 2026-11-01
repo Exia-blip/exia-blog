@@ -48,8 +48,11 @@ async function servePostPage(env, request, slug) {
 
   const desc = post.summary || extractExcerpt(post.content, 150);
   const cover = post.cover || '';
-  const siteName = (await getSite(env)).name;
+  const site = await getSite(env);
+  const siteName = site.name;
   const canonical = new URL(`/${post.slug}`, request.url).toString();
+  // 没封面就退到站点头像，社交卡片不至于空白
+  const ogImage = cover || site.avatar || '';
 
   const meta = [
     `<title>${esc(post.title)} · ${esc(siteName)}</title>`,
@@ -58,8 +61,8 @@ async function servePostPage(env, request, slug) {
     `<meta property="og:type" content="article">`,
     `<meta property="og:title" content="${esc(post.title)}">`,
     `<meta property="og:description" content="${esc(desc)}">`,
-    cover ? `<meta property="og:image" content="${esc(new URL(cover, request.url))}">` : '',
-    `<meta name="twitter:card" content="summary_large_image">`,
+    ogImage ? `<meta property="og:image" content="${esc(new URL(ogImage, request.url))}">` : '',
+    `<meta name="twitter:card" content="${cover ? 'summary_large_image' : 'summary'}">`,
   ]
     .filter(Boolean)
     .join('\n  ');
@@ -89,9 +92,15 @@ async function injectTheme(env, res) {
 
   const s = await getSite(env);
   const cfg = JSON.stringify({ theme: s.theme, mode: s.mode }).replace(/</g, '\\u003c');
+  // 站点头像与站名先落到 window.__SITE__，导航渲染时能立刻用，也顺手当 favicon
+  const siteCfg = JSON.stringify({ name: s.name, desc: s.desc, avatar: s.avatar }).replace(/</g, '\\u003c');
+  const icon = s.avatar ? `<link rel="icon" href="${esc(s.avatar)}">` : '';
+  const inject =
+    `<script>window.__THEME_DEFAULT__=${cfg};window.__SITE__=${siteCfg};</script>${icon}`;
+
   const headers = new Headers(res.headers);
   headers.delete('content-length');
-  return new Response(body.replace('<!--THEME-->', `<script>window.__THEME_DEFAULT__=${cfg}</script>`), {
+  return new Response(body.replace('<!--THEME-->', inject), {
     status: res.status,
     statusText: res.statusText,
     headers,

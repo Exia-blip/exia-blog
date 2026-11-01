@@ -78,6 +78,25 @@
         <input type="text" id="site-name" placeholder="站点名称" maxlength="60" autocomplete="off">
         <textarea id="site-desc" placeholder="站点介绍（一句话，显示在搜索引擎与社交卡片）" maxlength="200" rows="3"></textarea>
         <div class="field">
+          <label>站点头像（显示在导航栏左上角）</label>
+          <div class="ava-row">
+            <div class="ava-drop" id="ava-drop" title="点这里选图，也可以把图片拖进来或直接粘贴">
+              <img id="ava-img" alt="" hidden>
+              <span id="ava-ph">＋</span>
+              <input type="file" id="ava-file" accept="image/*" hidden>
+            </div>
+            <div class="ava-note">
+              点框选图 / 拖进来 / 粘贴
+              <small>也可以直接填图片地址</small>
+            </div>
+          </div>
+          <input type="text" id="site-avatar" placeholder="https://… 或 /img/…" maxlength="500" autocomplete="off" spellcheck="false">
+          <div class="ava-btns">
+            <button type="button" class="btn sm" id="btn-ava-upload">上传图片</button>
+            <button type="button" class="btn sm" id="btn-ava-clear">清除</button>
+          </div>
+        </div>
+        <div class="field">
           <label>默认风格（首次访问的读者）</label>
           <select id="site-theme"></select>
         </div>
@@ -130,6 +149,8 @@ let saving = false;
 let saveTimer = null;
 let draftKey = 'draft:new';
 let hasServerRecord = false;
+// 站点头像预览：声明要在 boot 之前，否则 initSiteSettings 早于赋值语句执行会踩 TDZ
+let paintAvatar = () => {};
 let sumTouched = false; // 手动改过摘要就不让 AI 覆盖
 let sumBusy = false;
 
@@ -577,6 +598,99 @@ async function loadCategoryOptions() {
   } catch {}
 }
 
+/* ---------- 站点头像：URL / 上传 / 拖拽 / 粘贴 ---------- */
+async function uploadAvatar(file) {
+  if (!file || !/^image\//.test(file.type)) { toast('请选择图片文件'); return; }
+  if (file.size > 4 * 1024 * 1024) { toast('图片别超过 4MB'); return; }
+
+  const drop = $('ava-drop');
+  drop.classList.add('busy');
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await api('/api/settings/avatar', { method: 'POST', body: fd });
+    $('site-avatar').value = r.avatar;
+    paintAvatar(r.avatar);
+    toast('头像已更新');
+  } catch (e) {
+    toast('上传失败：' + e.message);
+  } finally {
+    drop.classList.remove('busy');
+  }
+}
+
+function initAvatarField() {
+  const drop = $('ava-drop');
+  const img = $('ava-img');
+  const ph = $('ava-ph');
+  const fileEl = $('ava-file');
+  const input = $('site-avatar');
+  if (!drop || !img || !input) return;
+
+  paintAvatar = (url) => {
+    url = String(url || '').trim();
+    if (url) {
+      img.src = url;
+      img.hidden = false;
+      ph.hidden = true;
+    } else {
+      img.removeAttribute('src');
+      img.hidden = true;
+      ph.hidden = false;
+    }
+  };
+  img.addEventListener('error', () => { img.hidden = true; ph.hidden = false; });
+
+  input.addEventListener('input', () => paintAvatar(input.value));
+
+  drop.addEventListener('click', () => fileEl.click());
+  fileEl.addEventListener('change', () => {
+    const f = fileEl.files && fileEl.files[0];
+    if (f) uploadAvatar(f);
+    fileEl.value = '';
+  });
+
+  ['dragenter', 'dragover'].forEach((ev) =>
+    drop.addEventListener(ev, (e) => {
+      e.preventDefault();
+      // 别让页面的全局拖拽把图片插进正文
+      e.stopPropagation();
+      drop.classList.add('over');
+      $('drop-hint').classList.remove('on');
+    })
+  );
+  ['dragleave', 'drop'].forEach((ev) =>
+    drop.addEventListener(ev, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      drop.classList.remove('over');
+    })
+  );
+  drop.addEventListener('drop', (e) => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) uploadAvatar(f);
+  });
+
+  // 粘贴：只有站点设置抽屉展开、焦点在里面时才接管，别抢正文粘贴
+  document.addEventListener('paste', (e) => {
+    const box = $('site-box');
+    if (!box || !box.open || !box.contains(document.activeElement)) return;
+    const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
+    if (!item) return;
+    const f = item.getAsFile();
+    if (!f) return;
+    e.preventDefault();
+    uploadAvatar(f);
+  });
+
+  $('btn-ava-upload').addEventListener('click', () => fileEl.click());
+  $('btn-ava-clear').addEventListener('click', () => {
+    input.value = '';
+    paintAvatar('');
+    toast('已清除，点「保存站点信息」生效');
+  });
+}
+
 /* ---------- 站点设置（仅管理员） ---------- */
 async function initSiteSettings() {
   const box = $('site-box');
@@ -584,6 +698,7 @@ async function initSiteSettings() {
   box.style.display = 'block';
 
   $('site-theme').innerHTML = THEMES.map((t) => `<option value="${t.id}">${t.name} · ${t.desc}</option>`).join('');
+  initAvatarField();
 
   try {
     const s = await api('/api/settings');
@@ -591,6 +706,8 @@ async function initSiteSettings() {
     $('site-desc').value = s.desc || '';
     $('site-theme').value = s.theme || 'paper';
     $('site-mode').value = s.mode || 'auto';
+    $('site-avatar').value = s.avatar || '';
+    paintAvatar(s.avatar || '');
   } catch (e) {
     toast('站点设置读取失败：' + e.message);
   }
@@ -610,9 +727,12 @@ async function initSiteSettings() {
           desc: $('site-desc').value.trim(),
           theme: $('site-theme').value,
           mode: $('site-mode').value,
+          avatar: $('site-avatar').value.trim(),
         },
       });
       $('site-name').value = r.name;
+      $('site-avatar').value = r.avatar || '';
+      paintAvatar(r.avatar || '');
       document.title = r.name + ' · 后台';
       toast('站点信息已更新');
     } catch (e) {

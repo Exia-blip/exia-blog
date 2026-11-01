@@ -78,7 +78,7 @@ export async function handleApi(env, request, url, ctx) {
   /* ---- 站点信息 ---- */
   if (path === '/site' && method === 'GET') {
     const s = await getSite(env);
-    return json({ ok: true, name: s.name, desc: s.desc, theme: s.theme, mode: s.mode });
+    return json({ ok: true, name: s.name, desc: s.desc, theme: s.theme, mode: s.mode, avatar: s.avatar });
   }
 
   /* ---- 站点设置（管理员读写） ---- */
@@ -86,7 +86,7 @@ export async function handleApi(env, request, url, ctx) {
     const { res } = await requireAdmin(env, request);
     if (res) return res;
     const s = await getSite(env);
-    return json({ ok: true, name: s.name, desc: s.desc, theme: s.theme, mode: s.mode });
+    return json({ ok: true, name: s.name, desc: s.desc, theme: s.theme, mode: s.mode, avatar: s.avatar });
   }
 
   if (path === '/settings' && method === 'PUT') {
@@ -102,13 +102,47 @@ export async function handleApi(env, request, url, ctx) {
     if (body.theme !== undefined && !THEME_IDS.includes(String(body.theme))) return err('未知的风格');
     if (body.mode !== undefined && !MODE_IDS.includes(String(body.mode))) return err('未知的外观模式');
 
+    let avatar;
+    if (body.avatar !== undefined) {
+      avatar = String(body.avatar ?? '').trim();
+      if (avatar.length > 500) return err('头像地址太长（限 500 字符）');
+      const ok = avatar === '' || avatar.startsWith('/') || /^https?:\/\//i.test(avatar);
+      if (!ok) return err('头像地址只能是 http(s) 链接或站内路径');
+      if (avatar.startsWith('//')) return err('头像地址不要以 // 开头');
+    }
+
     const s = await setSite(env, {
       name,
       desc,
       theme: body.theme === undefined ? undefined : String(body.theme),
       mode: body.mode === undefined ? undefined : String(body.mode),
+      avatar,
     });
-    return json({ ok: true, name: s.name, desc: s.desc, theme: s.theme, mode: s.mode });
+    return json({ ok: true, name: s.name, desc: s.desc, theme: s.theme, mode: s.mode, avatar: s.avatar });
+  }
+
+  /* ---- 站点头像上传（管理员，直接落 R2 并写入设置） ---- */
+  if (path === '/settings/avatar' && method === 'POST') {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+
+    const form = await request.formData();
+    const file = form.get('file');
+    if (!file || typeof file === 'string') return err('没有文件');
+
+    const type = file.type || '';
+    if (!IMAGE_TYPES[type]) return err('只支持 jpg / png / gif / webp / svg / avif');
+    if (file.size > 4 * 1024 * 1024) return err('图片别超过 4MB');
+
+    const key = makeKey(`avatar.${IMAGE_TYPES[type]}`);
+    await env.BUCKET.put(key, await file.arrayBuffer(), {
+      httpMetadata: { contentType: type, cacheControl: 'public, max-age=31536000, immutable' },
+    });
+
+    const base = env.R2_PUBLIC_BASE ? env.R2_PUBLIC_BASE.replace(/\/$/, '') : '';
+    const publicUrl = base ? `${base}/${key}` : `/img/${key}`;
+    const s = await setSite(env, { avatar: publicUrl });
+    return json({ ok: true, avatar: s.avatar, key });
   }
 
   /* ---- 当前用户 ---- */

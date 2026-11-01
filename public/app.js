@@ -82,11 +82,14 @@ export function toast(msg, ms = 2200) {
 let SITE;
 export async function site() {
   if (SITE) return SITE;
+  const boot = window.__SITE__ || {};
   try {
     SITE = await api('/api/site');
   } catch {
-    SITE = { name: 'Exia Blog', desc: '' };
+    SITE = { name: boot.name || 'Exia Blog', desc: boot.desc || '', avatar: boot.avatar || '' };
   }
+  // 首屏已经在 HTML 里注入了头像，接口没回来之前先用它，省一次闪烁
+  if (!SITE.avatar && boot.avatar) SITE.avatar = boot.avatar;
   return SITE;
 }
 
@@ -107,10 +110,16 @@ export async function mountHeader(active = '') {
     { href: '/about', label: '关于', key: 'about' },
   ];
 
+  const avatar = s.avatar || '';
+  // 有头像就显示，没有就退回首字母方块，导航不至于忽宽忽窄
+  const brandMark = avatar
+    ? `<img class="brand-avatar" src="${esc(avatar)}" alt="" loading="eager" onerror="this.remove()">`
+    : `<span class="brand-avatar ph" aria-hidden="true">${esc((siteName || 'E').trim().charAt(0).toUpperCase())}</span>`;
+
   host.outerHTML = `
   <header class="site">
     <div class="inner">
-      <a class="brand" href="/">${esc(siteName)}<span class="dot">.</span></a>
+      <a class="brand" href="/">${brandMark}<span class="brand-name">${esc(siteName)}<span class="dot">.</span></span></a>
       <nav class="top">
         ${links
           .map((l) => `<a href="${l.href}" class="${active === l.key ? 'active' : ''}">${l.label}</a>`)

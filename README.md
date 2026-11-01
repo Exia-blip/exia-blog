@@ -24,6 +24,7 @@
 | 归档 | `/archive` 按年月倒序，时间线 / 紧凑两种视图，年份筛选 `/archive/2026` |
 | 搜索 | 标题 + 正文关键词，分页列表 |
 | 风格主题 | 6 套预设（纸韵 / 水墨 / 苔原 / 静海 / 暮紫 / 终端），读者自选，浅色·深色·跟随系统三档 |
+| 站点头像 | 导航栏左上角圆形头像，后台可上传 / 拖拽 / 粘贴 / 填外链，兼作 favicon |
 | AI 摘要 | 保存/发布时自动生成导语，文章页顶部展示，同时作为列表简介、SEO description 与 RSS 描述；可手动改写或重新生成 |
 
 额外：RSS、sitemap、移动端适配、文章内 `#标签` 自动转为可点击链接。
@@ -43,7 +44,7 @@ exia-blog/
 │   ├── cron.js         # 友链巡检
 │   ├── webhook.js      # 评论通知
 │   ├── ai.js           # AI 摘要：Workers AI / 外部接口 / 抽取式兜底
-│   ├── settings.js     # 站点名 / 介绍 / 默认风格（D1 覆盖 vars）
+│   ├── settings.js     # 站点名 / 介绍 / 头像 / 默认风格（D1 覆盖 vars）
 │   └── utils.js        # cookie / token / 分页
 └── public/
     ├── md.js           # Markdown 渲染器（前后端同构，预览与线上一致）
@@ -167,7 +168,24 @@ npx wrangler deploy
 - 写作区：Markdown 编辑 + 实时预览 + 自动保存
 - 侧栏「我的文章」：切换/新建/删除
 - 侧栏「分类」：填一个分类名，已存在的分类会在输入时提示（datalist）
-- 侧栏「站点设置」（仅管理员）：改站点名、介绍、默认风格与默认外观，存进 D1 的 `settings` 表，**即时生效，不用重新 deploy**
+- 侧栏「站点设置」（仅管理员）：改站点名、介绍、站点头像、默认风格与默认外观，存进 D1 的 `settings` 表，**即时生效，不用重新 deploy**
+
+### 站点头像
+
+导航栏左上角那个圆形图标，四种设置方式，随便挑：
+
+| 方式 | 操作 |
+|---|---|
+| 上传 | 点圆形虚线框选图，或点「上传图片」；单张限 4MB |
+| 拖拽 | 把图片直接拖到圆形框上，边框变色即松手 |
+| 粘贴 | 设置区展开、光标在里面时 `Ctrl+V` 直接粘图 |
+| 外链 | 在输入框填 `https://…` 地址，边填边预览 |
+
+上传的图存进 R2（`/img/…`），外链存原地址；两者都会写进 `settings.site_avatar`。
+没设头像时导航显示站名首字母方块，不会留空。头像同时被用作：
+
+- 浏览器 favicon（每个页面的 `<link rel="icon">`）
+- 文章无封面时的 `og:image` 兜底
 
 `SITE_NAME` / `SITE_DESC` / `SITE_THEME` / `SITE_MODE` 只是没设置过时的兜底默认值。
 
@@ -243,6 +261,7 @@ npx wrangler deploy
 | `SITE_DESC` | var | 否 | 副标题默认值，后台可覆盖 |
 | `SITE_THEME` | var | 否 | 默认风格 `paper`/`ink`/`forest`/`ocean`/`plum`/`mono`，后台可覆盖 |
 | `SITE_MODE` | var | 否 | 默认外观 `auto`/`light`/`dark`，后台可覆盖 |
+| `SITE_AVATAR` | var | 否 | 站点头像默认地址，后台可覆盖 |
 | `AI_MODEL` | var/secret | 否 | 覆盖默认模型，如 `@cf/qwen/qwen3-30b-a3b-fp8` |
 | `AI_API_BASE` | var | 否 | 走外部 OpenAI 兼容接口时的地址，默认 `https://api.deepseek.com/v1` |
 | `AI_API_KEY` | secret | 否 | 不配 `AI` 绑定时用外部接口生成摘要 |
