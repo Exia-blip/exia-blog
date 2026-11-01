@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS posts (
   category    TEXT NOT NULL DEFAULT '',      -- 分类：一篇文章一个，空串表示未分类
   is_private  INTEGER NOT NULL DEFAULT 0,  -- 私密：仅作者可见，未登录 404
   hidden      INTEGER NOT NULL DEFAULT 0,  -- 不列入首页
+  summary     TEXT NOT NULL DEFAULT '',    -- AI 摘要（发布/保存时生成）
+  summary_src TEXT NOT NULL DEFAULT '',    -- ai | fallback | manual
+  summary_hash TEXT NOT NULL DEFAULT '',   -- 生成摘要时的正文指纹，避免重复烧 token
   author_id   INTEGER NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now'))

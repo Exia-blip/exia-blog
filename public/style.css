@@ -490,6 +490,21 @@ a.cat-chip:hover { filter: brightness(0.96); }
   font-weight: 600;
 }
 .post-head .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+
+/* AI 摘要导语 */
+.post-lead {
+  margin: 0 0 32px;
+  padding: 14px 18px 15px;
+  border-radius: 10px;
+  background: var(--bg-soft);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.post-lead .lead-tag {
+  display: inline-block;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+  color: var(--accent); margin-bottom: 5px;
+}
+.post-lead p { margin: 0; font-size: 14.5px; line-height: 1.75; color: var(--fg-soft); }
 .post-body { font-size: 16px; line-height: 1.85; color: var(--fg-soft); }
 .post-body > *:first-child { margin-top: 0; }
 

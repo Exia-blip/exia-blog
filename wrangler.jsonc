@@ -28,6 +28,11 @@
     }
   ],
 
+  // 文章 AI 摘要（Workers AI）；也可改用 AI_API_KEY 走外部 OpenAI 兼容接口
+  "ai": {
+    "binding": "AI"
+  },
+
   // 友链每 20 分钟巡检一次
   "triggers": {
     "crons": ["*/20 * * * *"]

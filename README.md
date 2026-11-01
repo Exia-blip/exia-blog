@@ -24,6 +24,7 @@
 | 归档 | `/archive` 按年月倒序，时间线 / 紧凑两种视图，年份筛选 `/archive/2026` |
 | 搜索 | 标题 + 正文关键词，分页列表 |
 | 风格主题 | 6 套预设（纸韵 / 水墨 / 苔原 / 静海 / 暮紫 / 终端），读者自选，浅色·深色·跟随系统三档 |
+| AI 摘要 | 保存/发布时自动生成导语，文章页顶部展示，同时作为列表简介、SEO description 与 RSS 描述；可手动改写或重新生成 |
 
 额外：RSS、sitemap、移动端适配、文章内 `#标签` 自动转为可点击链接。
 
@@ -41,6 +42,7 @@ exia-blog/
 │   ├── s3.js           # R2 presigned PUT（SigV4，纯 WebCrypto）
 │   ├── cron.js         # 友链巡检
 │   ├── webhook.js      # 评论通知
+│   ├── ai.js           # AI 摘要：Workers AI / 外部接口 / 抽取式兜底
 │   ├── settings.js     # 站点名 / 介绍 / 默认风格（D1 覆盖 vars）
 │   └── utils.js        # cookie / token / 分页
 └── public/
@@ -169,6 +171,27 @@ npx wrangler deploy
 
 `SITE_NAME` / `SITE_DESC` / `SITE_THEME` / `SITE_MODE` 只是没设置过时的兜底默认值。
 
+## AI 摘要
+
+文章保存（手动保存）或新建发布时，Worker 会读正文生成一段 60~110 字的中文导语，出现在：
+
+- 文章页标题下方的导语块（左侧带强调色竖线）
+- 首页 / 搜索 / 标签列表的简介（优先于正文截取）
+- 文章页 `<meta name="description">`、`og:description`、RSS `<description>`
+
+三种生成通道，按顺序尝试：
+
+1. **Workers AI**（默认，`wrangler.jsonc` 里的 `ai.binding`）。默认模型 `@cf/qwen/qwen3-30b-a3b-fp8`，失败退 `llama-3.3-70b`，再退 `llama-3.1-8b`
+2. **外部 OpenAI 兼容接口**：配 `AI_API_KEY`（+ 可选 `AI_API_BASE` / `AI_MODEL`），DeepSeek、Moonshot、自建网关都行
+3. **抽取式兜底**：前两条都失败时截正文前 150 字，标签显示「摘要」而不是「AI 摘要」
+
+控制逻辑：
+
+- 正文指纹（`summary_hash`）没变就不重新生成，避免反复烧 token
+- 编辑器里手动改过摘要 → 标记 `summary_src = manual`，之后 AI 不再覆盖
+- 「清空」+ 保存 → 清掉标记，下次保存重新生成
+- 生成走 `ctx.waitUntil`，不阻塞保存响应；编辑器点保存后会在后台把结果补进侧栏
+
 ## 风格主题
 
 六套预设，只换 CSS 变量，不改结构；标题字、圆角、阴影、代码高亮配色都跟着变。
@@ -195,6 +218,9 @@ npx wrangler deploy
 | `SITE_DESC` | var | 否 | 副标题默认值，后台可覆盖 |
 | `SITE_THEME` | var | 否 | 默认风格 `paper`/`ink`/`forest`/`ocean`/`plum`/`mono`，后台可覆盖 |
 | `SITE_MODE` | var | 否 | 默认外观 `auto`/`light`/`dark`，后台可覆盖 |
+| `AI_MODEL` | var/secret | 否 | 覆盖默认模型，如 `@cf/qwen/qwen3-30b-a3b-fp8` |
+| `AI_API_BASE` | var | 否 | 走外部 OpenAI 兼容接口时的地址，默认 `https://api.deepseek.com/v1` |
+| `AI_API_KEY` | secret | 否 | 不配 `AI` 绑定时用外部接口生成摘要 |
 | `OAUTH_REDIRECT` | var | 是 | 必须与 GitHub 回调地址完全一致 |
 | `GITHUB_CLIENT_ID` | var | 是 | |
 | `R2_PUBLIC_BASE` | var | 否 | R2 自定义公开域名；留空则用 `/img/` 代理 |

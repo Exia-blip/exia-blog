@@ -5,6 +5,7 @@ import { presignPut, makeKey, IMAGE_TYPES } from './s3.js';
 import { notifyComment } from './webhook.js';
 import { checkFriends } from './cron.js';
 import { getSite, setSite, THEME_IDS, MODE_IDS } from './settings.js';
+import { refreshSummary, generateSummary, contentHash, hasAI } from './ai.js';
 
 /* ---------- 小工具 ---------- */
 
@@ -32,7 +33,10 @@ function shapePost(p, full = false) {
     slug: p.slug,
     title: p.title,
     cover: p.cover || extractCover(p.content) || '',
-    excerpt: extractExcerpt(p.content, 140),
+    // 有 AI 摘要就用摘要当导语，没有才截正文
+    excerpt: p.summary || extractExcerpt(p.content, 140),
+    summary: p.summary || '',
+    summary_src: p.summary_src || '',
     tags: p.tags || [],
     category: p.category || '',
     is_private: !!p.is_private,
@@ -65,7 +69,7 @@ const AUTHOR_COLS = 'u.name AS author_name, u.login, u.avatar';
 
 /* ---------- 主路由 ---------- */
 
-export async function handleApi(env, request, url) {
+export async function handleApi(env, request, url, ctx) {
   const db = env.DB;
   const path = url.pathname.replace(/^\/api/, '') || '/';
   const method = request.method;
@@ -319,8 +323,17 @@ export async function handleApi(env, request, url) {
       .run();
 
     const id = info.meta.last_row_id;
+
+    // 手动写了摘要就存手动版，否则发布即后台生成
+    const manual = body.summary !== undefined ? String(body.summary).trim().slice(0, 400) : '';
+    if (manual) {
+      await db.prepare("UPDATE posts SET summary = ?, summary_src = 'manual' WHERE id = ?").bind(manual, id).run();
+    } else if (ctx) {
+      ctx.waitUntil(refreshSummary(env, db, id, { title, content }));
+    }
+
     await syncTags(db, id, content);
-    return json({ ok: true, id, slug });
+    return json({ ok: true, id, slug, summary: manual, ai: hasAI(env) });
   }
 
   /* ---- 更新 ---- */
@@ -351,9 +364,22 @@ export async function handleApi(env, request, url) {
     const category =
       body.category !== undefined ? String(body.category || '').trim().slice(0, 30) : p.category || '';
 
+    // 摘要：显式传入就按手动存；传空串表示"清空，下次重新生成"
+    let sumSql = '';
+    const sumArgs = [];
+    let needGen = false;
+    if (body.summary !== undefined) {
+      const manual = String(body.summary).trim().slice(0, 400);
+      sumSql = ', summary = ?, summary_src = ?';
+      sumArgs.push(manual, manual ? 'manual' : '');
+      needGen = !manual;
+    } else if (contentHash(content) !== (p.summary_hash || '')) {
+      needGen = true;      // 正文变了，摘要跟着旧了
+    }
+
     await db
       .prepare(
-        `UPDATE posts SET slug=?, title=?, content=?, cover=?, category=?, is_private=?, hidden=?, updated_at=? WHERE id=?`
+        `UPDATE posts SET slug=?, title=?, content=?, cover=?, category=?, is_private=?, hidden=?, updated_at=?${sumSql} WHERE id=?`
       )
       .bind(
         slug,
@@ -364,12 +390,53 @@ export async function handleApi(env, request, url) {
         body.is_private !== undefined ? (body.is_private ? 1 : 0) : p.is_private,
         body.hidden !== undefined ? (body.hidden ? 1 : 0) : p.hidden,
         nowISO(),
+        ...sumArgs,
         id
       )
       .run();
 
+    if (needGen && ctx) ctx.waitUntil(refreshSummary(env, db, id, { title, content }));
+
     await syncTags(db, id, content);
-    return json({ ok: true, id, slug, updated_at: nowISO() });
+    return json({ ok: true, id, slug, updated_at: nowISO(), ai: hasAI(env) });
+  }
+
+  /* ---- 生成 / 重新生成 AI 摘要 ---- */
+  if (/^\/posts\/\d+\/summary$/.test(path) && method === 'POST') {
+    const { user: u, res } = await requireUser(env, request);
+    if (res) return res;
+    const id = parseInt(path.split('/')[2], 10);
+
+    const p = await db.prepare('SELECT * FROM posts WHERE id = ?').bind(id).first();
+    if (!p) return err('文章不存在', 404);
+    if (p.author_id !== u.id && !u.is_admin) return err('无权编辑', 403);
+
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {}
+
+    const title = body.title !== undefined ? String(body.title).slice(0, 200) : p.title;
+    const content = body.content !== undefined ? String(body.content) : p.content;
+    if (!String(content).trim()) return err('正文是空的，没东西可总结');
+
+    const hash = contentHash(content);
+    const force = !!body.force;
+
+    // 已经算过同一版正文，直接返回，不重复烧 token
+    if (!force && p.summary && p.summary_hash === hash && p.summary_src !== 'manual') {
+      return json({ ok: true, summary: p.summary, src: p.summary_src, cached: true });
+    }
+
+    const out = await generateSummary(env, { title, content });
+    if (!out.summary) return err('摘要生成失败，检查 AI 绑定或密钥');
+
+    await db
+      .prepare('UPDATE posts SET summary = ?, summary_src = ?, summary_hash = ? WHERE id = ?')
+      .bind(out.summary, out.src, hash, id)
+      .run();
+
+    return json({ ok: true, summary: out.summary, src: out.src });
   }
 
   /* ---- 删除 ---- */

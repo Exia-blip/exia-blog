@@ -46,7 +46,7 @@ async function servePostPage(env, request, slug) {
   const tpl = await assetText(env, request, '/post');
   if (!tpl) return new Response('模板缺失', { status: 500 });
 
-  const desc = extractExcerpt(post.content, 150);
+  const desc = post.summary || extractExcerpt(post.content, 150);
   const cover = post.cover || '';
   const siteName = (await getSite(env)).name;
   const canonical = new URL(`/${post.slug}`, request.url).toString();
@@ -123,7 +123,7 @@ async function notFoundPage(env, request, message = '页面走丢了') {
 /* ---------- RSS / Sitemap ---------- */
 async function serveRss(env, request) {
   const { results } = await env.DB.prepare(
-    `SELECT slug, title, content, created_at FROM posts
+    `SELECT slug, title, content, summary, created_at FROM posts
      WHERE is_private = 0 AND hidden = 0 ORDER BY created_at DESC LIMIT 30`
   ).all();
 
@@ -137,7 +137,7 @@ async function serveRss(env, request) {
       <link>${link}</link>
       <guid isPermaLink="true">${link}</guid>
       <pubDate>${new Date(String(p.created_at).replace(' ', 'T') + 'Z').toUTCString()}</pubDate>
-      <description>${esc(extractExcerpt(p.content, 200))}</description>
+      <description>${esc(p.summary || extractExcerpt(p.content, 200))}</description>
     </item>`;
     })
     .join('\n');
@@ -174,11 +174,11 @@ async function serveSitemap(env, request) {
 }
 
 /* ---------- 入口 ---------- */
-async function route(request, env) {
+async function route(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  if (path.startsWith('/api/')) return await handleApi(env, request, url);
+  if (path.startsWith('/api/')) return await handleApi(env, request, url, ctx);
   if (path === '/auth/github') return loginRedirect(env, request);
   if (path === '/auth/callback') return await handleCallback(env, request);
   if (path === '/auth/logout') return logout();
@@ -228,7 +228,7 @@ async function route(request, env) {
 export default {
   async fetch(request, env, ctx) {
     try {
-      return await injectTheme(env, await route(request, env));
+      return await injectTheme(env, await route(request, env, ctx));
     } catch (e) {
       console.error(e);
       return json({ ok: false, error: e.message }, 500);

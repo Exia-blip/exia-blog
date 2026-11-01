@@ -48,6 +48,15 @@
     </div>
 
     <div class="field">
+      <label>AI 摘要 <span class="tiny muted" id="sum-state"></span></label>
+      <textarea id="summary" rows="4" maxlength="400" placeholder="保存后自动生成，也可以自己改写"></textarea>
+      <div style="display:flex;gap:6px">
+        <button class="btn sm" id="btn-sum" style="flex:1;justify-content:center">重新生成</button>
+        <button class="btn sm" id="btn-sum-clear" title="清空，下次保存时重新生成">清空</button>
+      </div>
+    </div>
+
+    <div class="field">
       <label>发布设置</label>
       <label class="switch"><input type="checkbox" id="is_private"> 私密（仅自己可见，未登录 404）</label>
       <label class="switch"><input type="checkbox" id="hidden"> 不列入首页（链接仍可直达）</label>
@@ -111,6 +120,8 @@ const privateEl = $('is_private');
 const hiddenEl = $('hidden');
 const stateEl = $('state');
 const stateText = $('state-text');
+const sumEl = $('summary');
+const sumStateEl = $('sum-state');
 
 let postId = null;      // 服务端 id
 let currentSlug = '';
@@ -119,6 +130,8 @@ let saving = false;
 let saveTimer = null;
 let draftKey = 'draft:new';
 let hasServerRecord = false;
+let sumTouched = false; // 手动改过摘要就不让 AI 覆盖
+let sumBusy = false;
 
 /* ---------- 状态提示 ---------- */
 function setState(kind, text) {
@@ -200,6 +213,8 @@ async function saveNow(manual = false) {
     is_private: privateEl.checked,
     hidden: hiddenEl.checked,
   };
+  // 只有手动改过摘要才回传，否则交给服务端按正文变化自动生成
+  if (sumTouched) payload.summary = sumEl.value.trim();
 
   try {
     let res;
@@ -224,11 +239,13 @@ async function saveNow(manual = false) {
     slugEl.placeholder = currentSlug ? `/${currentSlug}` : '如 about → /about';
     $('btn-view').href = '/p/' + encodeURIComponent(currentSlug || '');
 
+    if (sumTouched && !sumEl.value.trim()) sumTouched = false;  // 用户清空了 → 让 AI 重写
     dirty = false;
     saveLocal();
     setState('', '已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
     if (manual) toast('已保存');
     loadList();
+    if (!sumTouched && postId) fetchSummary(false);   // 后台补摘要，不挡保存
   } catch (e) {
     setState('error', e.message || '保存失败');
     toast(e.message || '保存失败');
@@ -242,6 +259,53 @@ function scheduleSave() {
   setState('', '编辑中…');
   saveTimer = setTimeout(() => saveNow(false), 3000);
 }
+
+/* ---------- AI 摘要 ---------- */
+function setSumState(text) {
+  sumStateEl.textContent = text || '';
+}
+
+async function fetchSummary(force = false) {
+  if (!postId || sumBusy || sumTouched) return;
+  if (!inputEl.value.trim()) {
+    setSumState('');
+    return;
+  }
+  sumBusy = true;
+  const btn = $('btn-sum');
+  btn.disabled = true;
+  setSumState(force ? '重新生成中…' : '生成中…');
+  try {
+    const r = await api('/api/posts/' + postId + '/summary', {
+      method: 'POST',
+      body: { title: titleEl.value.trim() || '无标题', content: inputEl.value, force },
+    });
+    if (!sumTouched) sumEl.value = r.summary || '';
+    setSumState(r.cached ? '已是最新' : r.src === 'ai' ? '刚生成' : '已生成（无模型，按正文截取）');
+  } catch (e) {
+    setSumState('生成失败：' + (e.message || '未知错误'));
+  } finally {
+    sumBusy = false;
+    btn.disabled = false;
+  }
+}
+
+sumEl.addEventListener('input', () => {
+  sumTouched = true;
+  setSumState('手动改写，保存后生效');
+});
+
+$('btn-sum').onclick = () => {
+  if (!postId) return toast('先保存一次，再生成摘要');
+  sumTouched = false;
+  fetchSummary(true);
+};
+
+$('btn-sum-clear').onclick = () => {
+  sumEl.value = '';
+  sumTouched = true;
+  setSumState('已清空，保存后重新生成');
+};
 
 /* ---------- 输入绑定 ---------- */
 function onInput() {
@@ -403,6 +467,9 @@ function resetEditor() {
   catEl.value = '';
   privateEl.checked = false;
   hiddenEl.checked = false;
+  sumEl.value = '';
+  sumTouched = false;
+  setSumState('');
   $('btn-view').href = '#';
   dirty = false;
   setState('', '新文章');
@@ -462,6 +529,9 @@ if (!user) {
       catEl.value = p.category || '';
       privateEl.checked = !!p.is_private;
       hiddenEl.checked = !!p.hidden;
+      sumEl.value = p.summary || '';
+      sumTouched = false;
+      setSumState(p.summary ? (p.summary_src === 'manual' ? '手动' : '') : '');
       currentSlug = p.slug;
       $('btn-view').href = '/p/' + encodeURIComponent(p.slug);
       slugEl.placeholder = `/${p.slug}`;

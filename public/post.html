@@ -61,6 +61,7 @@ function render() {
           <span style="margin-left:auto">${editBtn}</span>
         </div>
       </header>
+      ${p.summary ? `<aside class="post-lead"><span class="lead-tag">${p.summary_src === 'fallback' ? '摘要' : 'AI 摘要'}</span><p>${esc(p.summary)}</p></aside>` : ''}
       <div class="md post-body">${p.html}</div>
       <footer class="post-foot">
         <div class="tagbar" style="margin:0">
