@@ -109,7 +109,7 @@ GitHub → Settings → Developer settings → OAuth Apps → New OAuth App
 "vars": {
   "SITE_NAME": "Exia Blog",
   "SITE_DESC": "一句话简介",
-  "OAUTH_REDIRECT": "https://你的域名/auth/callback",
+  "SITE_ORIGIN": "https://你的域名",   // 只写 scheme + host，不要带路径和末尾斜杠
   "GITHUB_CLIENT_ID": "你的 Client ID",
   "R2_PUBLIC_BASE": ""
 }
@@ -171,6 +171,31 @@ npx wrangler deploy
 
 `SITE_NAME` / `SITE_DESC` / `SITE_THEME` / `SITE_MODE` 只是没设置过时的兜底默认值。
 
+## 换域名
+
+只改一处：`wrangler.jsonc` 的 `SITE_ORIGIN` 改成新域名（**只写 `https://host`，别带路径和斜杠**），然后 `npx wrangler deploy`。
+
+```diff
+- "SITE_ORIGIN": "https://old.example.com",
++ "SITE_ORIGIN": "https://new.example.com",
+```
+
+配套两件事：
+
+1. **GitHub OAuth App** 的 Authorization callback URL 改成 `https://新域名/auth/callback` —— 这一步只能手动做，GitHub 只认登记的地址，不一致会返回 `redirect_uri MUST match` 错误页
+2. 旧域名的会话 cookie 是 host-only 的，换域后必须重新登录一次，属正常现象
+
+其它域名（旧 workers.dev、备用域）访问登录页会自动 302 到 `SITE_ORIGIN`，保证会话 cookie 落在同一个 host，不会出现"授权成功但后台还是未登录"。
+
+卡住了打开 `https://你的域名/auth/status`，会直接告诉你当前算出来的回调地址：
+
+```json
+{"request_origin":"https://new.example.com","site_origin":"https://new.example.com",
+ "redirect_uri":"https://new.example.com/auth/callback","client_id":"set","client_secret":"set"}
+```
+
+把 `redirect_uri` 原样填进 GitHub 即可。`SITE_ORIGIN` 里多写的斜杠、误加的 `/auth/callback` 尾巴都会被自动清掉。
+
 ## AI 摘要
 
 文章保存（手动保存）或新建发布时，Worker 会读正文生成一段 60~110 字的中文导语，出现在：
@@ -221,7 +246,7 @@ npx wrangler deploy
 | `AI_MODEL` | var/secret | 否 | 覆盖默认模型，如 `@cf/qwen/qwen3-30b-a3b-fp8` |
 | `AI_API_BASE` | var | 否 | 走外部 OpenAI 兼容接口时的地址，默认 `https://api.deepseek.com/v1` |
 | `AI_API_KEY` | secret | 否 | 不配 `AI` 绑定时用外部接口生成摘要 |
-| `OAUTH_REDIRECT` | var | 是 | 必须与 GitHub 回调地址完全一致 |
+| `SITE_ORIGIN` | var | 是 | 站点主域，如 `https://exia.de5.net`。回调地址由它拼成 `${SITE_ORIGIN}/auth/callback` |
 | `GITHUB_CLIENT_ID` | var | 是 | |
 | `R2_PUBLIC_BASE` | var | 否 | R2 自定义公开域名；留空则用 `/img/` 代理 |
 | `SESSION_SECRET` | secret | 是 | 会话签名密钥 |
@@ -242,7 +267,7 @@ npx wrangler d1 execute blog-db --local --file=./schema.sql
 npx wrangler dev --port 8788 --local
 ```
 
-本地 OAuth 需要把 `OAUTH_REDIRECT` 临时改成 `http://localhost:8788/auth/callback`，并在 GitHub OAuth App 里同步加一条回调地址。本地测试想跳过 OAuth，直接在 `.dev.vars` 写 `SESSION_SECRET`，然后自己签一个 token 塞进 cookie 即可。
+本地 OAuth 需要把 `SITE_ORIGIN` 临时改成 `http://localhost:8788`，并在 GitHub OAuth App 里同步改回调地址（GitHub 只允许登记一条）。本地测试想跳过 OAuth，直接在 `.dev.vars` 写 `SESSION_SECRET`，然后自己签一个 token 塞进 cookie 即可。
 
 `.dev.vars` 已被 gitignore，本地密钥不会进仓库。
 

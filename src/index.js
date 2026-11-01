@@ -1,5 +1,5 @@
 import { handleApi } from './api.js';
-import { loginRedirect, handleCallback, logout, currentUser } from './auth.js';
+import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
 import { html, json } from './utils.js';
 import { checkFriends } from './cron.js';
 import { getSite } from './settings.js';
@@ -182,6 +182,7 @@ async function route(request, env, ctx) {
   if (path === '/auth/github') return loginRedirect(env, request);
   if (path === '/auth/callback') return await handleCallback(env, request);
   if (path === '/auth/logout') return logout();
+  if (path === '/auth/status') return authStatus(env, request);
   if (path.startsWith('/img/')) return await serveImage(env, path.slice('/img/'.length));
   if (path === '/rss.xml') return await serveRss(env, request);
   if (path === '/sitemap.xml') return await serveSitemap(env, request);

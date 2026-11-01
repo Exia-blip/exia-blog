@@ -49,8 +49,10 @@
     "SITE_THEME": "paper",
     // 默认外观：auto（跟随系统）| light | dark
     "SITE_MODE": "auto",
-    // OAuth 回调地址，必须是 https://你的域名/auth/callback
-    "OAUTH_REDIRECT": "https://exia-blog.meitu.workers.dev/auth/callback",
+    // 站点主域（只写 scheme + host，不要带路径和斜杠）。
+    // 换域名只改这一处：GitHub 回调会拼成 ${SITE_ORIGIN}/auth/callback，
+    // 其它域名访问登录页会自动跳到这里，保证会话 cookie 落在同一个 host。
+    "SITE_ORIGIN": "https://exia.de5.net",
     "GITHUB_CLIENT_ID": "Ov23liBYcJtW33DLooEd",
     // R2 公开访问域名，留空则走 /img/ 代理
     "R2_PUBLIC_BASE": ""
