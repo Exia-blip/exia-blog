@@ -17,7 +17,7 @@
 </main>
 
 <script type="module">
-import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons } from '/app.js';
+import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons, bindReadingProgress } from '/app.js';
 
 bindCopyButtons(document);
 
@@ -91,6 +91,7 @@ function render() {
 
   bindReply();
   bindForm();
+  bindReadingProgress(document.querySelector('.post-body'));
 }
 
 /* ---------- 评论 ---------- */

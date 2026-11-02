@@ -66,6 +66,12 @@ export function apply(theme, mode, persist = true) {
       localStorage.setItem(K_MODE, mode);
     } catch {}
   }
+  // 让浏览器/手机地址栏底色跟着主题走，深色模式下不会留一条刺眼的白边
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) {
+    const bg = getComputedStyle(ROOT).getPropertyValue('--bg').trim();
+    if (bg) meta.setAttribute('content', bg);
+  }
   syncUI();
   return { theme, mode, dark };
 }

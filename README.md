@@ -300,6 +300,30 @@ npx wrangler dev --port 8788 --local
 
 `.dev.vars` 已被 gitignore，本地密钥不会进仓库。
 
+## 性能与缓存
+
+**首屏不靠 JS 撑**。导航栏、首页横幅标题、第一页文章列表和分页都由 Worker 直接渲染进 HTML：
+
+| 内容 | 以前 | 现在 |
+|---|---|---|
+| 导航栏 | 空 `<div>`，等 `app.js` 下载执行后长出来 | Worker 直接输出 `<header>` |
+| 首页列表 | 一句「加载中…」，等 `/api/posts` 回来 | 第一页 10 篇已在 HTML 里 |
+| 标签页/分类页标题 | 先显示站名再被 JS 改成 `#标签` | 直接是 `#标签` |
+
+登录态（登录 / 后台 / 退出）不参与 SSR——HTML 是共享缓存的，带上用户信息会串号。Worker 只留一个空的 `<span id="nav-user">`，JS 取到 `/api/me` 后再填。空的时候 `:empty` 会让它不占位，避免「已登录却闪一下登录」。
+
+**三层缓存**：
+
+| 层 | 对象 | 策略 |
+|---|---|---|
+| 浏览器 | `style.css` / `app.js` / `theme.js` / `md.js` | `max-age=300, stale-while-revalidate=3600` |
+| 边缘（Cache API） | 匿名访客的公开页面 | 45 秒，`s-maxage=45` |
+| 浏览器/边缘 | R2 图片 | `max-age=31536000, immutable` |
+
+HTML 本身不能设长缓存（要注入站点主题与站名），所以边缘只给 45 秒：新文章发布后最多 45 秒出现在首页。带 `sid` cookie 的请求一律绕过缓存，后台、私密文章、登录流程永远实时渲染。
+
+**其它**：`robots.txt` 与 `manifest.webmanifest` 由 Worker 按当前域名动态生成；`/login`、`/editor` 带 `noindex`；文章页顶部有阅读进度条，正文不足一屏时不显示；深色模式下 `theme-color` 会跟着主题底色变。
+
 ## 几个实现上的取舍
 
 **Markdown 渲染器前后端同构**：`public/md.js` 同时被 Worker 和浏览器 import。编辑器右侧预览走浏览器本地渲染，零请求零延迟，且和线上输出逐字节一致。语法高亮是内置的 tokenizer，不引 CDN，国内也能秒开。

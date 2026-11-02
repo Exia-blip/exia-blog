@@ -32,11 +32,11 @@
 
   <div class="tagbar" id="tagbar"></div>
 
-  <div class="post-list" id="list">
-    <div class="empty">加载中…</div>
+  <div class="post-list" id="list" aria-live="polite">
+    <!--LIST-->
   </div>
 
-  <div class="pagination" id="pager"></div>
+  <div class="pagination" id="pager"><!--PAGER--></div>
 </main>
 
 <script type="module">
@@ -77,15 +77,25 @@ if (currentCat) {
   document.title = SITE.name;
 }
 
+let ctrl = null;
+
 async function load() {
-  listEl.innerHTML = '<div class="empty">加载中…</div>';
+  // 连打关键词时只保留最后一次请求，避免旧结果盖住新结果
+  if (ctrl) ctrl.abort();
+  ctrl = new AbortController();
+  const mine = ctrl;
+
+  listEl.setAttribute('aria-busy', 'true');
+  listEl.innerHTML = skeleton();
+
   const params = new URLSearchParams({ page: String(page), size: '10' });
   if (currentTag) params.set('tag', currentTag);
   if (currentCat) params.set('cat', currentCat);
   if (currentQ) params.set('q', currentQ);
 
   try {
-    const { posts, total, pages } = await api('/api/posts?' + params);
+    const { posts, total, pages } = await api('/api/posts?' + params, { signal: mine.signal });
+    if (mine !== ctrl) return;
     if (!posts.length) {
       listEl.innerHTML = `<div class="empty">${currentQ ? '没有找到匹配的文章' : '还没有文章，去写第一篇吧'}</div>`;
       pagerEl.innerHTML = '';
@@ -94,17 +104,29 @@ async function load() {
     listEl.innerHTML = posts.map(card).join('');
     renderPager(pages, total);
   } catch (e) {
-    listEl.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
+    if (e.name === 'AbortError' || mine !== ctrl) return;
+    listEl.innerHTML = `<div class="empty">加载失败：${esc(e.message)}<br><a class="btn sm" href="javascript:location.reload()" style="margin-top:12px">重试</a></div>`;
+  } finally {
+    if (mine === ctrl) listEl.setAttribute('aria-busy', 'false');
   }
+}
+
+function skeleton(n = 3) {
+  return Array.from({ length: n })
+    .map(
+      () =>
+        '<div class="sk-card"><div class="sk sk-thumb"></div><div class="sk-body"><div class="sk"></div><div class="sk"></div><div class="sk"></div></div></div>'
+    )
+    .join('');
 }
 
 function card(p) {
   return `
   <a class="post-card" href="/p/${encodeURIComponent(p.slug)}">
-    ${p.cover ? `<img class="thumb" src="${esc(p.cover)}" alt="" loading="lazy">` : ''}
+    ${p.cover ? `<img class="thumb" src="${esc(p.cover)}" alt="" loading="lazy" decoding="async" width="208" height="136">` : ''}
     <div class="body">
       <h2>${esc(p.title)}${p.is_private ? ' <span class="tiny muted">私密</span>' : ''}</h2>
-      <p class="excerpt">${esc(p.excerpt)}</p>
+      ${p.excerpt ? `<p class="excerpt">${esc(p.excerpt)}</p>` : ''}
       <div class="meta">
         <span>${fmtDate(p.created_at)}</span>
         <span class="sep-dot">${p.reading} 分钟</span>
@@ -175,16 +197,22 @@ qInput.addEventListener('input', () => {
       history.replaceState(null, '', url);
       currentQ = v;
       page = 1;
-      document.getElementById('hero-title').textContent = v ? `搜索：${v}` : '写字的地方';
+      document.getElementById('hero-title').textContent = v ? `搜索：${v}` : SITE.name;
+      document.getElementById('hero-sub').textContent = v
+        ? '标题与正文关键词匹配'
+        : SITE.desc || '记录思考、代码与生活。';
       load();
     }
   }, 320);
 });
 
 mountHeader(currentTag ? 'tag' : currentCat ? 'cat' : 'home');
-load();
 loadCats();
 loadTags();
+
+// 文章列表与分页已经由服务端渲染好了，只有搜索要走接口
+const BOOT = window.__LIST__;
+if (!BOOT || currentQ) load();
 </script>
 </body>
 </html>

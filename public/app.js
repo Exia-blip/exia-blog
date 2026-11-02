@@ -1,6 +1,7 @@
 // 前端公共层：API 封装 / 时间格式化 / 顶部导航 / 提示
-export async function api(path, { method = 'GET', body, raw } = {}) {
+export async function api(path, { method = 'GET', body, raw, signal } = {}) {
   const opts = { method, credentials: 'same-origin', headers: {} };
+  if (signal) opts.signal = signal;
   if (body instanceof FormData) {
     opts.body = body;
   } else if (body !== undefined) {
@@ -93,14 +94,20 @@ export async function site() {
   return SITE;
 }
 
-/* 顶部导航 */
+/* 顶部导航
+   正常情况下 Worker 已经把 <header class="site"> 渲染进 HTML 了，这里只补用户态，
+   首屏不会先空一块再长出来；万一没注入（旧缓存 / 直连静态资源）再整块兜底渲染。 */
+function userNav(user, active) {
+  const isEditor = active === 'editor' || active === 'mine';
+  return `<a href="/editor"${isEditor ? ' class="active"' : ''}>${user.is_admin ? '后台' : '写作'}</a>
+    <a href="/auth/logout" title="退出">${user.avatar ? `<img class="avatar-xs" src="${esc(user.avatar)}" alt="">` : '退出'}</a>`;
+}
+
 export async function mountHeader(active = '') {
-  const { buttonHTML, initSwitcher } = await import('/theme.js');
   const host = document.getElementById('site-header');
-  if (!host) return null;
+  const ssr = document.querySelector('header.site');
   const [user, s] = await Promise.all([me(), site()]);
-  const siteName = s.name || host.dataset.site || 'Exia Blog';
-  const siteDesc = (s.desc || '').trim();
+  const siteName = s.name || host?.dataset.site || 'Exia Blog';
 
   // 标签页标题统一「页面 · 站点名」，SSR 没注入到（静态资源缓存/直连）时前端再兜一层
   const curTitle = document.title.trim();
@@ -108,6 +115,18 @@ export async function mountHeader(active = '') {
     document.title = !curTitle || curTitle === '首页' ? siteName : `${curTitle} · ${siteName}`;
   }
 
+  if (ssr) {
+    const { initSwitcher } = await import('/theme.js');
+    const slot = document.getElementById('nav-user');
+    if (slot) slot.innerHTML = user ? userNav(user, active) : '<a href="/login">登录</a>';
+    initSwitcher();
+    return user;
+  }
+
+  const { buttonHTML, initSwitcher } = await import('/theme.js');
+  if (!host) return null;
+
+  const siteDesc = (s.desc || '').trim();
   const links = [
     { href: '/', label: '首页', key: 'home' },
     { href: '/categories', label: '栏目', key: 'categories' },
@@ -132,12 +151,7 @@ export async function mountHeader(active = '') {
           .map((l) => `<a href="${l.href}" class="${active === l.key ? 'active' : ''}">${l.label}</a>`)
           .join('')}
         ${active === 'tag' ? `<a href="javascript:;" class="active">#${esc(new URLSearchParams(location.search).get('t') || '')}</a>` : ''}
-        ${
-          user
-            ? `<a href="/editor" class="${active === 'editor' || active === 'mine' ? 'active' : ''}">${user.is_admin ? '后台' : '写作'}</a>
-               <a href="/auth/logout" title="退出">${user.avatar ? `<img class="avatar-xs" src="${esc(user.avatar)}" alt="">` : '退出'}</a>`
-            : `<a href="/login">登录</a>`
-        }
+        <span id="nav-user">${user ? userNav(user, active) : '<a href="/login">登录</a>'}</span>
         ${buttonHTML}
       </nav>
     </div>
@@ -164,8 +178,41 @@ export function bindCopyButtons(root = document) {
   });
 }
 
-/* 回到顶部：安知鱼主题下的悬浮圆按钮，其它主题不显示 */
-(function mountBackTop() {
+/* 阅读进度条：文章页顶部一条细线，滚到文末刚好走满 */
+export function bindReadingProgress(root = document.querySelector('.post-body')) {
+  if (!root) return;
+  let bar = document.querySelector('.read-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'read-bar';
+    bar.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(bar);
+  }
+  let raf = 0;
+  const sync = () => {
+    raf = 0;
+    const r = root.getBoundingClientRect();
+    // 正文高度减去一屏，才是真正需要滚动的距离；不足一屏就不显示这条线
+    const span = r.height - window.innerHeight;
+    if (span <= 20) {
+      bar.style.opacity = '0';
+      bar.style.transform = 'scaleX(0)';
+      return;
+    }
+    const done = Math.min(1, Math.max(0, -r.top / span));
+    bar.style.opacity = '1';
+    bar.style.transform = `scaleX(${done.toFixed(4)})`;
+  };
+  const onScroll = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(sync);
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+  sync();
+}
+
+/* 回到顶部：安知鱼主题下的悬浮圆按钮，其它主题不显示 */(function mountBackTop() {
   if (document.querySelector('.back-top')) return;
   const btn = document.createElement('button');
   btn.className = 'back-top';

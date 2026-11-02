@@ -67,6 +67,48 @@ async function syncTags(db, postId, content) {
 const AUTHOR_JOIN = 'LEFT JOIN users u ON u.id = p.author_id';
 const AUTHOR_COLS = 'u.name AS author_name, u.login, u.avatar';
 
+/* ---------- 文章列表查询（接口与首页 SSR 共用，避免两份 SQL 走偏） ---------- */
+export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q = '' } = {}) {
+  const offset = (page - 1) * size;
+  const where = ['p.is_private = 0', 'p.hidden = 0'];
+  const args = [];
+
+  if (tag) {
+    where.push('p.id IN (SELECT pt.post_id FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE t.name = ?)');
+    args.push(tag);
+  }
+  if (cat) {
+    where.push('p.category = ?');
+    args.push(cat);
+  }
+  if (q) {
+    where.push('(p.title LIKE ? OR p.content LIKE ?)');
+    args.push(`%${q}%`, `%${q}%`);
+  }
+
+  const whereSql = where.join(' AND ');
+  const totalRow = await db.prepare(`SELECT COUNT(*) AS c FROM posts p WHERE ${whereSql}`).bind(...args).first();
+
+  const { results } = await db
+    .prepare(
+      `SELECT p.*, ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
+       FROM posts p ${AUTHOR_JOIN} WHERE ${whereSql}
+       ORDER BY p.created_at DESC LIMIT ? OFFSET ?`
+    )
+    .bind(...args, size, offset)
+    .all();
+
+  await attachTags(db, results);
+  const total = totalRow?.c || 0;
+  return {
+    page,
+    size,
+    total,
+    pages: Math.max(1, Math.ceil(total / size)),
+    posts: results.map((p) => shapePost(p)),
+  };
+}
+
 /* ---------- 主路由 ---------- */
 
 export async function handleApi(env, request, url, ctx) {
@@ -152,48 +194,15 @@ export async function handleApi(env, request, url, ctx) {
 
   /* ---- 文章列表（首页 / 搜索 / 标签） ---- */
   if (path === '/posts' && method === 'GET') {
-    const { page, size, offset } = pageParams(url, 10);
-    const tag = url.searchParams.get('tag');
-    const cat = (url.searchParams.get('cat') || '').trim();
-    const q = (url.searchParams.get('q') || '').trim();
-
-    const where = ['p.is_private = 0', 'p.hidden = 0'];
-    const args = [];
-
-    if (tag) {
-      where.push('p.id IN (SELECT pt.post_id FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE t.name = ?)');
-      args.push(tag);
-    }
-    if (cat) {
-      where.push('p.category = ?');
-      args.push(cat);
-    }
-    if (q) {
-      where.push('(p.title LIKE ? OR p.content LIKE ?)');
-      args.push(`%${q}%`, `%${q}%`);
-    }
-
-    const whereSql = where.join(' AND ');
-    const totalRow = await db.prepare(`SELECT COUNT(*) AS c FROM posts p WHERE ${whereSql}`).bind(...args).first();
-
-    const { results } = await db
-      .prepare(
-        `SELECT p.*, ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
-         FROM posts p ${AUTHOR_JOIN} WHERE ${whereSql}
-         ORDER BY p.created_at DESC LIMIT ? OFFSET ?`
-      )
-      .bind(...args, size, offset)
-      .all();
-
-    await attachTags(db, results);
-    return json({
-      ok: true,
+    const { page, size } = pageParams(url, 10);
+    const data = await listPosts(db, {
       page,
       size,
-      total: totalRow?.c || 0,
-      pages: Math.max(1, Math.ceil((totalRow?.c || 0) / size)),
-      posts: results.map((p) => shapePost(p)),
+      tag: url.searchParams.get('tag') || '',
+      cat: (url.searchParams.get('cat') || '').trim(),
+      q: (url.searchParams.get('q') || '').trim(),
     });
+    return json({ ok: true, ...data });
   }
 
   /* ---- 我的文章（含私密与隐藏） ---- */
