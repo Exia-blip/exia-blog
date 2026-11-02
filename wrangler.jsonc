@@ -45,8 +45,8 @@
   "vars": {
     "SITE_NAME": "Exia Blog",
     "SITE_DESC": "写字的地方",
-    // 默认风格：paper | ink | forest | ocean | plum | mono
-    "SITE_THEME": "paper",
+    // 默认风格：anzhiyu | paper | ink | forest | ocean | plum | mono
+    "SITE_THEME": "anzhiyu",
     // 默认外观：auto（跟随系统）| light | dark
     "SITE_MODE": "auto",
     // 站点主域（只写 scheme + host，不要带路径和斜杠）。

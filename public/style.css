@@ -1063,3 +1063,313 @@ body { transition: background-color .26s ease, color .26s ease; }
 #site-avatar { width: 100%; min-width: 0; font-size: 13px; }
 .ava-btns { display: flex; gap: 6px; }
 .ava-btns .btn { flex: 1; justify-content: center; }
+
+/* ============================================================
+   安知鱼（anzhiyu）：蓝紫主色 · 悬浮胶囊导航 · 大圆角卡片
+   只作用于 data-theme="anzhiyu"，其余六套主题完全不受影响
+   ============================================================ */
+:root[data-theme="anzhiyu"] {
+  --bg: #f7f9fe;
+  --bg-soft: #eef2fd;
+  --card: #ffffff;
+  --fg: #292a2d;
+  --fg-soft: #4c4d57;
+  --muted: #858b9c;
+  --line: #e3e8f4;
+  --accent: #425aef;
+  --accent-soft: #eaf0ff;
+  --green: #17a673;
+  --red: #e35d6a;
+  --radius: 16px;
+  --shadow: 0 2px 6px rgba(60, 80, 160, .06), 0 14px 34px -20px rgba(66, 90, 239, .32);
+  --tok-k: #8b5cf6;
+  --tok-s: #0f9d70;
+  --tok-n: #d97706;
+  --tok-f: #2f6fe0;
+  --hero-weight: 700;
+  --hero-space: -0.03em;
+  --sans: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --serif: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+}
+:root[data-theme="anzhiyu"][data-mode="dark"] {
+  --bg: #18171d;
+  --bg-soft: #201f27;
+  --card: #1f1e26;
+  --fg: #eaeaf0;
+  --fg-soft: #c2c2cc;
+  --muted: #8b8b98;
+  --line: #2c2b35;
+  --accent: #7b8df8;
+  --accent-soft: #242539;
+  --green: #4ecb9b;
+  --red: #f07b86;
+  --shadow: 0 2px 8px rgba(0, 0, 0, .35), 0 16px 38px -22px rgba(0, 0, 0, .8);
+  --tok-k: #bda6f8;
+  --tok-s: #5fd6a8;
+  --tok-n: #f0b976;
+  --tok-f: #93b8ff;
+  color-scheme: dark;
+}
+
+/* 背景：顶部两层柔光，像贴了一层雾 */
+:root[data-theme="anzhiyu"] body {
+  background:
+    radial-gradient(1100px 520px at 8% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+    radial-gradient(900px 460px at 96% -4%, color-mix(in srgb, #a26bff 11%, transparent), transparent 64%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+/* 首页放宽，卡片才有安知鱼那种横向大图的余地 */
+:root[data-theme="anzhiyu"] .wrap.home { max-width: 1080px; }
+
+/* 导航：悬浮胶囊 */
+:root[data-theme="anzhiyu"] header.site {
+  background: transparent;
+  border-bottom: 0;
+  backdrop-filter: none;
+  padding: 12px 0 4px;
+}
+:root[data-theme="anzhiyu"] header.site .inner {
+  height: 56px;
+  padding: 0 10px 0 16px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 76%, transparent);
+  backdrop-filter: saturate(180%) blur(14px);
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  box-shadow: 0 8px 28px -18px rgba(30, 50, 120, .45);
+}
+:root[data-theme="anzhiyu"] nav.top a,
+:root[data-theme="anzhiyu"] nav.top button { border-radius: 999px; }
+:root[data-theme="anzhiyu"] nav.top a.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+:root[data-theme="anzhiyu"] .brand { font-family: var(--sans); font-size: 16.5px; }
+:root[data-theme="anzhiyu"] .brand .dot { display: none; }
+
+/* 首页横幅 */
+:root[data-theme="anzhiyu"] .hero {
+  position: relative;
+  margin: 14px 0 26px;
+  padding: 58px 34px 52px;
+  border-radius: 26px;
+  text-align: center;
+  overflow: hidden;
+  background:
+    radial-gradient(520px 220px at 18% 0%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 72%),
+    radial-gradient(460px 200px at 88% 10%, color-mix(in srgb, #b06bff 22%, transparent), transparent 74%),
+    linear-gradient(168deg, color-mix(in srgb, var(--accent) 9%, var(--card)), var(--card) 62%);
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--line));
+  box-shadow: var(--shadow);
+}
+:root[data-theme="anzhiyu"] .hero::after {
+  content: '';
+  position: absolute;
+  inset: auto -60px -120px auto;
+  width: 260px; height: 260px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  filter: blur(46px);
+  pointer-events: none;
+}
+:root[data-theme="anzhiyu"] .hero h1 {
+  position: relative;
+  font-family: var(--sans);
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin: 0 0 12px;
+}
+:root[data-theme="anzhiyu"] .hero p {
+  position: relative;
+  font-size: 15px;
+  color: var(--muted);
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+/* 搜索框 + 按钮 */
+:root[data-theme="anzhiyu"] .toolbar .search input {
+  border-radius: 999px;
+  border-color: color-mix(in srgb, var(--line) 90%, transparent);
+  background: var(--card);
+  box-shadow: 0 4px 16px -12px rgba(30, 50, 120, .4);
+  height: 40px;
+}
+:root[data-theme="anzhiyu"] .btn { border-radius: 999px; }
+:root[data-theme="anzhiyu"] .btn.primary {
+  background: linear-gradient(135deg, #425aef, #6f8dff);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 8px 18px -10px rgba(66, 90, 239, .8);
+}
+:root[data-theme="anzhiyu"] .btn.primary:hover { opacity: 1; filter: brightness(1.05); }
+
+/* 标签：五彩胶囊 */
+:root[data-theme="anzhiyu"] .tag {
+  border-radius: 999px;
+  padding: 3px 11px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+}
+:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+2) {
+  background: color-mix(in srgb, #17a673 11%, transparent); color: #12946a;
+}
+:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+3) {
+  background: color-mix(in srgb, #f08c00 13%, transparent); color: #c47a00;
+}
+:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+4) {
+  background: color-mix(in srgb, #e64980 11%, transparent); color: #d23f74;
+}
+:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+5) {
+  background: color-mix(in srgb, #7c5cf0 11%, transparent); color: #6d4ee0;
+}
+:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+2) { color: #5fd6a8; }
+:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+3) { color: #f0b976; }
+:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+4) { color: #f58bb1; }
+:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+5) { color: #bda6f8; }
+:root[data-theme="anzhiyu"] .cat-chip { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+
+/* 文章卡片：横向大图 + 悬停上浮 */
+:root[data-theme="anzhiyu"] .post-list { gap: 18px; }
+:root[data-theme="anzhiyu"] .post-card {
+  padding: 14px;
+  gap: 20px;
+  align-items: center;
+  border: 0;
+  border-radius: 20px;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(20, 30, 80, .04), 0 10px 28px -22px rgba(20, 30, 80, .55);
+  overflow: hidden;
+  transition: transform .24s cubic-bezier(.4, 0, .2, 1), box-shadow .24s;
+}
+:root[data-theme="anzhiyu"] .post-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 20px -10px rgba(66, 90, 239, .22), 0 26px 46px -28px rgba(66, 90, 239, .55);
+}
+:root[data-theme="anzhiyu"] .post-card .thumb {
+  width: 232px; height: 148px; flex: 0 0 232px;
+  border-radius: 14px;
+  transition: transform .4s cubic-bezier(.4, 0, .2, 1);
+}
+/* 没封面的文章补一块渐变占位，卡片高度与封面卡对齐 */
+:root[data-theme="anzhiyu"] .post-card:not(:has(.thumb))::before {
+  content: '';
+  flex: 0 0 232px;
+  height: 148px;
+  border-radius: 14px;
+  background:
+    radial-gradient(120px 90px at 30% 20%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--card)), color-mix(in srgb, #b06bff 16%, var(--card)));
+}
+:root[data-theme="anzhiyu"] .post-card:hover .thumb { transform: scale(1.045); }
+:root[data-theme="anzhiyu"] .post-card h2 { font-size: 17.5px; letter-spacing: -0.015em; }
+:root[data-theme="anzhiyu"] .post-card .excerpt { font-size: 13.5px; }
+:root[data-theme="anzhiyu"] .pagination .btn { border-radius: 999px; }
+
+/* 文章页：整篇装进卡片 */
+:root[data-theme="anzhiyu"] article {
+  background: var(--card);
+  border-radius: 22px;
+  padding: 6px 34px 34px;
+  margin: 22px 0 34px;
+  box-shadow: 0 1px 2px rgba(20, 30, 80, .04), 0 18px 40px -30px rgba(20, 30, 80, .6);
+}
+:root[data-theme="anzhiyu"] .post-head {
+  padding: 34px 0 22px;
+  border-bottom: 0;
+  margin-bottom: 18px;
+  text-align: center;
+}
+:root[data-theme="anzhiyu"] .post-head h1 {
+  font-family: var(--sans);
+  font-size: 30px;
+  letter-spacing: -0.025em;
+}
+:root[data-theme="anzhiyu"] .post-head .meta { justify-content: center; }
+:root[data-theme="anzhiyu"] .post-head .meta > span[style] { margin-left: 0 !important; }
+:root[data-theme="anzhiyu"] .post-lead {
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--line));
+  border-radius: 16px;
+  padding: 16px 18px;
+}
+:root[data-theme="anzhiyu"] .post-body { font-size: 15.5px; line-height: 1.9; }
+:root[data-theme="anzhiyu"] .post-foot { border-top: 0; padding-top: 6px; }
+
+/* 回到顶部：圆形悬浮按钮，只在安知鱼下出现 */
+.back-top {
+  position: fixed; right: 22px; bottom: 26px; z-index: 90;
+  width: 42px; height: 42px; border-radius: 50%;
+  display: none; place-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(10px);
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0; transform: translateY(10px); pointer-events: none;
+  transition: opacity .22s, transform .22s, box-shadow .22s;
+  box-shadow: 0 8px 24px -16px rgba(30, 50, 120, .6);
+}
+:root[data-theme="anzhiyu"] .back-top { display: grid; }
+.back-top.on { opacity: 1; transform: none; pointer-events: auto; }
+.back-top:hover { box-shadow: 0 12px 30px -14px rgba(66, 90, 239, .65); }
+.back-top svg { width: 17px; height: 17px; }
+
+@media (max-width: 860px) {
+  :root[data-theme="anzhiyu"] header.site { padding: 8px 0 2px; }
+  :root[data-theme="anzhiyu"] header.site .inner { height: 50px; padding: 0 44px 0 16px; }
+  :root[data-theme="anzhiyu"] .hero { padding: 40px 22px 36px; border-radius: 20px; }
+  :root[data-theme="anzhiyu"] .hero h1 { font-size: 28px; }
+  :root[data-theme="anzhiyu"] header.site .inner::after { display: none; }
+}
+@media (max-width: 640px) {
+  :root[data-theme="anzhiyu"] .post-card .thumb {
+    width: 104px; height: 84px; flex: 0 0 104px; border-radius: 11px;
+  }
+  :root[data-theme="anzhiyu"] .post-card:not(:has(.thumb))::before {
+    flex: 0 0 104px; width: 104px; height: 84px; border-radius: 11px;
+  }
+  :root[data-theme="anzhiyu"] .post-card { padding: 12px; gap: 13px; border-radius: 16px; }
+  :root[data-theme="anzhiyu"] .post-card:hover { transform: none; }
+  :root[data-theme="anzhiyu"] article { padding: 4px 20px 26px; border-radius: 18px; }
+  :root[data-theme="anzhiyu"] .post-head h1 { font-size: 24px; }
+  .back-top { right: 14px; bottom: 18px; }
+}
+
+/* 安知鱼：标题左侧渐变竖条、评论区也是卡片 */
+:root[data-theme="anzhiyu"] .md h2 {
+  border-bottom: 0;
+  padding-left: 14px;
+  position: relative;
+}
+:root[data-theme="anzhiyu"] .md h2::before {
+  content: '';
+  position: absolute;
+  left: 0; top: .18em; bottom: .18em;
+  width: 4px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, var(--accent), #b06bff);
+}
+:root[data-theme="anzhiyu"] .md blockquote {
+  border-left: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-radius: 0 12px 12px 0;
+  padding: 12px 16px;
+}
+:root[data-theme="anzhiyu"] .comments {
+  background: var(--card);
+  border-radius: 20px;
+  padding: 22px 26px 26px;
+  box-shadow: 0 1px 2px rgba(20, 30, 80, .04), 0 16px 36px -30px rgba(20, 30, 80, .6);
+}
+:root[data-theme="anzhiyu"] .cmt-form { border-radius: 14px; background: var(--bg-soft); border-color: transparent; }
+@media (max-width: 640px) {
+  :root[data-theme="anzhiyu"] .comments { padding: 18px 16px 20px; border-radius: 18px; }
+}

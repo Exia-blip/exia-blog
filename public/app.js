@@ -163,3 +163,21 @@ export function bindCopyButtons(root = document) {
     );
   });
 }
+
+/* 回到顶部：安知鱼主题下的悬浮圆按钮，其它主题不显示 */
+(function mountBackTop() {
+  if (document.querySelector('.back-top')) return;
+  const btn = document.createElement('button');
+  btn.className = 'back-top';
+  btn.type = 'button';
+  btn.setAttribute('aria-label', '回到顶部');
+  btn.title = '回到顶部';
+  btn.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>';
+  document.body.appendChild(btn);
+
+  const sync = () => btn.classList.toggle('on', (window.scrollY || window.pageYOffset || 0) > 360);
+  window.addEventListener('scroll', sync, { passive: true });
+  btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  sync();
+})();

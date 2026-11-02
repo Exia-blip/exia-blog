@@ -2,6 +2,7 @@
 // 偏好在 localStorage，站点默认值由服务端注入 window.__THEME_DEFAULT__
 
 export const THEMES = [
+  { id: 'anzhiyu', name: '安知鱼', desc: '蓝紫 · 圆角卡片', sw: ['#f7f9fe', '#eaf0ff', '#425aef'] },
   { id: 'paper', name: '纸韵', desc: '暖白 · 陶土橙', sw: ['#faf9f7', '#f3f1ec', '#a8501f'] },
   { id: 'ink', name: '水墨', desc: '纸白 · 墨线衬线', sw: ['#fdfcfa', '#e3ded4', '#1c1917'] },
   { id: 'forest', name: '苔原', desc: '米绿 · 林深处', sw: ['#f6f8f2', '#dee6d3', '#2f7a4a'] },

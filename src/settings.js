@@ -4,7 +4,7 @@
 const TTL = 30_000;
 let cache = { at: 0, val: null };
 
-export const THEME_IDS = ['paper', 'ink', 'forest', 'ocean', 'plum', 'mono'];
+export const THEME_IDS = ['anzhiyu', 'paper', 'ink', 'forest', 'ocean', 'plum', 'mono'];
 export const MODE_IDS = ['auto', 'light', 'dark'];
 
 const normTheme = (v) => (THEME_IDS.includes(v) ? v : 'paper');
