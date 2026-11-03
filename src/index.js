@@ -8,6 +8,7 @@ import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders } from './security.js';
 import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
 import { edgeGet, edgePut } from './cache.js';
+import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ESC[c]);
@@ -140,7 +141,7 @@ async function servePostPage(env, request, slug) {
 
   const tagbar = [
     post.category
-      ? `<a class="tag cat-chip" href="/cat/${encodeURIComponent(post.category)}">${esc(post.category)}</a>`
+      ? `<a class="tag cat-chip" href="/cat/${encodeURIComponent(post.category)}">${esc(catName(post.category))}</a>`
       : '',
     (post.tags || []).map((t) => `<a class="tag" href="/tag/${encodeURIComponent(t)}">#${esc(t)}</a>`).join(''),
   ].join('');
@@ -173,6 +174,8 @@ async function servePostPage(env, request, slug) {
   const meta = [
     `<title>${esc(post.title)} · ${esc(siteName)}</title>`,
     `<meta name="description" content="${esc(desc)}">`,
+    // 隐藏文章（不进首页/归档/sitemap）不该再被收录，否则等于绕开自己的分流
+    post.hidden ? `<meta name="robots" content="noindex,follow">` : '',
     `<meta name="theme-color" content="${THEME_COLOR[site.theme] || '#f7f9fe'}">`,
     `<meta name="color-scheme" content="light dark">`,
     `<link rel="canonical" href="${esc(canonical)}">`,
@@ -189,7 +192,7 @@ async function servePostPage(env, request, slug) {
     isDefaultOg ? `<meta property="og:image:height" content="630">` : '',
     `<meta property="article:published_time" content="${esc(iso(post.created_at))}">`,
     `<meta property="article:modified_time" content="${esc(iso(post.updated_at, iso(post.created_at)))}">`,
-    post.category ? `<meta property="article:section" content="${esc(post.category)}">` : '',
+    post.category ? `<meta property="article:section" content="${esc(catName(post.category))}">` : '',
     ...(post.tags || []).map((t) => `<meta property="article:tag" content="${esc(t)}">`),
     `<meta name="twitter:card" content="${cover ? 'summary_large_image' : 'summary'}">`,
     `<meta name="twitter:title" content="${esc(post.title)}">`,
@@ -288,8 +291,8 @@ function renderHeader(site, path) {
     const t = decodeURIComponent(path.slice(5).split('/')[0] || '');
     if (t) extra.push(`<a href="${esc(path)}" class="active">#${esc(t)}</a>`);
   } else if (path.startsWith('/cat/')) {
-    const c = decodeURIComponent(path.slice(5).split('/')[0] || '');
-    if (c) extra.push(`<a href="${esc(path)}" class="active">${esc(c)}</a>`);
+    const c = catBySlug(decodeURIComponent(path.slice(5).split('/')[0] || ''));
+    if (c) extra.push(`<a href="/cat/${c.slug}" class="active">${esc(c.name)}</a>`);
   }
 
   const links = NAV.map(
@@ -311,8 +314,13 @@ function renderHero(body, site, path) {
   if (!body.includes('id="hero-title"')) return body;
   const name = site.name || '';
   const desc = site.desc || '记录思考、代码与生活。';
+  // 只改首页与标签/栏目页的 H1：
+  // 归档页 / 栏目总览 / 友链页自己有标题，被站名盖掉等于把页面 H1 写成了品牌名
+  if (path !== '/' && !path.startsWith('/tag/') && !path.startsWith('/cat/')) return body;
+
   let title = name;
   let sub = desc;
+  let boot = '';
   if (path.startsWith('/tag/')) {
     const t = decodeURIComponent(path.slice(5).split('/')[0] || '');
     if (t) {
@@ -320,15 +328,21 @@ function renderHero(body, site, path) {
       sub = `标签「${t}」下的全部文章`;
     }
   } else if (path.startsWith('/cat/')) {
-    const c = decodeURIComponent(path.slice(5).split('/')[0] || '');
+    const c = catBySlug(decodeURIComponent(path.slice(5).split('/')[0] || ''));
     if (c) {
-      title = c;
-      sub = `分类「${c}」下的全部文章`;
+      title = c.name;
+      sub = c.desc || `栏目「${c.name}」下的全部文章`;
+      // 前端要按栏目名显示标题、按 slug 拼链接，别让它再拿路径里的 slug 当名字
+      boot = `<script>window.__CAT__=${JSON.stringify({ slug: c.slug, name: c.name, desc: c.desc }).replace(
+        /</g,
+        '\\u003c'
+      )};</script>`;
     }
   }
-  return body
+  const out = body
     .replace(/(<h1 id="hero-title"[^>]*>)[\s\S]*?(<\/h1>)/, `$1${esc(title)}$2`)
     .replace(/(<p id="hero-sub"[^>]*>)[\s\S]*?(<\/p>)/, `$1${esc(sub)}$2`);
+  return boot ? out.replace('</head>', `${boot}</head>`) : out;
 }
 
 /* ---------- 首页文章列表 SSR ----------
@@ -355,7 +369,7 @@ function postCard(p) {
     String(p.created_at || '').slice(0, 10)
   )}</span><span class="sep-dot">${p.reading} 分钟</span>${
     p.comments ? `<span class="sep-dot">${p.comments} 条评论</span>` : ''
-  }${p.category ? `<span class="tag cat-chip">${esc(p.category)}</span>` : ''}${tags}</div></div></a>`;
+  }${p.category ? `<span class="tag cat-chip">${esc(p.category_name || catName(p.category))}</span>` : ''}${tags}</div></div></a>`;
 }
 
 function pagerHtml(page, pages, total, base) {
@@ -405,6 +419,41 @@ async function renderList(env, body, url) {
   return { body: out, list: data };
 }
 
+/* ---------- 栏目页 SSR：四个固定栏目直接进 HTML ----------
+   栏目就四个，哪怕暂时没有文章也该出现在页面上（空栏目比缺栏目好解释），
+   顺便让栏目页对爬虫是一张有内容的目录页，而不是「加载中…」。 */
+async function renderCats(env, body) {
+  if (!body.includes('<!--CATS-->')) return body;
+
+  let counts = new Map();
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT category, COUNT(*) AS count FROM posts
+       WHERE is_private = 0 AND hidden = 0 GROUP BY category`
+    ).all();
+    for (const r of results) {
+      const slug = normalizeCat(r.category);
+      if (!slug) continue;
+      counts.set(slug, (counts.get(slug) || 0) + (Number(r.count) || 0));
+    }
+  } catch (e) {
+    console.error('cat ssr failed', e);
+  }
+
+  const cells = CATS.map(
+    (c) => `<a class="tax-cell cat-cell" href="/cat/${c.slug}">
+      <span class="tax-name">${esc(c.name)}<span class="cat-slug">${esc(c.slug)}</span></span>
+      <span class="tax-desc">${esc(c.desc)}</span>
+      <span class="tax-count">${counts.get(c.slug) || 0}</span>
+    </a>`
+  ).join('');
+
+  const sum = [...counts.values()].reduce((a, b) => a + b, 0);
+  return body
+    .replace('<!--CATS-->', cells)
+    .replace('<!--CAT-TOTAL-->', `${CATS.length} 个栏目 · ${sum} 篇`);
+}
+
 /* ---------- 静态页 SEO：站点名进标签页标题、站点描述进 meta ----------
    文章页的 <!--SEO--> 已在 servePostPage 里换掉，这里只兜静态页（首页/归档/栏目/友链…） */
 function fillSeo(body, site, url) {
@@ -412,15 +461,22 @@ function fillSeo(body, site, url) {
 
   const m = body.match(/<title>([\s\S]*?)<\/title>/i);
   let label = (m?.[1] || '').replace(/\s+/g, ' ').trim();
-  // 标签页/分类页复用首页骨架，标签页标题得按路径算，不能沿用「首页」
-  if (url && label === '首页') {
+  let cat = null;
+  // 标签页/栏目页复用首页骨架，标题得按路径算，不能沿用「首页」
+  if (url) {
     const p = url.pathname;
-    if (p.startsWith('/tag/')) label = '#' + decodeURIComponent(p.slice(5).split('/')[0] || '');
-    else if (p.startsWith('/cat/')) label = decodeURIComponent(p.slice(5).split('/')[0] || '');
+    if (p.startsWith('/tag/')) {
+      const t = decodeURIComponent(p.slice(5).split('/')[0] || '');
+      if (t) label = `#${t}`;
+    } else if (p.startsWith('/cat/')) {
+      cat = catBySlug(decodeURIComponent(p.slice(5).split('/')[0] || ''));
+      if (cat) label = cat.name;
+    }
   }
   const home = !label || label === '首页';
   const title = home ? site.name : `${label} · ${site.name}`;
-  const desc = site.desc || `${site.name} · 记录思考、代码与生活`;
+  // 栏目页用自己的栏目说明当描述，比全站一句通用话更贴页面主题
+  const desc = cat ? cat.desc : site.desc || `${site.name} · 记录思考、代码与生活`;
   const canonical = url ? new URL(url.pathname, url.origin).toString() : '';
   const origin = url ? url.origin : '';
   // 没有站点头像就用站点默认分享图，社交卡片不至于空一块
@@ -479,7 +535,7 @@ async function injectTheme(env, res, url) {
   body = renderHero(body, s, url.pathname);
 
   const { body: listed, list } = await renderList(env, body, url);
-  body = listed;
+  body = await renderCats(env, listed);
 
   // 结构化数据：站点一条，列表页再加 CollectionPage
   const ld = [ldJson(siteLd(s, url.origin))];
@@ -587,18 +643,43 @@ ${items}
 }
 
 async function serveSitemap(env, request) {
-  const { results } = await env.DB.prepare(
-    'SELECT slug, updated_at FROM posts WHERE is_private = 0 AND hidden = 0 ORDER BY created_at DESC LIMIT 1000'
-  ).all();
   const origin = new URL(request.url).origin;
-  const urls = results
+  const publicOnly = 'p.is_private = 0 AND p.hidden = 0';
+
+  const [{ results: posts }, { results: cats }, { results: tags }] = await Promise.all([
+    env.DB.prepare(
+      `SELECT p.slug, p.updated_at FROM posts p WHERE ${publicOnly} ORDER BY p.created_at DESC LIMIT 1000`
+    ).all(),
+    env.DB.prepare(
+      `SELECT p.category AS c, COUNT(*) AS n FROM posts p WHERE ${publicOnly} AND TRIM(COALESCE(p.category,'')) != '' GROUP BY p.category`
+    ).all(),
+    env.DB.prepare(
+      `SELECT t.name AS n, COUNT(*) AS c FROM tags t
+       JOIN post_tags pt ON pt.tag_id = t.id
+       JOIN posts p ON p.id = pt.post_id AND ${publicOnly}
+       GROUP BY t.name ORDER BY c DESC`
+    ).all(),
+  ]);
+
+  const urls = posts
     .map(
       (p) =>
         `  <url><loc>${origin}/p/${encodeURIComponent(p.slug)}</loc><lastmod>${String(p.updated_at || '').slice(0, 10)}</lastmod></url>`
     )
     .join('\n');
+
+  // 栏目页只在真有文章时进 sitemap；空栏目页对爬虫是薄内容
+  const catUrls = [...new Set(cats.map((r) => normalizeCat(r.c)).filter(Boolean))]
+    .map((slug) => `  <url><loc>${origin}/cat/${slug}</loc></url>`)
+    .join('\n');
+
+  const tagUrls = tags
+    .filter((t) => t.c > 0)
+    .map((t) => `  <url><loc>${origin}/tag/${encodeURIComponent(t.n)}</loc></url>`)
+    .join('\n');
+
   return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${origin}/</loc></url>\n  <url><loc>${origin}/archive</loc></url>\n  <url><loc>${origin}/categories</loc></url>\n${urls}\n</urlset>`,
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${origin}/</loc></url>\n  <url><loc>${origin}/archive</loc></url>\n  <url><loc>${origin}/categories</loc></url>\n  <url><loc>${origin}/friends</loc></url>\n${catUrls}\n${tagUrls}\n${urls}\n</urlset>`,
     { headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=600' } }
   );
 }
@@ -705,11 +786,37 @@ async function route(request, env, ctx) {
   if (path === '/robots.txt') return serveRobots(request);
   if (path === '/manifest.webmanifest') return await serveManifest(env, request);
 
-  // 标签页 / 分类页复用首页骨架，前端读路径
-  if (path.startsWith('/tag/') || path.startsWith('/cat/')) {
+  // 标签页 / 栏目页复用首页骨架，前端读路径
+  if (path.startsWith('/tag/')) {
+    const tag = decodeURIComponent(path.slice(5).split('/')[0] || '');
+    if (!tag) return await notFoundPage(env, request, '页面走丢了');
+    // 没有任何公开文章的标签页就是薄内容，直接 404，别让爬虫收一堆空页
+    const hit = await env.DB.prepare(
+      `SELECT 1 FROM tags t
+       JOIN post_tags pt ON pt.tag_id = t.id
+       JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0
+       WHERE t.name = ? LIMIT 1`
+    )
+      .bind(tag)
+      .first();
+    if (!hit) return await notFoundPage(env, request, '这个标签下还没有文章');
     const res = await env.ASSETS.fetch(new Request(new URL('/', request.url), request));
-    const body = await res.text();
-    return html(body);
+    return html(await res.text());
+  }
+
+  // 栏目只有四个 slug，未知栏目直接 404；中文旧链接 301 到 slug
+  if (path.startsWith('/cat/')) {
+    const raw = decodeURIComponent(path.slice(5).split('/')[0] || '');
+    const c = catBySlug(raw);
+    if (!c) return await notFoundPage(env, request, '没有这个栏目');
+    if (raw !== c.slug) {
+      return new Response(null, {
+        status: 301,
+        headers: { location: `/cat/${c.slug}${url.search}`, 'cache-control': 'public, max-age=86400' },
+      });
+    }
+    const res = await env.ASSETS.fetch(new Request(new URL('/', request.url), request));
+    return html(await res.text());
   }
 
   // 归档 / 时间线

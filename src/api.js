@@ -8,12 +8,23 @@ import { notifyComment } from './webhook.js';
 import { checkFriends } from './cron.js';
 import { getSite, setSite, THEME_IDS, MODE_IDS } from './settings.js';
 import { refreshSummary, generateSummary, contentHash, hasAI } from './ai.js';
+import {
+  CATS,
+  TAG_SEED,
+  TAG_ALIAS,
+  normalizeCat,
+  catName,
+  normalizeTag,
+  normalizeTags,
+  isSeedTag,
+} from './taxonomy.js';
 
 /* ---------- 小工具 ---------- */
 
 /* 发布 / 修改 / 删除后主动删掉边缘缓存：不用等 45 秒 TTL 过期 */
-function bust(url, slugs = []) {
+function bust(url, slugs = [], cats = []) {
   const paths = ['/', '/archive', '/categories'];
+  for (const c of cats.filter(Boolean)) paths.push(`/cat/${encodeURIComponent(c)}`);
   for (const s of slugs.filter(Boolean)) {
     paths.push(`/p/${encodeURIComponent(s)}`, `/${encodeURIComponent(s)}`);
   }
@@ -50,6 +61,7 @@ function shapePost(p, full = false) {
     summary_src: p.summary_src || '',
     tags: p.tags || [],
     category: p.category || '',
+    category_name: p.category ? catName(p.category) : '',
     is_private: !!p.is_private,
     hidden: !!p.hidden,
     author: p.author_name || p.login || '',
@@ -65,7 +77,8 @@ function shapePost(p, full = false) {
 }
 
 async function syncTags(db, postId, content) {
-  const names = extractTags(content);
+  // 正文里手写的 #标签 先过一遍别名表，避免 cf / cfworkers / cloudflare 各存一份
+  const names = normalizeTags(extractTags(content));
   await db.prepare('DELETE FROM post_tags WHERE post_id = ?').bind(postId).run();
   for (const name of names) {
     await db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').bind(name).run();
@@ -309,17 +322,57 @@ export async function handleApi(env, request, url, ctx) {
     });
   }
 
-  /* ---- 分类云 ---- */
+  /* ---- 栏目（固定四栏，含空栏目；栏目语义见 src/taxonomy.js） ---- */
   if (path === '/categories' && method === 'GET') {
     const { results } = await db
       .prepare(
-        `SELECT category AS name, COUNT(*) AS count
-         FROM posts
-         WHERE is_private = 0 AND hidden = 0 AND TRIM(COALESCE(category,'')) != ''
-         GROUP BY category ORDER BY count DESC, category ASC`
+        `SELECT category, COUNT(*) AS count FROM posts
+         WHERE is_private = 0 AND hidden = 0 GROUP BY category`
       )
       .all();
-    return json({ ok: true, categories: results });
+
+    const counts = new Map();
+    let uncategorized = 0;
+    for (const r of results) {
+      const slug = normalizeCat(r.category);
+      if (!slug) {
+        uncategorized += Number(r.count) || 0;
+        continue;
+      }
+      counts.set(slug, (counts.get(slug) || 0) + (Number(r.count) || 0));
+    }
+
+    return json({
+      ok: true,
+      categories: CATS.map((c) => ({
+        slug: c.slug,
+        name: c.name,
+        desc: c.desc,
+        hint: c.hint,
+        count: counts.get(c.slug) || 0,
+      })),
+      uncategorized,
+    });
+  }
+
+  /* ---- 栏目 / 标签规范（编辑器用：四选一 + 白名单 + 别名表） ---- */
+  if (path === '/taxonomy' && method === 'GET') {
+    const { results } = await db
+      .prepare(
+        `SELECT t.name, COUNT(pt.post_id) AS count FROM tags t
+         LEFT JOIN post_tags pt ON pt.tag_id = t.id
+         LEFT JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0
+         GROUP BY t.name ORDER BY count DESC, t.name ASC`
+      )
+      .all();
+    return json({
+      ok: true,
+      categories: CATS,
+      seed: TAG_SEED,
+      aliases: TAG_ALIAS,
+      tags: results,
+      offlist: results.filter((r) => !isSeedTag(r.name)).map((r) => r.name),
+    });
   }
 
   /* ---- 单篇文章 ---- */
@@ -362,7 +415,9 @@ export async function handleApi(env, request, url, ctx) {
     }
 
     const cover = body.cover ? String(body.cover) : extractCover(content) || '';
-    const category = String(body.category || '').trim().slice(0, 30);
+    const rawCat = String(body.category || '').trim();
+    const category = normalizeCat(rawCat);
+    if (rawCat && !category) return err('未知栏目：只能是 log / teardown / tools / site');
     const stamp = nowISO();
 
     const info = await db
@@ -384,7 +439,7 @@ export async function handleApi(env, request, url, ctx) {
     }
 
     await syncTags(db, id, content);
-    if (ctx) ctx.waitUntil(bust(url, [slug]));
+    if (ctx) ctx.waitUntil(bust(url, [slug], [category]));
     return json({ ok: true, id, slug, summary: manual, ai: hasAI(env) });
   }
 
@@ -413,8 +468,12 @@ export async function handleApi(env, request, url, ctx) {
     }
 
     const cover = body.cover !== undefined ? String(body.cover || '') : p.cover || extractCover(content) || '';
-    const category =
-      body.category !== undefined ? String(body.category || '').trim().slice(0, 30) : p.category || '';
+    let category = p.category || '';
+    if (body.category !== undefined) {
+      const rawCat = String(body.category || '').trim();
+      category = normalizeCat(rawCat);
+      if (rawCat && !category) return err('未知栏目：只能是 log / teardown / tools / site');
+    }
 
     // 摘要：显式传入就按手动存；传空串表示"清空，下次重新生成"
     let sumSql = '';
@@ -450,7 +509,7 @@ export async function handleApi(env, request, url, ctx) {
     if (needGen && ctx) ctx.waitUntil(refreshSummary(env, db, id, { title, content }));
 
     await syncTags(db, id, content);
-    if (ctx) ctx.waitUntil(bust(url, [slug, p.slug]));
+    if (ctx) ctx.waitUntil(bust(url, [slug, p.slug], [category, p.category]));
     return json({ ok: true, id, slug, updated_at: nowISO(), ai: hasAI(env) });
   }
 
@@ -507,7 +566,7 @@ export async function handleApi(env, request, url, ctx) {
       db.prepare('DELETE FROM comments WHERE post_id = ?').bind(id),
       db.prepare('DELETE FROM posts WHERE id = ?').bind(id),
     ]);
-    if (ctx) ctx.waitUntil(bust(url, [p.slug]));
+    if (ctx) ctx.waitUntil(bust(url, [p.slug], [p.category]));
     return json({ ok: true });
   }
 
@@ -671,6 +730,68 @@ export async function handleApi(env, request, url, ctx) {
     if (changed.length && ctx) ctx.waitUntil(bust(url, results.map((p) => p.slug)));
     return json({ ok: true, scanned: results.length, changed: changed.length, detail: changed.slice(0, 50) });
   }
+
+  /* ---- 栏目 / 标签归一：老数据里的中文栏目、别名标签、空标签一次收拾干净 ---- */
+  if (path === '/maintenance/taxonomy' && method === 'POST') {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+
+    // 1) 栏目收敛到四个 slug
+    const { results: posts } = await db
+      .prepare("SELECT id, slug, category FROM posts WHERE TRIM(COALESCE(category,'')) != ''")
+      .all();
+    const catChanges = [];
+    for (const p of posts) {
+      const slug = normalizeCat(p.category);
+      if (slug !== p.category) {
+        await db.prepare('UPDATE posts SET category = ? WHERE id = ?').bind(slug, p.id).run();
+        catChanges.push({ post: p.slug, from: p.category, to: slug });
+      }
+    }
+
+    // 2) 标签按别名表合并（cf → cloudflare 之类）
+    const { results: tags } = await db.prepare('SELECT id, name FROM tags ORDER BY id ASC').all();
+    const idByName = new Map(tags.map((t) => [t.name, t.id]));
+    const merged = [];
+    for (const t of tags) {
+      const to = normalizeTag(t.name);
+      if (!to || to === t.name) continue;
+
+      let targetId = idByName.get(to);
+      if (!targetId) {
+        await db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').bind(to).run();
+        targetId = (await db.prepare('SELECT id FROM tags WHERE name = ?').bind(to).first())?.id;
+        if (targetId) idByName.set(to, targetId);
+      }
+      if (!targetId) continue;
+
+      await db.batch([
+        db
+          .prepare('INSERT OR IGNORE INTO post_tags (post_id, tag_id) SELECT post_id, ? FROM post_tags WHERE tag_id = ?')
+          .bind(targetId, t.id),
+        db.prepare('DELETE FROM post_tags WHERE tag_id = ?').bind(t.id),
+        db.prepare('DELETE FROM tags WHERE id = ?').bind(t.id),
+      ]);
+      idByName.delete(t.name);
+      merged.push({ from: t.name, to });
+    }
+
+    // 3) 没有文章的标签直接删：空标签页对爬虫是薄内容
+    const emptied = await db
+      .prepare('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM post_tags)')
+      .run();
+
+    const { results: left } = await db.prepare('SELECT name FROM tags ORDER BY name').all();
+    if (ctx) ctx.waitUntil(bust(url, posts.map((p) => p.slug), posts.map((p) => p.category)));
+    return json({
+      ok: true,
+      categories: catChanges,
+      merged,
+      removed_empty: emptied.meta.changes || 0,
+      offlist: left.map((r) => r.name).filter((n) => !isSeedTag(n)),
+    });
+  }
+
 
   /* ---- 图片上传 ---- */
   if (path === '/upload-url' && method === 'POST') {

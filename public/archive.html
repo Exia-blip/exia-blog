@@ -89,7 +89,7 @@ function renderTimeline(years) {
               <span class="tl-body">
                 <span class="tl-title">${esc(p.title)}</span>
                 <span class="tl-meta">
-                  ${p.category ? `<span class="chi cat">${esc(p.category)}</span>` : ''}
+                  ${p.category ? `<span class="chi cat">${esc(p.category_name || p.category)}</span>` : ''}
                   ${(p.tags || []).slice(0, 3).map((x) => `<span class="chi">#${esc(x)}</span>`).join('')}
                   <span class="tl-dim">${p.reading} 分钟</span>
                   ${p.comments ? `<span class="tl-dim">${p.comments} 条评论</span>` : ''}
@@ -128,7 +128,7 @@ function renderList(years) {
               <span class="arch-day">${t.md}</span>
               <span class="arch-title">${esc(p.title)}</span>
               <span class="arch-side">
-                ${p.category ? `<span class="chi cat">${esc(p.category)}</span>` : ''}
+                ${p.category ? `<span class="chi cat">${esc(p.category_name || p.category)}</span>` : ''}
               </span>
             </a>`;
             })

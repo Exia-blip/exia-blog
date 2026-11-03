@@ -17,15 +17,15 @@
 <main class="wrap">
   <section class="hero">
     <h1 id="hero-title">栏目</h1>
-    <p id="hero-sub">按分类或标签找文章</p>
+    <p id="hero-sub">栏目回答「这是什么类型的东西」，标签回答「用什么做的 / 拆的是什么」</p>
   </section>
 
   <section class="tax-section">
     <div class="tax-head">
-      <h2>分类</h2>
-      <span class="tiny muted" id="cat-total"></span>
+      <h2>栏目</h2>
+      <span class="tiny muted" id="cat-total"><!--CAT-TOTAL--></span>
     </div>
-    <div class="tax-grid" id="cat-grid"><div class="empty">加载中…</div></div>
+    <div class="tax-grid" id="cat-grid"><!--CATS--></div>
   </section>
 
   <section class="tax-section">
@@ -40,51 +40,54 @@
 <script type="module">
 import { api, esc, mountHeader, site } from '/app.js';
 
-const catGrid = document.getElementById('cat-grid');
 const tagGrid = document.getElementById('tag-grid');
-const catTotal = document.getElementById('cat-total');
 const tagTotal = document.getElementById('tag-total');
+const catTotal = document.getElementById('cat-total');
 
 const SITE = await site();
 document.title = `栏目 · ${SITE.name}`;
 
-function cell(name, count, href, prefix = '') {
-  return `<a class="tax-cell" href="${href}">
-    <span class="tax-name">${prefix}${esc(name)}</span>
-    <span class="tax-count">${count}</span>
-  </a>`;
+// 栏目的 HTML 已由 Worker 服务端渲染好（四栏固定，含空栏目），
+// 这里只补标签云：标签是动态的，服务端渲染价值不如栏目页大。
+async function loadTags() {
+  try {
+    const { tags } = await api('/api/tags');
+    if (!tags.length) {
+      tagGrid.innerHTML = '<div class="empty">还没有标签。正文里写 <code>#标签</code> 会自动归集。</div>';
+      tagTotal.textContent = '';
+      return;
+    }
+    tagGrid.innerHTML = tags
+      .map(
+        (t) => `<a class="tax-cell" href="/tag/${encodeURIComponent(t.name)}">
+          <span class="tax-name">#${esc(t.name)}</span>
+          <span class="tax-count">${t.count}</span>
+        </a>`
+      )
+      .join('');
+    tagTotal.textContent = `${tags.length} 个标签`;
+  } catch {
+    tagGrid.innerHTML = '<div class="empty">标签加载失败，刷新试试</div>';
+  }
 }
 
-async function load() {
-  const [cats, tags] = await Promise.all([
-    api('/api/categories').catch(() => ({ categories: [] })),
-    api('/api/tags').catch(() => ({ tags: [] })),
-  ]);
-
-  if (!cats.categories.length) {
-    catGrid.innerHTML = '<div class="empty">还没有分类。写文章时在侧栏「分类」填一个即可。</div>';
-    catTotal.textContent = '';
-  } else {
-    catGrid.innerHTML = cats.categories
-      .map((c) => cell(c.name, c.count, '/cat/' + encodeURIComponent(c.name)))
-      .join('');
-    const sum = cats.categories.reduce((a, b) => a + b.count, 0);
-    catTotal.textContent = `${cats.categories.length} 个分类 · ${sum} 篇`;
-  }
-
-  if (!tags.tags.length) {
-    tagGrid.innerHTML = '<div class="empty">还没有标签。正文里写 <code>#标签</code> 会自动归集。</div>';
-    tagTotal.textContent = '';
-  } else {
-    tagGrid.innerHTML = tags.tags
-      .map((t) => cell(t.name, t.count, '/tag/' + encodeURIComponent(t.name), '#'))
-      .join('');
-    tagTotal.textContent = `${tags.tags.length} 个标签`;
-  }
+// 栏目数量随发文变化，SSR 那份可能已经旧了；这里静默对齐一次数字
+async function syncCatCounts() {
+  try {
+    const { categories } = await api('/api/categories');
+    if (!categories) return;
+    for (const c of categories) {
+      const el = document.querySelector(`#cat-grid a[href="/cat/${c.slug}"] .tax-count`);
+      if (el) el.textContent = c.count;
+    }
+    const sum = categories.reduce((a, b) => a + b.count, 0);
+    if (catTotal) catTotal.textContent = `${categories.length} 个栏目 · ${sum} 篇`;
+  } catch {}
 }
 
 mountHeader('categories');
-load();
+syncCatCounts();
+loadTags();
 </script>
 </body>
 </html>

@@ -522,6 +522,8 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .pagination .page-info { font-size: 13px; color: var(--muted); padding: 0 6px; }
 
 .empty { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
+/* 空态文案落在 grid 里时别缩成 170px 一格 */
+.tax-grid > .empty { grid-column: 1 / -1; padding: 26px 10px; }
 
 /* ============ 文章页 ============ */
 .post-head { padding: 46px 0 26px; border-bottom: 1px solid var(--line); margin-bottom: 30px; }
@@ -1427,3 +1429,24 @@ body { transition: background-color .26s ease, color .26s ease; }
   .sk-thumb { width: 96px; height: 76px; flex: 0 0 96px; }
   .sk-card { gap: 13px; padding: 12px; }
 }
+
+/* ---------- 栏目页（四个固定栏目 + 一句说明） ---------- */
+.cat-cell { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 4px 10px; }
+.cat-cell .tax-name { grid-column: 1; display: flex; align-items: baseline; gap: 7px; font-weight: 600; }
+.cat-slug { font-size: 10.5px; font-weight: 400; letter-spacing: .04em; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.cat-cell .tax-count { grid-column: 2; grid-row: 1; }
+.cat-cell .tax-desc { grid-column: 1 / -1; font-size: 12.5px; line-height: 1.65; color: var(--muted); font-weight: 400; }
+.cat-cell:hover .tax-desc { color: inherit; opacity: .85; }
+
+/* ---------- 编辑器发布自检 ---------- */
+.checklist { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.checklist li { display: flex; gap: 7px; align-items: flex-start; font-size: 12px; line-height: 1.55; color: var(--fg-soft); }
+.checklist .ck {
+  flex: 0 0 14px; height: 14px; margin-top: 1px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 10px; line-height: 1;
+  background: var(--bg-soft); color: var(--muted);
+}
+.checklist li.ok .ck { background: var(--accent-soft); color: var(--accent); }
+.checklist li.todo .ck { background: rgba(196, 112, 58, .16); color: #b4642f; }
+html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .18); color: #e2a173; }
+.tag.off { border: 1px dashed currentColor; opacity: .7; }

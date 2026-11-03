@@ -42,69 +42,11 @@ function hydrate() {
   bindReadingProgress(document.querySelector('.post-body'));
 }
 
-async function load() {
-  try {
-    const { post } = await api('/api/posts/' + encodeURIComponent(slug));
-    POST = post;
-    const S = await site();
-    document.title = `${post.title} · ${S.name}`;
-    render();
-    loadComments();
-  } catch (e) {
-    page.innerHTML = `<div class="empty">${e.status === 404 ? '文章不存在或已被删除' : '加载失败：' + esc(e.message)}</div>`;
-  }
-}
-
-function render() {
-  const p = POST;
-  const privateTag = p.is_private ? '<span class="tag" style="background:var(--accent-soft);color:var(--accent)">私密</span>' : '';
-  const editBtn = USER && (USER.is_admin || USER.id === p.author_id)
-    ? `<a class="btn sm" href="/editor?id=${p.id}">编辑</a>` : '';
-
-  page.innerHTML = `
-    <article>
-      <header class="post-head">
-        <h1>${esc(p.title)} ${privateTag}</h1>
-        <div class="meta">
-          ${p.avatar ? `<img class="avatar-xs" src="${esc(p.avatar)}" alt="">` : ''}
-          <span>${esc(p.author || '')}</span>
-          <span class="sep-dot">${fmtDate(p.created_at)}</span>
-          <span class="sep-dot">${p.reading} 分钟阅读</span>
-          ${p.updated_at && p.updated_at !== p.created_at ? `<span class="sep-dot">更新于 ${fmtDate(p.updated_at)}</span>` : ''}
-          <span style="margin-left:auto">${editBtn}</span>
-        </div>
-      </header>
-      ${p.summary ? `<aside class="post-lead"><span class="lead-tag">${p.summary_src === 'fallback' ? '摘要' : 'AI 摘要'}</span><p>${esc(p.summary)}</p></aside>` : ''}
-      <div class="md post-body">${p.html}</div>
-      <footer class="post-foot">
-        <div class="tagbar" style="margin:0">
-          ${p.category ? `<a class="tag cat-chip" href="/cat/${encodeURIComponent(p.category)}">${esc(p.category)}</a>` : ''}
-          ${(p.tags || []).map((t) => `<a class="tag" href="/tag/${encodeURIComponent(t)}">#${esc(t)}</a>`).join('')}
-        </div>
-      </footer>
-    </article>
-
-    <section class="comments" id="comments">
-      <h3>评论 <span class="muted" id="cmt-count"></span></h3>
-      <div id="cmt-list"></div>
-      <form class="cmt-form" id="cmt-form" novalidate>
-        <div id="reply-hint" class="tiny muted" style="display:none"></div>
-        <div class="row" id="guest-fields">
-          <input type="text" name="name" placeholder="昵称 *" maxlength="40" autocomplete="nickname">
-          <input type="email" name="email" placeholder="联系邮箱 *（不公开，仅博主可见）" maxlength="120" autocomplete="email">
-          <input type="url" name="website" placeholder="网站（可选）" maxlength="200">
-        </div>
-        <textarea name="content" placeholder="说点什么…" maxlength="2000"></textarea>
-        <div class="foot">
-          <span class="tiny muted" id="cmt-hint"></span>
-          <button class="btn primary sm" type="submit">发表评论</button>
-        </div>
-      </form>
-    </section>`;
-
-  bindReply();
-  bindForm();
-  bindReadingProgress(document.querySelector('.post-body'));
+/* 正文模板只在 Worker 里有一份（src/index.js servePostPage）。
+   这里以前还留着一套前端模板兜底，改一处忘一处就对不上，SSR 稳定后删掉了。 */
+function fallbackNotice() {
+  page.innerHTML =
+    '<div class="empty">正文没取到，可能是页面缓存过期了。<a href="javascript:location.reload()">刷新一下</a></div>';
 }
 
 /* ---------- 评论 ---------- */
@@ -260,7 +202,7 @@ if (POST) {
   hydrate();
   loadComments();
 } else {
-  await load();
+  fallbackNotice();
 }
 </script>
 </body>

@@ -60,9 +60,12 @@ qInput.value = currentQ;
 const SITE = await site();
 
 if (currentCat) {
-  document.getElementById('hero-title').textContent = currentCat;
-  document.getElementById('hero-sub').textContent = `分类「${currentCat}」下的全部文章`;
-  document.title = `${currentCat} · ${SITE.name}`;
+  // 服务端已经按栏目名渲染过一遍，这里只在客户端兜底（栏目改名/直接改 URL 时）
+  const C = window.__CAT__ || {};
+  const cname = C.name || currentCat;
+  document.getElementById('hero-title').textContent = cname;
+  document.getElementById('hero-sub').textContent = C.desc || `栏目「${cname}」下的全部文章`;
+  document.title = `${cname} · ${SITE.name}`;
 } else if (currentTag) {
   document.getElementById('hero-title').textContent = `#${currentTag}`;
   document.getElementById('hero-sub').textContent = `标签「${currentTag}」下的全部文章`;
@@ -131,7 +134,7 @@ function card(p) {
         <span>${fmtDate(p.created_at)}</span>
         <span class="sep-dot">${p.reading} 分钟</span>
         ${p.comments ? `<span class="sep-dot">${p.comments} 条评论</span>` : ''}
-        ${p.category ? `<span class="tag cat-chip">${esc(p.category)}</span>` : ''}
+        ${p.category ? `<span class="tag cat-chip">${esc(p.category_name || p.category)}</span>` : ''}
         ${(p.tags || []).slice(0, 3).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}
       </div>
     </div>
@@ -162,10 +165,10 @@ async function loadCats() {
     const { categories } = await api('/api/categories');
     if (!categories.length) { catbarEl.innerHTML = ''; return; }
     catbarEl.innerHTML =
-      `<span class="bar-label">分类</span>` +
+      `<span class="bar-label">栏目</span>` +
       `<a class="tag" href="/" style="${!currentCat && !currentTag ? 'background:var(--accent-soft);color:var(--accent)' : ''}">全部</a>` +
-      categories.map((c) => `<a class="tag cat-chip" href="/cat/${encodeURIComponent(c.name)}"
-        style="${currentCat === c.name ? 'background:var(--accent-soft);color:var(--accent)' : ''}">${esc(c.name)} ${c.count}</a>`).join('');
+      categories.map((c) => `<a class="tag cat-chip" href="/cat/${encodeURIComponent(c.slug)}" title="${esc(c.desc || '')}"
+        style="${currentCat === c.slug ? 'background:var(--accent-soft);color:var(--accent)' : ''}">${esc(c.name)} ${c.count}</a>`).join('');
   } catch {}
 }
 

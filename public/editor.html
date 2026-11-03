@@ -44,10 +44,9 @@
     </div>
 
     <div class="field">
-      <label>分类</label>
-      <input type="text" id="category" list="cat-options" placeholder="如 技术、随笔（可留空）" maxlength="30" autocomplete="off">
-      <datalist id="cat-options"></datalist>
-      <span class="tiny muted">一篇文章一个分类，标签写在正文里</span>
+      <label>栏目 <span class="tiny muted">每篇必选其一</span></label>
+      <select id="category"><option value="">未分类</option></select>
+      <span class="tiny muted" id="cat-hint">栏目回答「这是什么类型的东西」，标签回答「用什么做的 / 拆的是什么」</span>
     </div>
 
     <div class="field">
@@ -66,8 +65,14 @@
     </div>
 
     <div class="field">
-      <label>自动标签</label>
+      <label>自动标签 <span class="tiny muted" id="tag-count"></span></label>
       <div class="tagbar" id="tags" style="margin:0"></div>
+      <datalist id="tag-options"></datalist>
+    </div>
+
+    <div class="field">
+      <label>发布自检 <span class="tiny muted">按栏目/标签/标题规范</span></label>
+      <ul class="checklist" id="checks"></ul>
     </div>
 
     <div class="field" style="margin-top:4px">
@@ -191,6 +196,9 @@ let hasServerRecord = false;
 let paintAvatar = () => {};
 let sumTouched = false; // 手动改过摘要就不让 AI 覆盖
 let sumBusy = false;
+// 栏目/标签规范（/api/taxonomy）：栏目四选一，标签白名单 + 别名表
+let TAX = { categories: [], seed: [] };
+let wantedCat = '';     // 选项还没加载完时先记下要选哪个栏目
 
 /* ---------- 状态提示 ---------- */
 function setState(kind, text) {
@@ -231,7 +239,7 @@ function applyDraft(d) {
   titleEl.value = d.title || '';
   inputEl.value = d.content || '';
   slugEl.value = d.slug || '';
-  catEl.value = d.category || '';
+  setCategory(d.category || '');
   privateEl.checked = !!d.is_private;
   hiddenEl.checked = !!d.hidden;
 }
@@ -242,13 +250,23 @@ function updatePreview() {
   const md = inputEl.value;
   previewEl.innerHTML = renderMarkdown(md);
   renderTagPreview(md);
+  updateChecks();
   document.querySelectorAll('.copy-btn').forEach((b) => (b.onclick = null));
 }
 
 function renderTagPreview(md) {
-  const tags = extractTags(md);
+  const tags = extractTags(md).map((t) => t.toLowerCase());
+  const seed = new Set((TAX.seed || []).map((t) => t.toLowerCase()));
+  $('tag-count').textContent = tags.length ? `${tags.length} 个（规则 1~4）` : '';
   $('tags').innerHTML = tags.length
-    ? tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join('')
+    ? tags
+        .map(
+          (t) =>
+            `<span class="tag${seed.size && !seed.has(t) ? ' off' : ''}" title="${
+              seed.has(t) ? '白名单内' : '不在白名单：确认这是技术名词，或换成已有标签'
+            }">#${esc(t)}</span>`
+        )
+        .join('')
     : '<span class="tiny muted">正文里写 #标签 自动识别</span>';
 }
 
@@ -377,6 +395,12 @@ function onInput() {
 titleEl.addEventListener('input', onInput);
 inputEl.addEventListener('input', onInput);
 [slugEl, privateEl, hiddenEl].forEach((el) => el.addEventListener('change', onInput));
+catEl.addEventListener('change', () => {
+  updateCatHint();
+  updateChecks();
+  onInput();
+});
+sumEl.addEventListener('input', updateChecks);
 
 // Tab 插入缩进
 inputEl.addEventListener('keydown', (e) => {
@@ -523,7 +547,7 @@ function resetEditor() {
   titleEl.value = '';
   inputEl.value = '';
   slugEl.value = '';
-  catEl.value = '';
+  setCategory('');
   privateEl.checked = false;
   hiddenEl.checked = false;
   sumEl.value = '';
@@ -585,7 +609,7 @@ if (!user) {
       titleEl.value = p.title;
       inputEl.value = p.content;
       slugEl.value = p.slug;
-      catEl.value = p.category || '';
+      setCategory(p.category || '');
       privateEl.checked = !!p.is_private;
       hiddenEl.checked = !!p.hidden;
       sumEl.value = p.summary || '';
@@ -624,16 +648,67 @@ if (!user) {
 
   updatePreview();
   loadList();
-  loadCategoryOptions();
+  loadTaxonomy();
   inputEl.focus();
 }
 
-/* 已有分类塞进 datalist，输入时可直接选 */
-async function loadCategoryOptions() {
+/* 栏目选项 + 标签白名单：都从服务端同一份规范来，前后台不会走偏 */
+async function loadTaxonomy() {
   try {
-    const { categories } = await api('/api/categories');
-    $('cat-options').innerHTML = categories.map((c) => `<option value="${esc(c.name)}">`).join('');
+    TAX = await api('/api/taxonomy');
+    catEl.innerHTML =
+      '<option value="">未分类</option>' +
+      TAX.categories.map((c) => `<option value="${c.slug}">${esc(c.name)} — ${esc(c.hint || '')}</option>`).join('');
+    // 老文章里可能是中文栏目名，原样留着回传，别在页面上被悄悄改成「未分类」
+    if (wantedCat && !TAX.categories.some((c) => c.slug === wantedCat)) {
+      const o = document.createElement('option');
+      o.value = wantedCat;
+      o.textContent = `${wantedCat}（旧栏目名）`;
+      catEl.appendChild(o);
+    }
+    catEl.value = wantedCat;
+    $('tag-options').innerHTML = (TAX.seed || []).map((t) => `<option value="${esc(t)}">`).join('');
+    updateCatHint();
+    renderTagPreview(inputEl.value);
+    updateChecks();
   } catch {}
+}
+
+function setCategory(v) {
+  wantedCat = v || '';
+  catEl.value = wantedCat;
+}
+
+function updateCatHint() {
+  const c = (TAX.categories || []).find((x) => x.slug === catEl.value);
+  $('cat-hint').textContent = c
+    ? c.desc
+    : '栏目回答「这是什么类型的东西」，标签回答「用什么做的 / 拆的是什么」';
+}
+
+/* 发布自检：把《栏目与标题写作体系》里那几条规则做成看得见的勾 */
+function updateChecks() {
+  const el = $('checks');
+  if (!el) return;
+  const title = titleEl.value.trim();
+  const md = inputEl.value;
+  const tags = extractTags(md).map((t) => t.toLowerCase());
+  const cat = catEl.value;
+  const cname = (TAX.categories || []).find((x) => x.slug === cat)?.name || '';
+  const sum = sumEl.value.trim();
+  const bodyLen = md.replace(/```[\s\S]*?```/g, '').replace(/\s/g, '').length;
+
+  const rows = [
+    [title.length >= 8, title ? `标题 ${title.length} 字${title.length >= 8 ? '' : '，太短'}` : '还没写标题'],
+    [/[A-Za-z0-9]/.test(title), '标题含技术名 / 报错原文'],
+    [!!cat, cat ? `栏目：${cname}` : '还没选栏目'],
+    [tags.length >= 1 && tags.length <= 4, `标签 ${tags.length} 个（1~4）`],
+    [sum.length >= 20, sum ? `摘要 ${sum.length} 字` : '摘要为空，先写结论'],
+    [bodyLen >= 200, `正文 ${bodyLen} 字`],
+  ];
+  el.innerHTML = rows
+    .map(([ok, text]) => `<li class="${ok ? 'ok' : 'todo'}"><span class="ck">${ok ? '✓' : '!'}</span>${esc(text)}</li>`)
+    .join('');
 }
 
 /* ---------- 站点头像：URL / 上传 / 拖拽 / 粘贴 ---------- */
