@@ -50,6 +50,18 @@
     </div>
 
     <div class="field">
+      <label>系列（可选）</label>
+      <input type="text" id="series" list="series-options" placeholder="如 自建博客实录" maxlength="40" autocomplete="off">
+      <datalist id="series-options"></datalist>
+      <div style="display:flex;gap:8px;align-items:center;margin:2px 0 2px">
+        <input type="number" id="series-order" min="1" max="999" placeholder="1" inputmode="numeric"
+               style="flex:0 0 74px" aria-label="系列序号">
+        <span class="tiny muted">第几篇</span>
+      </div>
+      <span class="tiny muted">同系列自动生成目录与上下篇互链</span>
+    </div>
+
+    <div class="field">
       <label>AI 摘要 <span class="tiny muted" id="sum-state"></span></label>
       <textarea id="summary" rows="4" maxlength="400" placeholder="保存后自动生成，也可以自己改写"></textarea>
       <div style="display:flex;gap:6px">
@@ -178,6 +190,8 @@ const inputEl = $('md-input');
 const previewEl = $('preview');
 const slugEl = $('slug');
 const catEl = $('category');
+const seriesEl = $('series');
+const seriesEl2 = $('series-order');
 const privateEl = $('is_private');
 const hiddenEl = $('hidden');
 const stateEl = $('state');
@@ -214,6 +228,8 @@ function snapshot() {
     content: inputEl.value,
     slug: slugEl.value,
     category: catEl.value,
+    series: seriesEl.value,
+    series_order: seriesEl2.value,
     is_private: privateEl.checked,
     hidden: hiddenEl.checked,
     at: Date.now(),
@@ -240,6 +256,8 @@ function applyDraft(d) {
   inputEl.value = d.content || '';
   slugEl.value = d.slug || '';
   setCategory(d.category || '');
+  seriesEl.value = d.series || '';
+  seriesEl2.value = d.series_order || '';
   privateEl.checked = !!d.is_private;
   hiddenEl.checked = !!d.hidden;
 }
@@ -287,6 +305,8 @@ async function saveNow(manual = false) {
     content: inputEl.value,
     slug: slugEl.value.trim(),
     category: catEl.value.trim(),
+    series: seriesEl.value.trim(),
+    series_order: parseInt(seriesEl2.value, 10) || 0,
     is_private: privateEl.checked,
     hidden: hiddenEl.checked,
   };
@@ -548,6 +568,8 @@ function resetEditor() {
   inputEl.value = '';
   slugEl.value = '';
   setCategory('');
+  seriesEl.value = '';
+  seriesEl2.value = '';
   privateEl.checked = false;
   hiddenEl.checked = false;
   sumEl.value = '';
@@ -610,6 +632,8 @@ if (!user) {
       inputEl.value = p.content;
       slugEl.value = p.slug;
       setCategory(p.category || '');
+      seriesEl.value = p.series || '';
+      seriesEl2.value = p.series_order ? String(p.series_order) : '';
       privateEl.checked = !!p.is_private;
       hiddenEl.checked = !!p.hidden;
       sumEl.value = p.summary || '';
@@ -671,6 +695,17 @@ async function loadTaxonomy() {
     updateCatHint();
     renderTagPreview(inputEl.value);
     updateChecks();
+    loadSeriesOptions();
+  } catch {}
+}
+
+/* 已有系列塞进 datalist：连载不靠记忆，避免「自建博客实录」和「自建博客实录 」变成两个系列 */
+async function loadSeriesOptions() {
+  try {
+    const { series } = await api('/api/series');
+    $('series-options').innerHTML = (series || [])
+      .map((x) => `<option value="${esc(x.name)}">${x.count} 篇</option>`)
+      .join('');
   } catch {}
 }
 

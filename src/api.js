@@ -21,7 +21,14 @@ import {
 
 /* ---------- 小工具 ---------- */
 
-/* 发布 / 修改 / 删除后主动删掉边缘缓存：不用等 45 秒 TTL 过期 */
+/** 同系列的其它文章：正文里嵌着系列目录，一篇变了全组的 HTML 都变 */
+async function seriesSiblingSlugs(db, series) {
+  if (!series) return [];
+  const { results } = await db.prepare('SELECT slug FROM posts WHERE series = ?').bind(series).all();
+  return results.map((r) => r.slug);
+}
+
+/* 发布 / 修改 / 删除后主动删掉边缘缓存：不用等 TTL 过期 */
 function bust(url, slugs = [], cats = []) {
   const paths = ['/', '/archive', '/categories'];
   for (const c of cats.filter(Boolean)) paths.push(`/cat/${encodeURIComponent(c)}`);
@@ -49,6 +56,13 @@ async function attachTags(db, posts) {
   return posts;
 }
 
+/** 系列名：40 字以内，去掉首尾空白；空串表示单篇 */
+const seriesOf = (b) => String(b.series ?? '').trim().slice(0, 40);
+const seriesOrderOf = (b) => {
+  const n = parseInt(b.series_order, 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 999) : 0;
+};
+
 function shapePost(p, full = false) {
   const base = {
     id: p.id,
@@ -68,6 +82,8 @@ function shapePost(p, full = false) {
     author_id: p.author_id,
     avatar: p.avatar || '',
     reading: readingTime(p.content),
+    series: p.series || '',
+    series_order: p.series_order || 0,
     created_at: p.created_at,
     updated_at: p.updated_at,
     comments: p.comment_count ?? undefined,
@@ -375,7 +391,20 @@ export async function handleApi(env, request, url, ctx) {
     });
   }
 
-  /* ---- 单篇文章 ---- */
+    /* ---- 系列列表（编辑器下拉 + 文章页系列目录都靠它） ---- */
+  if (path === '/series' && method === 'GET') {
+    const { results } = await db
+      .prepare(
+        `SELECT series AS name, COUNT(*) AS count, MAX(updated_at) AS updated_at
+         FROM posts
+         WHERE is_private = 0 AND hidden = 0 AND TRIM(series) != ''
+         GROUP BY series ORDER BY updated_at DESC`
+      )
+      .all();
+    return json({ ok: true, series: results });
+  }
+
+/* ---- 单篇文章 ---- */
   if (path.startsWith('/posts/') && method === 'GET') {
     const slug = decodeURIComponent(path.slice('/posts/'.length));
     const p = await db
@@ -422,10 +451,14 @@ export async function handleApi(env, request, url, ctx) {
 
     const info = await db
       .prepare(
-        `INSERT INTO posts (slug, title, content, cover, category, is_private, hidden, author_id, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO posts (slug, title, content, cover, category, series, series_order, is_private, hidden, author_id, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
       )
-      .bind(slug, title, content, cover, category, body.is_private ? 1 : 0, body.hidden ? 1 : 0, u.id, stamp, stamp)
+      .bind(
+        slug, title, content, cover, category,
+        seriesOf(body), seriesOrderOf(body),
+        body.is_private ? 1 : 0, body.hidden ? 1 : 0, u.id, stamp, stamp
+      )
       .run();
 
     const id = info.meta.last_row_id;
@@ -439,7 +472,7 @@ export async function handleApi(env, request, url, ctx) {
     }
 
     await syncTags(db, id, content);
-    if (ctx) ctx.waitUntil(bust(url, [slug], [category]));
+    if (ctx) ctx.waitUntil(bust(url, [slug, ...(await seriesSiblingSlugs(db, seriesOf(body)))], [category]));
     return json({ ok: true, id, slug, summary: manual, ai: hasAI(env) });
   }
 
@@ -490,7 +523,7 @@ export async function handleApi(env, request, url, ctx) {
 
     await db
       .prepare(
-        `UPDATE posts SET slug=?, title=?, content=?, cover=?, category=?, is_private=?, hidden=?, updated_at=?${sumSql} WHERE id=?`
+        `UPDATE posts SET slug=?, title=?, content=?, cover=?, category=?, series=?, series_order=?, is_private=?, hidden=?, updated_at=?${sumSql} WHERE id=?`
       )
       .bind(
         slug,
@@ -498,6 +531,8 @@ export async function handleApi(env, request, url, ctx) {
         content,
         cover,
         category,
+        body.series !== undefined ? seriesOf(body) : p.series || '',
+        body.series_order !== undefined ? seriesOrderOf(body) : p.series_order || 0,
         body.is_private !== undefined ? (body.is_private ? 1 : 0) : p.is_private,
         body.hidden !== undefined ? (body.hidden ? 1 : 0) : p.hidden,
         nowISO(),
@@ -509,7 +544,15 @@ export async function handleApi(env, request, url, ctx) {
     if (needGen && ctx) ctx.waitUntil(refreshSummary(env, db, id, { title, content }));
 
     await syncTags(db, id, content);
-    if (ctx) ctx.waitUntil(bust(url, [slug, p.slug], [category, p.category]));
+    if (ctx) {
+      const touched = [
+        ...new Set([
+          ...(await seriesSiblingSlugs(db, seriesOf({ series: body.series !== undefined ? body.series : p.series }))),
+          ...(await seriesSiblingSlugs(db, p.series)),
+        ]),
+      ];
+      ctx.waitUntil(bust(url, [slug, p.slug, ...touched], [category, p.category]));
+    }
     return json({ ok: true, id, slug, updated_at: nowISO(), ai: hasAI(env) });
   }
 
@@ -566,7 +609,7 @@ export async function handleApi(env, request, url, ctx) {
       db.prepare('DELETE FROM comments WHERE post_id = ?').bind(id),
       db.prepare('DELETE FROM posts WHERE id = ?').bind(id),
     ]);
-    if (ctx) ctx.waitUntil(bust(url, [p.slug], [p.category]));
+    if (ctx) ctx.waitUntil(bust(url, [p.slug, ...(await seriesSiblingSlugs(db, p.series))], [p.category]));
     return json({ ok: true });
   }
 

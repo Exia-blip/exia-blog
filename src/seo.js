@@ -94,6 +94,10 @@ export function postLd({ post, site, origin, url, image, words }) {
     timeRequired: post.reading ? `PT${post.reading}M` : undefined,
     isAccessibleForFree: true,
     commentCount: post.comments || undefined,
+    // 系列文声明所属系列，搜索引擎能把同系列的几篇串成一组
+    isPartOf: post.series
+      ? { '@type': 'CreativeWorkSeries', name: post.series, url: `${origin}/p/${encodeURIComponent(post.slug)}` }
+      : `${origin}/#website`,
   };
 
   const crumbs = [

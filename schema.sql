@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS posts (
   summary     TEXT NOT NULL DEFAULT '',    -- AI 摘要（发布/保存时生成）
   summary_src TEXT NOT NULL DEFAULT '',    -- ai | fallback | manual
   summary_hash TEXT NOT NULL DEFAULT '',   -- 生成摘要时的正文指纹，避免重复烧 token
+  series      TEXT NOT NULL DEFAULT '',    -- 所属系列（连载名），空串表示单篇
+  series_order INTEGER NOT NULL DEFAULT 0, -- 系列内序号，同序号按创建时间
   author_id   INTEGER NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now'))

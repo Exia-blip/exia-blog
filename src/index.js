@@ -87,6 +87,42 @@ function renderComments(rows, total) {
     </section>`;
 }
 
+/* ---------- 系列目录 ----------
+   爬虫发现新文章主要靠 sitemap，但「哪篇该跟着重抓」靠的是站内互链。
+   系列文每发一篇，前面所有篇都多一条入链，等于每次发文带动一次全系列回访。 */
+function renderSeries(post, list) {
+  if (!list || list.length < 2) return '';
+  const idx = list.findIndex((p) => p.slug === post.slug);
+  const n = (i) => String(i + 1).padStart(2, '0');
+  const items = list
+    .map((p, i) => {
+      const cur = p.slug === post.slug;
+      const label = `<span class="sn">${n(i)}</span><span class="st">${esc(p.title)}</span>`;
+      return cur
+        ? `<li class="cur" aria-current="page">${label}</li>`
+        : `<li><a href="/p/${encodeURIComponent(p.slug)}">${label}</a></li>`;
+    })
+    .join('');
+  const prev = idx > 0 ? list[idx - 1] : null;
+  const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null;
+  const jump =
+    prev || next
+      ? `<div class="series-jump">
+    ${prev ? `<a href="/p/${encodeURIComponent(prev.slug)}" rel="prev">← ${esc(prev.title)}</a>` : '<span></span>'}
+    ${next ? `<a href="/p/${encodeURIComponent(next.slug)}" rel="next">${esc(next.title)} →</a>` : '<span></span>'}
+  </div>`
+      : '';
+  return `<nav class="series" aria-label="系列目录">
+    <div class="series-top">
+      <span class="series-kicker">系列连载</span>
+      <strong class="series-name">${esc(post.series)}</strong>
+      <span class="series-count">共 ${list.length} 篇 · 第 ${idx + 1} 篇</span>
+    </div>
+    <ol class="series-list">${items}</ol>
+    ${jump}
+  </nav>`;
+}
+
 async function servePostPage(env, request, slug) {
   const user = await currentUser(env, request);
 
@@ -117,6 +153,19 @@ async function servePostPage(env, request, slug) {
   post.tags = tagRows.map((r) => r.name);
   post.comments = cmtRows.length;
 
+  // 系列目录：同系列公开文章按序号排，当前这篇标出来，顺带算出上下篇
+  let seriesPosts = [];
+  if (post.series) {
+    const { results } = await env.DB.prepare(
+      `SELECT slug, title, series_order FROM posts
+       WHERE series = ? AND is_private = 0 AND hidden = 0
+       ORDER BY series_order ASC, created_at ASC`
+    )
+      .bind(post.series)
+      .all();
+    seriesPosts = results;
+  }
+
   const site = await getSite(env);
   const siteName = site.name;
   const origin = new URL(request.url).origin;
@@ -135,7 +184,7 @@ async function servePostPage(env, request, slug) {
   const reading = readingTime(post.content);
 
   const lead = post.summary
-    ? `<aside class="post-lead"><span class="lead-tag">${post.summary_src === 'fallback' ? '摘要' : 'AI 摘要'}</span><p>${esc(
+    ? `<aside class="post-lead"><span class="lead-tag">${post.summary_src === 'ai' ? 'AI 摘要' : '摘要'}</span><p>${esc(
         post.summary
       )}</p></aside>`
     : '';
@@ -166,6 +215,7 @@ async function servePostPage(env, request, slug) {
         </div>
       </header>
       ${lead}
+      ${renderSeries(post, seriesPosts)}
       <div class="md post-body">${bodyHtml}</div>
       <footer class="post-foot"><div class="tagbar" style="margin:0">${tagbar}</div></footer>
     </article>
