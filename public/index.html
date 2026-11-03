@@ -67,9 +67,12 @@ if (currentCat) {
   document.getElementById('hero-sub').textContent = C.desc || `栏目「${cname}」下的全部文章`;
   document.title = `${cname} · ${SITE.name}`;
 } else if (currentTag) {
-  document.getElementById('hero-title').textContent = `#${currentTag}`;
-  document.getElementById('hero-sub').textContent = `标签「${currentTag}」下的全部文章`;
-  document.title = `#${currentTag} · ${SITE.name}`;
+  // 标签页的 H1 与 title 已由 Worker 按路径服务端渲染好，这里只在 SSR 没跑到时兜底
+  if (!document.title.startsWith('#')) {
+    document.getElementById('hero-title').textContent = `#${currentTag}`;
+    document.getElementById('hero-sub').textContent = `标签「${currentTag}」下的全部文章`;
+    document.title = `#${currentTag} · ${SITE.name}`;
+  }
 } else if (currentQ) {
   document.getElementById('hero-title').textContent = `搜索：${currentQ}`;
   document.getElementById('hero-sub').textContent = '标题与正文关键词匹配';

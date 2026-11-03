@@ -29,7 +29,8 @@ function csp(n) {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "frame-ancestors 'self'",
+    // 本站没有任何需要被嵌 iframe 的场景，直接禁止被嵌；与 X-Frame-Options: DENY 保持同一语义
+    "frame-ancestors 'none'",
     'upgrade-insecure-requests',
   ].join('; ');
 }
@@ -42,7 +43,7 @@ export function securityHeaders(headers, nonce) {
   const h = headers instanceof Headers ? headers : new Headers(headers);
   h.set('x-content-type-options', 'nosniff');
   h.set('referrer-policy', 'strict-origin-when-cross-origin');
-  h.set('x-frame-options', 'SAMEORIGIN');
+  h.set('x-frame-options', 'DENY');
   h.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
   h.set('cross-origin-opener-policy', 'same-origin');
   h.set('strict-transport-security', 'max-age=31536000; includeSubDomains; preload');

@@ -7,7 +7,7 @@ import { extractExcerpt, extractCover, readingTime, renderBody } from '../public
 import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders } from './security.js';
 import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
-import { edgeGet, edgePut } from './cache.js';
+import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.js';
 import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -125,9 +125,10 @@ async function servePostPage(env, request, slug) {
 
   const desc = post.summary || extractExcerpt(post.content, 150);
   const cover = post.cover || extractCover(post.content) || '';
-  // 封面 → 站点头像 → 站点默认分享图，社交卡片不留白
-  const ogImage = cover ? new URL(cover, request.url).toString() : site.avatar || `${origin}/og-default.jpg`;
-  const isDefaultOg = !cover && !site.avatar;
+  // 封面 → 本站默认分享图。站点头像不参与：GitHub 头像只有 460px，社交卡片会糊成一团，
+  // 而且外链域名不受自己控制（改天换图床就 404）。
+  const ogImage = cover ? new URL(cover, request.url).toString() : `${origin}/og-default.jpg`;
+  const isDefaultOg = !cover;
 
   const bodyHtml = sanitizeHtml(renderBody(post.content));
   const words = String(post.content || '').replace(/\s/g, '').length;
@@ -188,26 +189,30 @@ async function servePostPage(env, request, slug) {
     `<meta property="og:locale" content="zh_CN">`,
     `<meta property="og:image" content="${esc(ogImage)}">`,
     `<meta property="og:image:alt" content="${esc(post.title)}">`,
+    isDefaultOg ? `<meta property="og:image:type" content="image/jpeg">` : '',
     isDefaultOg ? `<meta property="og:image:width" content="1200">` : '',
     isDefaultOg ? `<meta property="og:image:height" content="630">` : '',
     `<meta property="article:published_time" content="${esc(iso(post.created_at))}">`,
     `<meta property="article:modified_time" content="${esc(iso(post.updated_at, iso(post.created_at)))}">`,
     post.category ? `<meta property="article:section" content="${esc(catName(post.category))}">` : '',
     ...(post.tags || []).map((t) => `<meta property="article:tag" content="${esc(t)}">`),
-    `<meta name="twitter:card" content="${cover ? 'summary_large_image' : 'summary'}">`,
+    `<meta name="twitter:card" content="summary_large_image">`,
     `<meta name="twitter:title" content="${esc(post.title)}">`,
     `<meta name="twitter:description" content="${esc(desc)}">`,
     `<meta name="twitter:image" content="${esc(ogImage)}">`,
-    ldJson(
-      postLd({
-        post: { ...post, comments: cmtRows.length },
-        site,
-        origin,
-        url: canonical,
-        image: ogImage,
-        words,
-      })
-    ),
+    // 隐藏文章已经 noindex，再输出 BlogPosting 等于一边说别收录、一边递结构化数据，语义打架
+    post.hidden
+      ? ''
+      : ldJson(
+          postLd({
+            post: { ...post, comments: cmtRows.length },
+            site,
+            origin,
+            url: canonical,
+            image: ogImage,
+            words,
+          })
+        ),
   ]
     .filter(Boolean)
     .join('\n  ');
@@ -238,8 +243,8 @@ async function servePostPage(env, request, slug) {
     .replace(/<main class="wrap" id="page">[\s\S]*?<\/main>/, `<main class="wrap" id="page">${article}</main>`);
 
   return html(stampAssets(injected, env), 200, {
-    // 私密文章不进缓存
-    'cache-control': post.is_private ? 'private, no-store' : 'public, max-age=60',
+    // 私密文章不进缓存；公开文章统一走 pageCacheControl（浏览器不缓存、边缘 60s + SWR 600s）
+    'cache-control': post.is_private ? 'private, no-store' : pageCacheControl(),
   });
 }
 
@@ -479,9 +484,8 @@ function fillSeo(body, site, url) {
   const desc = cat ? cat.desc : site.desc || `${site.name} · 记录思考、代码与生活`;
   const canonical = url ? new URL(url.pathname, url.origin).toString() : '';
   const origin = url ? url.origin : '';
-  // 没有站点头像就用站点默认分享图，社交卡片不至于空一块
-  const hasOwnOg = !!site.avatar;
-  const ogImage = hasOwnOg ? new URL(site.avatar, url || 'https://x.invalid/').toString() : `${origin}/og-default.jpg`;
+  // 分享图固定用本站那张 1200×630：尺寸、域名、可用性都在自己手里
+  const ogImage = `${origin}/og-default.jpg`;
 
   const block = [
     `<title>${esc(title)}</title>`,
@@ -498,9 +502,10 @@ function fillSeo(body, site, url) {
     `<meta property="og:locale" content="zh_CN">`,
     `<meta property="og:image" content="${esc(ogImage)}">`,
     `<meta property="og:image:alt" content="${esc(site.name)}">`,
-    hasOwnOg ? '' : `<meta property="og:image:width" content="1200">`,
-    hasOwnOg ? '' : `<meta property="og:image:height" content="630">`,
-    `<meta name="twitter:card" content="summary">`,
+    `<meta property="og:image:type" content="image/jpeg">`,
+    `<meta property="og:image:width" content="1200">`,
+    `<meta property="og:image:height" content="630">`,
+    `<meta name="twitter:card" content="summary_large_image">`,
     `<meta name="twitter:title" content="${esc(title)}">`,
     `<meta name="twitter:description" content="${esc(desc)}">`,
     `<meta name="twitter:image" content="${esc(ogImage)}">`,
@@ -522,9 +527,13 @@ async function injectTheme(env, res, url) {
 
   const s = await getSite(env);
   const cfg = JSON.stringify({ theme: s.theme, mode: s.mode }).replace(/</g, '\\u003c');
-  // 站点头像与站名先落到 window.__SITE__，导航渲染时能立刻用，也顺手当 favicon
+  // 站点头像与站名先落到 window.__SITE__，导航渲染时能立刻用
   const siteCfg = JSON.stringify({ name: s.name, desc: s.desc, avatar: s.avatar }).replace(/</g, '\\u003c');
-  const icon = s.avatar ? `<link rel="icon" href="${esc(s.avatar)}">` : '';
+  // 图标用本站文件，不再把 GitHub 头像当 favicon（外链一换就白图，尺寸也不对）
+  const icon =
+    '<link rel="icon" href="/favicon.ico" sizes="any">' +
+    '<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">' +
+    '<link rel="apple-touch-icon" href="/apple-touch-icon.png">';
   const inject =
     `<script>window.__THEME_DEFAULT__=${cfg};window.__SITE__=${siteCfg};</script>${icon}`;
 
@@ -580,6 +589,10 @@ async function harden(res) {
   const nonce = makeNonce();
   const body = applyNonce(await res.text(), nonce);
   const headers = securityHeaders(new Headers(res.headers), nonce);
+  // 所有 HTML 用同一套缓存口径，别再让文章页单独漏成 max-age=60 / 无 s-maxage
+  const cc = (headers.get('cache-control') || '').toLowerCase();
+  if (!cc.includes('no-store') && !cc.includes('private')) headers.set('cache-control', pageCacheControl());
+  headers.set('cdn-cache-control', `public, s-maxage=${EDGE_TTL}, stale-while-revalidate=${EDGE_SWR}`);
   headers.delete('content-length');
   return new Response(body, { status: res.status, statusText: res.statusText, headers });
 }
@@ -607,9 +620,17 @@ async function notFoundPage(env, request, message = '页面走丢了') {
 }
 
 /* ---------- RSS / Sitemap ---------- */
+const rfc822 = (v) => {
+  const s = String(v ?? '').trim();
+  // D1 里存的是「2026-11-01 10:00:00」这种无时区字符串，按 UTC 解释
+  const iso = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(s) ? `${s.replace(' ', 'T')}Z` : s;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? new Date().toUTCString() : d.toUTCString();
+};
+
 async function serveRss(env, request) {
   const { results } = await env.DB.prepare(
-    `SELECT slug, title, content, summary, created_at FROM posts
+    `SELECT slug, title, content, summary, created_at, updated_at FROM posts
      WHERE is_private = 0 AND hidden = 0 ORDER BY created_at DESC LIMIT 30`
   ).all();
 
@@ -622,23 +643,34 @@ async function serveRss(env, request) {
       <title>${esc(p.title)}</title>
       <link>${link}</link>
       <guid isPermaLink="true">${link}</guid>
-      <pubDate>${new Date(String(p.created_at).replace(' ', 'T') + 'Z').toUTCString()}</pubDate>
+      <pubDate>${rfc822(p.created_at)}</pubDate>
       <description>${esc(p.summary || extractExcerpt(p.content, 200))}</description>
     </item>`;
     })
     .join('\n');
 
+  // lastBuildDate 取最近一次改动的时间：聚合器靠它判断要不要重抓
+  const lastPost = results[0];
+  const lastBuild = lastPost ? rfc822(lastPost.updated_at || lastPost.created_at) : new Date().toUTCString();
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0"><channel>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
   <title>${esc(siteName)}</title>
-  <link>${origin}</link>
-  <description>${esc(siteDesc)}</description>
+  <link>${origin}/</link>
+  <atom:link href="${origin}/rss.xml" rel="self" type="application/rss+xml"/>
+  <description>${esc(siteDesc || siteName)}</description>
   <language>zh-CN</language>
+  <lastBuildDate>${lastBuild}</lastBuildDate>
+  <generator>Exia Blog</generator>
+  <ttl>60</ttl>
 ${items}
 </channel></rss>`;
 
   return new Response(xml, {
-    headers: { 'content-type': 'application/rss+xml; charset=utf-8', 'cache-control': 'public, max-age=600' },
+    headers: {
+      'content-type': 'application/rss+xml; charset=utf-8',
+      'cache-control': 'public, max-age=600, stale-while-revalidate=3600',
+    },
   });
 }
 
@@ -732,27 +764,41 @@ Sitemap: ${origin}/sitemap.xml
 
 async function serveManifest(env, request) {
   const s = await getSite(env);
-  const origin = new URL(request.url).origin;
-  const icon = s.avatar ? new URL(s.avatar, origin).toString() : '';
   const data = {
+    id: '/',
     name: s.name,
     short_name: s.name.slice(0, 12),
     description: s.desc || '',
     start_url: '/',
     scope: '/',
     display: 'standalone',
+    orientation: 'portrait',
     background_color: THEME_COLOR[s.theme] || '#ffffff',
     theme_color: THEME_COLOR[s.theme] || '#ffffff',
     lang: 'zh-CN',
-    icons: icon ? [{ src: icon, sizes: '192x192 512x512 any', purpose: 'any' }] : [],
+    dir: 'ltr',
+    categories: ['blog', 'technology'],
+    // 每个尺寸一条真实 PNG：以前一条 src 声明 "192x192 512x512" 是无效写法，
+    // 浏览器会按第一条去取图，装到桌面就是被拉伸的头像
+    icons: [
+      { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ],
   };
   return new Response(JSON.stringify(data), {
-    headers: { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'public, max-age=3600' },
+    headers: {
+      'content-type': 'application/manifest+json; charset=utf-8',
+      // 图标文件名固定，改图标时靠部署版本刷新
+      'cache-control': assetVersion(env)
+        ? 'public, max-age=3600'
+        : 'public, max-age=300',
+      'access-control-allow-origin': '*',
+    },
   });
 }
 
 /* ---------- 入口 ---------- */
-const EDGE_TTL = 45;
 
 const isPagePath = (p) =>
   p === '/' ||
@@ -766,8 +812,9 @@ const isPagePath = (p) =>
 /** 缓存命中的响应也要改头，否则浏览器会按存缓存时的 s-maxage 去缓存 HTML */
 function asClient(res) {
   const headers = new Headers(res.headers);
-  headers.set('cache-control', 'public, max-age=0, must-revalidate');
-  headers.set('cdn-cache-control', `public, s-maxage=${EDGE_TTL}`);
+  // 浏览器不缓存（每次校验），边缘 60s + 过期后 600s 内先给旧副本再后台刷新
+  headers.set('cache-control', pageCacheControl());
+  headers.set('cdn-cache-control', `public, s-maxage=${EDGE_TTL}, stale-while-revalidate=${EDGE_SWR}`);
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 

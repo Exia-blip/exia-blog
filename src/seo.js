@@ -36,6 +36,14 @@ export function siteLd(site, origin) {
       description: site.desc || '',
       inLanguage: 'zh-CN',
       publisher: { '@id': `${origin}/#owner` },
+      // 站点 logo 用本站图标，别把 GitHub 头像递出去当品牌标识
+      logo: {
+        '@type': 'ImageObject',
+        url: `${origin}/icon-512.png`,
+        width: 512,
+        height: 512,
+      },
+      image: `${origin}/og-default.jpg`,
       potentialAction: {
         '@type': 'SearchAction',
         target: { '@type': 'EntryPoint', urlTemplate: `${origin}/?q={search_term_string}` },
