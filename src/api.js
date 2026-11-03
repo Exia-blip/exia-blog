@@ -1,6 +1,8 @@
 import { json, err, pageParams, slugify, uniqueSlug, nowISO } from './utils.js';
 import { currentUser, requireUser, requireAdmin } from './auth.js';
-import { renderMarkdown, extractTags, extractCover, extractExcerpt, readingTime } from '../public/md.js';
+import { renderBody, extractTags, extractCover, extractExcerpt, readingTime } from '../public/md.js';
+import { sanitizeHtml, cleanMarkdown } from './clean.js';
+import { bustPaths } from './cache.js';
 import { presignPut, makeKey, IMAGE_TYPES } from './s3.js';
 import { notifyComment } from './webhook.js';
 import { checkFriends } from './cron.js';
@@ -8,6 +10,15 @@ import { getSite, setSite, THEME_IDS, MODE_IDS } from './settings.js';
 import { refreshSummary, generateSummary, contentHash, hasAI } from './ai.js';
 
 /* ---------- 小工具 ---------- */
+
+/* 发布 / 修改 / 删除后主动删掉边缘缓存：不用等 45 秒 TTL 过期 */
+function bust(url, slugs = []) {
+  const paths = ['/', '/archive', '/categories'];
+  for (const s of slugs.filter(Boolean)) {
+    paths.push(`/p/${encodeURIComponent(s)}`, `/${encodeURIComponent(s)}`);
+  }
+  return bustPaths(url.origin, paths);
+}
 
 async function attachTags(db, posts) {
   if (!posts.length) return posts;
@@ -326,11 +337,8 @@ export async function handleApi(env, request, url, ctx) {
 
     await attachTags(db, [p]);
 
-    // 文章内的 #标签 转为可点击
-    const rendered = renderMarkdown(p.content).replace(
-      /(^|>|\s)#([\p{L}\p{N}_-]{1,24})/gu,
-      (m, pre, name) => `${pre}<a class="tag-inline" href="/tag/${encodeURIComponent(name)}">#${name}</a>`
-    );
+    // 文章内的 #标签 转为可点击，再走一遍白名单消毒
+    const rendered = sanitizeHtml(renderBody(p.content));
 
     return json({ ok: true, post: { ...shapePost(p, true), html: rendered } });
   }
@@ -342,7 +350,7 @@ export async function handleApi(env, request, url, ctx) {
 
     const body = await request.json();
     const title = String(body.title || '无标题').slice(0, 200);
-    const content = String(body.content || '');
+    const content = cleanMarkdown(String(body.content || ''), title);
     const wanted = slugify(body.slug || '');
     const asciiBase = /^[a-z0-9-]+$/i.test(slugify(title)) ? slugify(title) : '';
     let slug = wanted || asciiBase || uniqueSlug('post');
@@ -376,6 +384,7 @@ export async function handleApi(env, request, url, ctx) {
     }
 
     await syncTags(db, id, content);
+    if (ctx) ctx.waitUntil(bust(url, [slug]));
     return json({ ok: true, id, slug, summary: manual, ai: hasAI(env) });
   }
 
@@ -391,7 +400,7 @@ export async function handleApi(env, request, url, ctx) {
 
     const body = await request.json();
     const title = body.title !== undefined ? String(body.title).slice(0, 200) : p.title;
-    const content = body.content !== undefined ? String(body.content) : p.content;
+    const content = body.content !== undefined ? cleanMarkdown(String(body.content), title) : p.content;
 
     let slug = p.slug;
     if (body.slug !== undefined) {
@@ -441,6 +450,7 @@ export async function handleApi(env, request, url, ctx) {
     if (needGen && ctx) ctx.waitUntil(refreshSummary(env, db, id, { title, content }));
 
     await syncTags(db, id, content);
+    if (ctx) ctx.waitUntil(bust(url, [slug, p.slug]));
     return json({ ok: true, id, slug, updated_at: nowISO(), ai: hasAI(env) });
   }
 
@@ -497,6 +507,7 @@ export async function handleApi(env, request, url, ctx) {
       db.prepare('DELETE FROM comments WHERE post_id = ?').bind(id),
       db.prepare('DELETE FROM posts WHERE id = ?').bind(id),
     ]);
+    if (ctx) ctx.waitUntil(bust(url, [p.slug]));
     return json({ ok: true });
   }
 
@@ -641,6 +652,24 @@ export async function handleApi(env, request, url, ctx) {
     if (res) return res;
     const r = await checkFriends(env);
     return json({ ok: true, ...r });
+  }
+
+  /* ---- 存量内容清理：零宽字符、行尾空格、重复空行、与标题重复的一级标题 ---- */
+  if (path === '/maintenance/clean' && method === 'POST') {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+
+    const { results } = await db.prepare('SELECT id, slug, title, content FROM posts ORDER BY id ASC').all();
+    const changed = [];
+    for (const p of results) {
+      const cleaned = cleanMarkdown(p.content || '', p.title);
+      if (cleaned !== p.content) {
+        await db.prepare('UPDATE posts SET content = ? WHERE id = ?').bind(cleaned, p.id).run();
+        changed.push({ slug: p.slug, before: String(p.content || '').length, after: cleaned.length });
+      }
+    }
+    if (changed.length && ctx) ctx.waitUntil(bust(url, results.map((p) => p.slug)));
+    return json({ ok: true, scanned: results.length, changed: changed.length, detail: changed.slice(0, 50) });
   }
 
   /* ---- 图片上传 ---- */

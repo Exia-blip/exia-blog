@@ -288,6 +288,14 @@ export function renderMarkdown(src = '') {
 // ---- 标签 / 封面 / 摘要 ----
 const stripCode = (s) => String(s).replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ');
 
+/** 正文 → HTML：Markdown 渲染 + 正文里的 #标签 转成可点链接（接口与 SSR 共用） */
+export function renderBody(content = '') {
+  return renderMarkdown(content).replace(
+    /(^|>|\s)#([\p{L}\p{N}_-]{1,24})/gu,
+    (m, pre, name) => `${pre}<a class="tag-inline" href="/tag/${encodeURIComponent(name)}">#${name}</a>`
+  );
+}
+
 export function extractTags(content = '') {
   const clean = stripCode(content);
   const re = /(^|[\s（(>、，。])#([\p{L}\p{N}_-]{1,24})/gu;

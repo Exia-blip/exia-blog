@@ -25,9 +25,22 @@ const segs = location.pathname.split('/').filter(Boolean);
 const slug = decodeURIComponent(segs[0] === 'p' ? segs[1] || '' : segs[0] || '');
 
 const page = document.getElementById('page');
-let POST = null;
+// 服务端已经把正文写进 HTML 了，这里不再重复拉一遍接口
+let POST = window.__POST__ || null;
 let USER = null;
 let replyTo = null;
+
+/* SSR 页面只挂事件、不重建 DOM：正文不会重排，滚动位置也不会跳 */
+function hydrate() {
+  const p = POST;
+  const slot = document.querySelector('.post-edit');
+  if (slot && USER && (USER.is_admin || USER.id === p.author_id)) {
+    slot.innerHTML = `<a class="btn sm" href="/editor?id=${p.id}">编辑</a>`;
+  }
+  bindReply();
+  bindForm();
+  bindReadingProgress(document.querySelector('.post-body'));
+}
 
 async function load() {
   try {
@@ -243,7 +256,12 @@ function bindForm() {
 }
 
 USER = await mountHeader();
-load();
+if (POST) {
+  hydrate();
+  loadComments();
+} else {
+  await load();
+}
 </script>
 </body>
 </html>

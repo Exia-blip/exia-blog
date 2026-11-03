@@ -302,27 +302,74 @@ npx wrangler dev --port 8788 --local
 
 ## 性能与缓存
 
-**首屏不靠 JS 撑**。导航栏、首页横幅标题、第一页文章列表和分页都由 Worker 直接渲染进 HTML：
+**文章页整页服务端渲染**。以前 `/p/:slug` 只在 `<title>` 和 meta 上做了手脚，正文、评论、标签全得等 `/api/posts/:slug` 回来才画出来；现在 Worker 直接把整篇文章（含 AI 摘要块、标签、评论列表与评论框）写进 HTML，`window.__POST__` 只带元信息，前端不再重复拉一份正文。
 
 | 内容 | 以前 | 现在 |
 |---|---|---|
 | 导航栏 | 空 `<div>`，等 `app.js` 下载执行后长出来 | Worker 直接输出 `<header>` |
 | 首页列表 | 一句「加载中…」，等 `/api/posts` 回来 | 第一页 10 篇已在 HTML 里 |
+| 文章正文 / 评论 | 空 `<main>` + 「加载中…」 | 全文 + 评论列表 + 评论表单 |
 | 标签页/分类页标题 | 先显示站名再被 JS 改成 `#标签` | 直接是 `#标签` |
 
-登录态（登录 / 后台 / 退出）不参与 SSR——HTML 是共享缓存的，带上用户信息会串号。Worker 只留一个空的 `<span id="nav-user">`，JS 取到 `/api/me` 后再填。空的时候 `:empty` 会让它不占位，避免「已登录却闪一下登录」。
+登录态（登录 / 后台 / 退出）不参与 SSR——HTML 是共享缓存的，带上用户信息会串号。Worker 只留一个空的 `<span id="nav-user">`，JS 取到 `/api/me` 后再填。空的时候 `:empty` 会让它不占位，避免「已登录却闪一下登录」。SSR 页面在前端只挂事件、不重建 DOM，所以正文不会重排、滚动位置不会跳。
 
 **三层缓存**：
 
 | 层 | 对象 | 策略 |
 |---|---|---|
-| 浏览器 | `style.css` / `app.js` / `theme.js` / `md.js` | `max-age=300, stale-while-revalidate=3600` |
+| 浏览器 | `style.css` / `app.js` / `theme.js` / `md.js`（带 `?v=`） | `max-age=31536000, immutable` |
+| 浏览器 | 同上但不带版本号 | `max-age=300, stale-while-revalidate=3600` |
 | 边缘（Cache API） | 匿名访客的公开页面 | 45 秒，`s-maxage=45` |
-| 浏览器/边缘 | R2 图片 | `max-age=31536000, immutable` |
+| 浏览器/边缘 | R2 图片与 `og-default.jpg` | `max-age=31536000, immutable` |
 
-HTML 本身不能设长缓存（要注入站点主题与站名），所以边缘只给 45 秒：新文章发布后最多 45 秒出现在首页。带 `sid` cookie 的请求一律绕过缓存，后台、私密文章、登录流程永远实时渲染。
+资源版本号取自 `CF_VERSION_METADATA.id`（每次 `wrangler deploy` 自动换一个 UUID），HTML 里的 `/style.css?v=<uuid>` 跟着变，所以能放心给一年强缓存——改样式不用教用户清缓存。
+
+**发布即失效**：新建 / 修改 / 删除文章后会主动 `caches.default.delete()` 掉首页、归档、栏目页和新旧文章地址，不用等 45 秒 TTL。带 `sid` cookie 的请求一律绕过缓存，后台、私密文章、登录流程永远实时渲染。
 
 **其它**：`robots.txt` 与 `manifest.webmanifest` 由 Worker 按当前域名动态生成；`/login`、`/editor` 带 `noindex`；文章页顶部有阅读进度条，正文不足一屏时不显示；深色模式下 `theme-color` 会跟着主题底色变。
+
+## 结构化数据与分享卡片
+
+每页都输出 JSON-LD（`ldJson()` 在 `src/seo.js`，统一出口避免各页字段走偏）：
+
+| 页面 | schema |
+|---|---|
+| 全站 | `WebSite`（带 `SearchAction`，指向 `/?q={搜索词}`）+ `Person`（站点主人） |
+| 文章 | `BlogPosting`（`headline` / `datePublished` / `dateModified` / `author` / `publisher` / `keywords` / `wordCount` / `timeRequired`）+ `BreadcrumbList` |
+| 首页、归档、栏目、标签 | `CollectionPage` + `ItemList`（前 20 篇） |
+
+`og:image` 的取值顺序：文章封面 → 站点头像 → 站点默认图 `/og-default.jpg`（1200×630，仅在后两者上用 `og:image:width/height`，因为封面尺寸未知）。另外补齐了 `og:url`、`og:locale`、`og:image:alt`、`article:published_time` / `modified_time` / `section` / `tag` 和 `twitter:image`。
+
+## 安全响应头
+
+`src/security.js` 统一出口，HTML 与静态资源都带：
+
+```
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+x-frame-options: SAMEORIGIN
+permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+cross-origin-opener-policy: same-origin
+content-security-policy: default-src 'self'; script-src 'self' 'nonce-…'; style-src 'self' 'unsafe-inline'; …
+```
+
+CSP 没有 `'unsafe-inline'`：每次渲染生成一个随机 nonce，把页面里所有 `<script>`（含主题防闪脚本、JSON-LD、`window.__POST__` 引导数据、编辑器内联 module）都打上。缓存里存的是「HTML + 配套 CSP 头」这一对，回放时不会错位。代价是**不能再写 `onerror=` 这类内联事件属性**——图片错误兜底改在 `app.js` 里用捕获阶段的 `error` 监听处理。
+
+## 内容清理
+
+`src/clean.js` 两条路：
+
+- `cleanMarkdown()` 在**写入时**跑：去零宽字符与 BOM、全角空格转半角、去行尾空白、连续空行压成一行、去掉与标题重复的一级标题、清掉空图片空链接。代码块内容原样保留（围栏先摘出来再放回），函数幂等，跑两次结果一致。
+- `sanitizeHtml()` 在**渲染时**跑：标签白名单 + 属性白名单，丢掉 `<script>/<iframe>/<object>` 等、所有 `on*` 事件属性、`javascript:` 协议，`style` 只放行 `text-align`，外链自动补 `target="_blank" rel="noopener nofollow"`，顺手清掉空段落。
+
+存量文章想清一遍，登录后台后 POST 一次即可（管理员）：
+
+```bash
+curl -X POST https://你的域名/api/maintenance/clean -H "cookie: sid=<你的会话>"
+```
+
+返回扫描篇数与改动明细。日常写作不需要手动跑，保存时已经清理过。
 
 ## 几个实现上的取舍
 

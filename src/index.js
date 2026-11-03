@@ -3,7 +3,11 @@ import { loginRedirect, handleCallback, logout, authStatus, currentUser } from '
 import { html, json } from './utils.js';
 import { checkFriends } from './cron.js';
 import { getSite } from './settings.js';
-import { extractExcerpt } from '../public/md.js';
+import { extractExcerpt, extractCover, readingTime, renderBody } from '../public/md.js';
+import { sanitizeHtml } from './clean.js';
+import { makeNonce, applyNonce, securityHeaders } from './security.js';
+import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
+import { edgeGet, edgePut } from './cache.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ESC[c]);
@@ -27,7 +31,61 @@ async function assetText(env, request, path) {
   return res.text();
 }
 
-/* ---------- 文章页 SSR（注入 title / description / og） ---------- */
+/* ---------- 文章页 SSR（正文 / 评论 / 结构化数据全部进 HTML） ---------- */
+const TAG_JOIN_SQL = `SELECT t.name FROM tags t JOIN post_tags pt ON pt.tag_id = t.id WHERE pt.post_id = ? ORDER BY t.name`;
+
+function relTime(sqlDate) {
+  const d = new Date(String(sqlDate || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
+  if (diff < 86400 * 30) return `${Math.floor(diff / 86400)} 天前`;
+  return String(sqlDate).slice(0, 10);
+}
+
+const avaText = (name) => esc(String(name || '?').slice(0, 1).toUpperCase());
+
+function renderComment(c, isChild = false) {
+  const homepage = c.website
+    ? `<a href="${esc(c.website)}" target="_blank" rel="noopener nofollow noUGc" class="muted">${esc(c.name)}</a>`
+    : esc(c.name);
+  return `<div class="cmt" data-cid="${c.id}"><div class="ava">${avaText(c.name)}</div><div class="main"><div class="head"><b>${homepage}</b>${
+    c.is_admin ? '<span class="badge-owner">博主</span>' : ''
+  }<span class="when">${esc(relTime(c.created_at))}</span></div><div class="text">${esc(c.content)}</div><div class="acts"></div>${
+    !isChild && c.replies && c.replies.length
+      ? `<div class="replies">${c.replies.map((r) => renderComment(r, true)).join('')}</div>`
+      : ''
+  }</div></div>`;
+}
+
+function renderComments(rows, total) {
+  const roots = rows.filter((c) => !c.parent_id);
+  const kids = rows.filter((c) => c.parent_id);
+  const tree = roots.map((r) => ({ ...r, replies: kids.filter((c) => c.parent_id === r.id) }));
+  const list = tree.length
+    ? tree.map((c) => renderComment(c)).join('')
+    : '<div class="muted small" style="padding:14px 0">还没有评论，来抢沙发。</div>';
+  return `<section class="comments" id="comments">
+      <h3>评论 <span class="muted" id="cmt-count">${total ? `(${total})` : ''}</span></h3>
+      <div id="cmt-list">${list}</div>
+      <form class="cmt-form" id="cmt-form" novalidate>
+        <div id="reply-hint" class="tiny muted" style="display:none"></div>
+        <div class="row" id="guest-fields">
+          <input type="text" name="name" placeholder="昵称 *" maxlength="40" autocomplete="nickname">
+          <input type="email" name="email" placeholder="联系邮箱 *（不公开，仅博主可见）" maxlength="120" autocomplete="email">
+          <input type="url" name="website" placeholder="网站（可选）" maxlength="200">
+        </div>
+        <textarea name="content" placeholder="说点什么…" maxlength="2000"></textarea>
+        <div class="foot">
+          <span class="tiny muted" id="cmt-hint"></span>
+          <button class="btn primary sm" type="submit">发表评论</button>
+        </div>
+      </form>
+    </section>`;
+}
+
 async function servePostPage(env, request, slug) {
   const user = await currentUser(env, request);
 
@@ -46,14 +104,71 @@ async function servePostPage(env, request, slug) {
   const tpl = await assetText(env, request, '/post');
   if (!tpl) return new Response('模板缺失', { status: 500 });
 
-  const desc = post.summary || extractExcerpt(post.content, 150);
-  const cover = post.cover || '';
+  const [{ results: tagRows }, { results: cmtRows }] = await Promise.all([
+    env.DB.prepare(TAG_JOIN_SQL).bind(post.id).all(),
+    env.DB.prepare(
+      'SELECT id, parent_id, name, website, content, is_admin, created_at FROM comments WHERE post_id = ? ORDER BY created_at ASC'
+    )
+      .bind(post.id)
+      .all(),
+  ]);
+
+  post.tags = tagRows.map((r) => r.name);
+  post.comments = cmtRows.length;
+
   const site = await getSite(env);
   const siteName = site.name;
+  const origin = new URL(request.url).origin;
   // canonical 必须和 sitemap / RSS 里给的地址一致，否则同一篇文章被收录两份
   const canonical = new URL(`/p/${encodeURIComponent(post.slug)}`, request.url).toString();
-  // 没封面就退到站点头像，社交卡片不至于空白
-  const ogImage = cover || site.avatar || '';
+
+  const desc = post.summary || extractExcerpt(post.content, 150);
+  const cover = post.cover || extractCover(post.content) || '';
+  // 封面 → 站点头像 → 站点默认分享图，社交卡片不留白
+  const ogImage = cover ? new URL(cover, request.url).toString() : site.avatar || `${origin}/og-default.jpg`;
+  const isDefaultOg = !cover && !site.avatar;
+
+  const bodyHtml = sanitizeHtml(renderBody(post.content));
+  const words = String(post.content || '').replace(/\s/g, '').length;
+  const reading = readingTime(post.content);
+
+  const lead = post.summary
+    ? `<aside class="post-lead"><span class="lead-tag">${post.summary_src === 'fallback' ? '摘要' : 'AI 摘要'}</span><p>${esc(
+        post.summary
+      )}</p></aside>`
+    : '';
+
+  const tagbar = [
+    post.category
+      ? `<a class="tag cat-chip" href="/cat/${encodeURIComponent(post.category)}">${esc(post.category)}</a>`
+      : '',
+    (post.tags || []).map((t) => `<a class="tag" href="/tag/${encodeURIComponent(t)}">#${esc(t)}</a>`).join(''),
+  ].join('');
+
+  const article = `<article>
+      <header class="post-head">
+        <h1>${esc(post.title)}${
+          post.is_private ? ' <span class="tag" style="background:var(--accent-soft);color:var(--accent)">私密</span>' : ''
+        }</h1>
+        <div class="meta">
+          ${post.avatar ? `<img class="avatar-xs" src="${esc(post.avatar)}" alt="" width="20" height="20">` : ''}
+          <span>${esc(post.author_name || post.login || '')}</span>
+          <span class="sep-dot">${esc(String(post.created_at || '').slice(0, 10))}</span>
+          <span class="sep-dot">${reading} 分钟阅读</span>
+          ${
+            post.updated_at && post.updated_at !== post.created_at
+              ? `<span class="sep-dot">更新于 ${esc(String(post.updated_at).slice(0, 10))}</span>`
+              : ''
+          }
+          <span class="post-edit" style="margin-left:auto"></span>
+        </div>
+      </header>
+      ${lead}
+      <div class="md post-body">${bodyHtml}</div>
+      <footer class="post-foot"><div class="tagbar" style="margin:0">${tagbar}</div></footer>
+    </article>
+
+    ${renderComments(cmtRows, cmtRows.length)}`;
 
   const meta = [
     `<title>${esc(post.title)} · ${esc(siteName)}</title>`,
@@ -67,25 +182,59 @@ async function servePostPage(env, request, slug) {
     `<meta property="og:url" content="${esc(canonical)}">`,
     `<meta property="og:title" content="${esc(post.title)}">`,
     `<meta property="og:description" content="${esc(desc)}">`,
-    `<meta property="article:published_time" content="${esc(String(post.created_at).replace(' ', 'T') + 'Z')}">`,
-    ogImage ? `<meta property="og:image" content="${esc(new URL(ogImage, request.url))}">` : '',
+    `<meta property="og:locale" content="zh_CN">`,
+    `<meta property="og:image" content="${esc(ogImage)}">`,
+    `<meta property="og:image:alt" content="${esc(post.title)}">`,
+    isDefaultOg ? `<meta property="og:image:width" content="1200">` : '',
+    isDefaultOg ? `<meta property="og:image:height" content="630">` : '',
+    `<meta property="article:published_time" content="${esc(iso(post.created_at))}">`,
+    `<meta property="article:modified_time" content="${esc(iso(post.updated_at, iso(post.created_at)))}">`,
+    post.category ? `<meta property="article:section" content="${esc(post.category)}">` : '',
+    ...(post.tags || []).map((t) => `<meta property="article:tag" content="${esc(t)}">`),
     `<meta name="twitter:card" content="${cover ? 'summary_large_image' : 'summary'}">`,
     `<meta name="twitter:title" content="${esc(post.title)}">`,
     `<meta name="twitter:description" content="${esc(desc)}">`,
+    `<meta name="twitter:image" content="${esc(ogImage)}">`,
+    ldJson(
+      postLd({
+        post: { ...post, comments: cmtRows.length },
+        site,
+        origin,
+        url: canonical,
+        image: ogImage,
+        words,
+      })
+    ),
   ]
     .filter(Boolean)
     .join('\n  ');
 
-  const injected = tpl.replace('<!--SEO-->', meta).replace(
-    '<!--BOOT-->',
-    `<script>window.__POST__=${JSON.stringify({
-      slug: post.slug,
-      title: post.title,
-      is_private: !!post.is_private,
-    }).replace(/</g, '\\u003c')};</script>`
-  );
+  const boot = {
+    id: post.id,
+    slug: post.slug,
+    title: post.title,
+    author: post.author_name || post.login || '',
+    author_id: post.author_id,
+    is_private: !!post.is_private,
+    created_at: post.created_at,
+    updated_at: post.updated_at,
+    summary: post.summary || '',
+    summary_src: post.summary_src || '',
+    category: post.category || '',
+    tags: post.tags || [],
+    reading,
+    html: true,
+  };
 
-  return html(injected, 200, {
+  const injected = tpl
+    .replace('<!--SEO-->', meta)
+    .replace(
+      '</head>',
+      `<script>window.__POST__=${JSON.stringify(boot).replace(/</g, '\\u003c')};</script></head>`
+    )
+    .replace(/<main class="wrap" id="page">[\s\S]*?<\/main>/, `<main class="wrap" id="page">${article}</main>`);
+
+  return html(stampAssets(injected, env), 200, {
     // 私密文章不进缓存
     'cache-control': post.is_private ? 'private, no-store' : 'public, max-age=60',
   });
@@ -131,7 +280,7 @@ function renderHeader(site, path) {
   const name = site.name || 'Exia Blog';
   const desc = (site.desc || '').trim();
   const avatar = site.avatar
-    ? `<img class="brand-avatar" src="${esc(site.avatar)}" alt="" loading="eager" onerror="this.remove()">`
+    ? `<img class="brand-avatar" src="${esc(site.avatar)}" alt="" loading="eager">`
     : `<span class="brand-avatar ph" aria-hidden="true">${esc((name.trim() || 'E').charAt(0).toUpperCase())}</span>`;
 
   const extra = [];
@@ -273,6 +422,10 @@ function fillSeo(body, site, url) {
   const title = home ? site.name : `${label} · ${site.name}`;
   const desc = site.desc || `${site.name} · 记录思考、代码与生活`;
   const canonical = url ? new URL(url.pathname, url.origin).toString() : '';
+  const origin = url ? url.origin : '';
+  // 没有站点头像就用站点默认分享图，社交卡片不至于空一块
+  const hasOwnOg = !!site.avatar;
+  const ogImage = hasOwnOg ? new URL(site.avatar, url || 'https://x.invalid/').toString() : `${origin}/og-default.jpg`;
 
   const block = [
     `<title>${esc(title)}</title>`,
@@ -286,10 +439,15 @@ function fillSeo(body, site, url) {
     `<meta property="og:title" content="${esc(title)}">`,
     `<meta property="og:description" content="${esc(desc)}">`,
     canonical ? `<meta property="og:url" content="${esc(canonical)}">` : '',
-    site.avatar ? `<meta property="og:image" content="${esc(new URL(site.avatar, url || 'https://x/').toString())}">` : '',
+    `<meta property="og:locale" content="zh_CN">`,
+    `<meta property="og:image" content="${esc(ogImage)}">`,
+    `<meta property="og:image:alt" content="${esc(site.name)}">`,
+    hasOwnOg ? '' : `<meta property="og:image:width" content="1200">`,
+    hasOwnOg ? '' : `<meta property="og:image:height" content="630">`,
     `<meta name="twitter:card" content="summary">`,
     `<meta name="twitter:title" content="${esc(title)}">`,
     `<meta name="twitter:description" content="${esc(desc)}">`,
+    `<meta name="twitter:image" content="${esc(ogImage)}">`,
   ]
     .filter(Boolean)
     .join('\n  ');
@@ -319,7 +477,30 @@ async function injectTheme(env, res, url) {
   // 导航栏直接渲染进 HTML，省掉首屏空白与跳动
   body = body.replace(/<div id="site-header"[^>]*><\/div>/, renderHeader(s, url.pathname));
   body = renderHero(body, s, url.pathname);
-  body = (await renderList(env, body, url)).body;
+
+  const { body: listed, list } = await renderList(env, body, url);
+  body = listed;
+
+  // 结构化数据：站点一条，列表页再加 CollectionPage
+  const ld = [ldJson(siteLd(s, url.origin))];
+  if (list) {
+    const title = (body.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || s.name).trim();
+    ld.push(
+      ldJson(
+        listLd({
+          site: s,
+          origin: url.origin,
+          url: url.toString(),
+          name: title,
+          desc: s.desc,
+          posts: list.posts,
+        })
+      )
+    );
+  }
+  body = body.replace('</head>', `${ld.join('\n')}</head>`);
+  // 资源带部署版本号，静态资源才能一年强缓存
+  body = stampAssets(body, env);
 
   const headers = new Headers(res.headers);
   headers.delete('content-length');
@@ -328,6 +509,23 @@ async function injectTheme(env, res, url) {
     statusText: res.statusText,
     headers,
   });
+}
+
+/* 统一加安全头：HTML 顺带给内联脚本发 nonce（缓存里存的也是配对好的头，回放不会错位） */
+async function harden(res) {
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('text/html')) {
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: securityHeaders(new Headers(res.headers), null),
+    });
+  }
+  const nonce = makeNonce();
+  const body = applyNonce(await res.text(), nonce);
+  const headers = securityHeaders(new Headers(res.headers), nonce);
+  headers.delete('content-length');
+  return new Response(body, { status: res.status, statusText: res.statusText, headers });
 }
 
 /* ---------- 404 ---------- */
@@ -406,17 +604,28 @@ async function serveSitemap(env, request) {
 }
 
 /* ---------- 静态资源统一出口 ----------
-   HTML 不能缓存（要注入主题），但 CSS/JS/图标这些没有用户态的可以放心缓存，
-   否则每次站内跳转浏览器都要回来问一遍「变了没」 */
-async function asset(env, request) {
+   带 ?v=<部署版本> 的资源内容不会变，直接一年强缓存；
+   没带版本号的退回 5 分钟，保证改了样式也能较快生效 */
+function assetVersion(env) {
+  return env.SITE_VERSION || (env.CF_VERSION_METADATA && env.CF_VERSION_METADATA.id) || '';
+}
+
+function stampAssets(body, env) {
+  const v = assetVersion(env);
+  if (!v) return body;
+  return body.replace(/(["'])\/(style\.css|app\.js|theme\.js|md\.js|boot\.js)\1/g, (m, q, f) => `${q}/${f}?v=${v}${q}`);
+}
+
+async function asset(env, request, url) {
   const res = await env.ASSETS.fetch(request);
   const ct = res.headers.get('content-type') || '';
   if (!res.ok || ct.includes('text/html')) return res;
 
   const headers = new Headers(res.headers);
   const cc = headers.get('cache-control') || '';
-  if (!cc || /max-age=0/.test(cc)) {
-    // 5 分钟：站内连续浏览不用重复下载，改了样式也基本立刻能看到新版
+  if (url?.searchParams.has('v')) {
+    headers.set('cache-control', 'public, max-age=31536000, immutable');
+  } else if (!cc || /max-age=0/.test(cc)) {
     headers.set('cache-control', 'public, max-age=300, stale-while-revalidate=3600');
   }
   headers.delete('content-length');
@@ -524,13 +733,13 @@ async function route(request, env, ctx) {
   const segs = path.split('/').filter(Boolean);
   if (segs.length === 1) {
     // 先看静态资源有没有同名的（login / friends / editor 等）
-    const hit = await asset(env, request);
+    const hit = await asset(env, request, url);
     if (hit.status !== 404) return hit;
     return await servePostPage(env, request, decodeURIComponent(segs[0]));
   }
 
   // 其它交给静态资源
-  const res = await asset(env, request);
+  const res = await asset(env, request, url);
   if (res.status === 404) return await notFoundPage(env, request);
   return res;
 }
@@ -549,20 +758,18 @@ export default {
         request.method === 'GET' && !loggedIn && isPagePath(url.pathname);
 
       if (cacheable) {
-        const hit = await caches.default.match(url.toString());
+        const hit = await edgeGet(url);
         if (hit) return asClient(hit);
       }
 
-      const res = await injectTheme(env, await route(request, env, ctx), url);
+      let res = await route(request, env, ctx);
+      res = await injectTheme(env, res, url);
+      res = await harden(res);
 
       if (cacheable && res.status === 200 && (res.headers.get('content-type') || '').includes('text/html')) {
         // 存缓存用 s-maxage；回给浏览器的副本一律 max-age=0，
         // 否则 CF 会按 zone 的 Browser Cache TTL 把 HTML 在浏览器里压 4 小时
-        const storeHeaders = new Headers(res.headers);
-        storeHeaders.set('cache-control', `public, s-maxage=${EDGE_TTL}`);
-        storeHeaders.delete('set-cookie');
-        const stored = new Response(res.body, { status: res.status, statusText: res.statusText, headers: storeHeaders });
-        ctx.waitUntil(caches.default.put(url.toString(), stored.clone()));
+        const stored = await edgePut(url, res, EDGE_TTL);
         return asClient(stored);
       }
 

@@ -1,4 +1,17 @@
 // 前端公共层：API 封装 / 时间格式化 / 顶部导航 / 提示
+
+/* 图片加载失败兜底：CSP 之下不能再用 onerror 内联属性，统一在这里收 */
+document.addEventListener(
+  'error',
+  (e) => {
+    const el = e.target;
+    if (!(el instanceof HTMLImageElement)) return;
+    if (el.classList.contains('brand-avatar')) el.remove();
+    else if (el.classList.contains('fav')) el.style.visibility = 'hidden';
+  },
+  true // error 事件不冒泡，必须捕获阶段
+);
+
 export async function api(path, { method = 'GET', body, raw, signal } = {}) {
   const opts = { method, credentials: 'same-origin', headers: {} };
   if (signal) opts.signal = signal;
@@ -138,7 +151,7 @@ export async function mountHeader(active = '') {
   const avatar = s.avatar || '';
   // 有头像就显示，没有就退回首字母方块，导航不至于忽宽忽窄
   const brandMark = avatar
-    ? `<img class="brand-avatar" src="${esc(avatar)}" alt="" loading="eager" onerror="this.remove()">`
+    ? `<img class="brand-avatar" src="${esc(avatar)}" alt="" loading="eager">`
     : `<span class="brand-avatar ph" aria-hidden="true">${esc((siteName || 'E').trim().charAt(0).toUpperCase())}</span>`;
 
   host.outerHTML = `

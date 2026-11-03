@@ -58,7 +58,7 @@ async function load() {
     }
     grid.innerHTML = friends.map((f) => `
       <a class="friend-card" href="${esc(f.url)}" target="_blank" rel="noopener">
-        <img class="fav" src="${esc(favicon(f))}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+        <img class="fav" src="${esc(favicon(f))}" alt="" loading="lazy">
         <div class="info">
           <div class="nm">
             <span class="dot ${f.status ? 'on' : 'off'}" title="${f.status ? '可访问' : '无法访问'}"></span>
