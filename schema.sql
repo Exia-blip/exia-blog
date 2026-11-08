@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS posts (
   summary_hash TEXT NOT NULL DEFAULT '',   -- 生成摘要时的正文指纹，避免重复烧 token
   series      TEXT NOT NULL DEFAULT '',    -- 所属系列（连载名），空串表示单篇
   series_order INTEGER NOT NULL DEFAULT 0, -- 系列内序号，同序号按创建时间
+  published_at TEXT NOT NULL DEFAULT '',   -- 首次公开的时间；空串表示仍是草稿。页面日期/结构化数据优先用它
   author_id   INTEGER NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now'))

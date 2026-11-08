@@ -56,6 +56,16 @@ async function attachTags(db, posts) {
   return posts;
 }
 
+/**
+ * 发布时间：第一次进入「非私密」状态时定下，之后来回改成草稿/发布都不再改写。
+ * 不这么定的话，草稿写于 10 月、发布在 12 月，页面日期、RSS pubDate、
+ * article:published_time 会一起错成 10 月。空串表示还没发布过。
+ */
+function publishedOf(prev, isPrivate, now) {
+  if (prev) return prev;
+  return isPrivate ? '' : now;
+}
+
 /** 系列名：40 字以内，去掉首尾空白；空串表示单篇 */
 const seriesOf = (b) => String(b.series ?? '').trim().slice(0, 40);
 const seriesOrderOf = (b) => {
@@ -84,6 +94,9 @@ function shapePost(p, full = false) {
     reading: readingTime(p.content),
     series: p.series || '',
     series_order: p.series_order || 0,
+    // 发布时间：草稿转发布那一刻定下。老数据没有这个字段时退回 created_at，
+    // 保证 API 里永远是字符串而不是 null，前端不用再写一遍兜底
+    published_at: p.published_at || p.created_at || '',
     created_at: p.created_at,
     updated_at: p.updated_at,
     comments: p.comment_count ?? undefined,
@@ -133,7 +146,7 @@ export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q
     .prepare(
       `SELECT p.*, ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
        FROM posts p ${AUTHOR_JOIN} WHERE ${whereSql}
-       ORDER BY p.created_at DESC LIMIT ? OFFSET ?`
+       ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC, p.id DESC LIMIT ? OFFSET ?`
     )
     .bind(...args, size, offset)
     .all();
@@ -282,7 +295,7 @@ export async function handleApi(env, request, url, ctx) {
     const where = ['p.is_private = 0', 'p.hidden = 0'];
     const args = [];
     if (/^\d{4}$/.test(year)) {
-      where.push("substr(p.created_at, 1, 4) = ?");
+      where.push("substr(COALESCE(NULLIF(p.published_at, ''), p.created_at), 1, 4) = ?");
       args.push(year);
     }
 
@@ -291,7 +304,7 @@ export async function handleApi(env, request, url, ctx) {
         `SELECT p.*, ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
          FROM posts p ${AUTHOR_JOIN}
          WHERE ${where.join(' AND ')}
-         ORDER BY p.created_at DESC, p.id DESC
+         ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC, p.id DESC
          LIMIT 2000`
       )
       .bind(...args)
@@ -301,7 +314,7 @@ export async function handleApi(env, request, url, ctx) {
 
     const yearMap = new Map();
     for (const p of results) {
-      const stamp = String(p.created_at || '');
+      const stamp = String(p.published_at || p.created_at || '');
       const y = stamp.slice(0, 4) || '未知';
       const m = stamp.slice(5, 7) || '00';
       if (!yearMap.has(y)) yearMap.set(y, { year: y, count: 0, months: new Map() });
@@ -322,7 +335,9 @@ export async function handleApi(env, request, url, ctx) {
     // 全站跨度（不受 year 过滤影响）
     const spanRow = await db
       .prepare(
-        `SELECT MIN(created_at) AS first_at, MAX(created_at) AS last_at, COUNT(*) AS total
+        `SELECT MIN(COALESCE(NULLIF(published_at, ''), created_at)) AS first_at,
+                MAX(COALESCE(NULLIF(published_at, ''), created_at)) AS last_at,
+                COUNT(*) AS total
          FROM posts WHERE is_private = 0 AND hidden = 0`
       )
       .first();
@@ -451,13 +466,15 @@ export async function handleApi(env, request, url, ctx) {
 
     const info = await db
       .prepare(
-        `INSERT INTO posts (slug, title, content, cover, category, series, series_order, is_private, hidden, author_id, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO posts (slug, title, content, cover, category, series, series_order, is_private, hidden, published_at, author_id, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .bind(
         slug, title, content, cover, category,
         seriesOf(body), seriesOrderOf(body),
-        body.is_private ? 1 : 0, body.hidden ? 1 : 0, u.id, stamp, stamp
+        body.is_private ? 1 : 0, body.hidden ? 1 : 0,
+        publishedOf('', !!body.is_private, stamp),
+        u.id, stamp, stamp
       )
       .run();
 
@@ -521,9 +538,13 @@ export async function handleApi(env, request, url, ctx) {
       needGen = true;      // 正文变了，摘要跟着旧了
     }
 
+    const isPrivate = body.is_private !== undefined ? (body.is_private ? 1 : 0) : p.is_private;
+    const isHidden = body.hidden !== undefined ? (body.hidden ? 1 : 0) : p.hidden;
+    const stampNow = nowISO();
+
     await db
       .prepare(
-        `UPDATE posts SET slug=?, title=?, content=?, cover=?, category=?, series=?, series_order=?, is_private=?, hidden=?, updated_at=?${sumSql} WHERE id=?`
+        `UPDATE posts SET slug=?, title=?, content=?, cover=?, category=?, series=?, series_order=?, is_private=?, hidden=?, published_at=?, updated_at=?${sumSql} WHERE id=?`
       )
       .bind(
         slug,
@@ -533,9 +554,10 @@ export async function handleApi(env, request, url, ctx) {
         category,
         body.series !== undefined ? seriesOf(body) : p.series || '',
         body.series_order !== undefined ? seriesOrderOf(body) : p.series_order || 0,
-        body.is_private !== undefined ? (body.is_private ? 1 : 0) : p.is_private,
-        body.hidden !== undefined ? (body.hidden ? 1 : 0) : p.hidden,
-        nowISO(),
+        isPrivate,
+        isHidden,
+        publishedOf(p.published_at, isPrivate, stampNow),
+        stampNow,
         ...sumArgs,
         id
       )

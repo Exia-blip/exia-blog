@@ -204,10 +204,10 @@ async function servePostPage(env, request, slug) {
         <div class="meta">
           ${post.avatar ? `<img class="avatar-xs" src="${esc(post.avatar)}" alt="" width="20" height="20">` : ''}
           <span>${esc(post.author_name || post.login || '')}</span>
-          <span class="sep-dot">${esc(String(post.created_at || '').slice(0, 10))}</span>
+          <span class="sep-dot">${esc(String(post.published_at || post.created_at || '').slice(0, 10))}</span>
           <span class="sep-dot">${reading} 分钟阅读</span>
           ${
-            post.updated_at && post.updated_at !== post.created_at
+            post.updated_at && post.updated_at.slice(0, 10) !== String(post.published_at || post.created_at || '').slice(0, 10)
               ? `<span class="sep-dot">更新于 ${esc(String(post.updated_at).slice(0, 10))}</span>`
               : ''
           }
@@ -242,8 +242,8 @@ async function servePostPage(env, request, slug) {
     isDefaultOg ? `<meta property="og:image:type" content="image/jpeg">` : '',
     isDefaultOg ? `<meta property="og:image:width" content="1200">` : '',
     isDefaultOg ? `<meta property="og:image:height" content="630">` : '',
-    `<meta property="article:published_time" content="${esc(iso(post.created_at))}">`,
-    `<meta property="article:modified_time" content="${esc(iso(post.updated_at, iso(post.created_at)))}">`,
+    `<meta property="article:published_time" content="${esc(iso(post.published_at || post.created_at))}">`,
+    `<meta property="article:modified_time" content="${esc(iso(post.updated_at, iso(post.published_at || post.created_at)))}">`,
     post.category ? `<meta property="article:section" content="${esc(catName(post.category))}">` : '',
     ...(post.tags || []).map((t) => `<meta property="article:tag" content="${esc(t)}">`),
     `<meta name="twitter:card" content="summary_large_image">`,
@@ -274,6 +274,7 @@ async function servePostPage(env, request, slug) {
     author: post.author_name || post.login || '',
     author_id: post.author_id,
     is_private: !!post.is_private,
+    published_at: post.published_at || post.created_at,
     created_at: post.created_at,
     updated_at: post.updated_at,
     summary: post.summary || '',
@@ -421,7 +422,7 @@ function postCard(p) {
   return `<a class="post-card" href="/p/${encodeURIComponent(p.slug)}">${cover}<div class="body"><h2>${esc(p.title)}${
     p.is_private ? ' <span class="tiny muted">私密</span>' : ''
   }</h2>${p.excerpt ? `<p class="excerpt">${esc(p.excerpt)}</p>` : ''}<div class="meta"><span>${esc(
-    String(p.created_at || '').slice(0, 10)
+    String(p.published_at || p.created_at || '').slice(0, 10)
   )}</span><span class="sep-dot">${p.reading} 分钟</span>${
     p.comments ? `<span class="sep-dot">${p.comments} 条评论</span>` : ''
   }${p.category ? `<span class="tag cat-chip">${esc(p.category_name || catName(p.category))}</span>` : ''}${tags}</div></div></a>`;
@@ -680,8 +681,9 @@ const rfc822 = (v) => {
 
 async function serveRss(env, request) {
   const { results } = await env.DB.prepare(
-    `SELECT slug, title, content, summary, created_at, updated_at FROM posts
-     WHERE is_private = 0 AND hidden = 0 ORDER BY created_at DESC LIMIT 30`
+    `SELECT slug, title, content, summary, published_at, created_at, updated_at FROM posts
+     WHERE is_private = 0 AND hidden = 0
+     ORDER BY COALESCE(NULLIF(published_at, ''), created_at) DESC LIMIT 30`
   ).all();
 
   const origin = new URL(request.url).origin;
@@ -693,7 +695,7 @@ async function serveRss(env, request) {
       <title>${esc(p.title)}</title>
       <link>${link}</link>
       <guid isPermaLink="true">${link}</guid>
-      <pubDate>${rfc822(p.created_at)}</pubDate>
+      <pubDate>${rfc822(p.published_at || p.created_at)}</pubDate>
       <description>${esc(p.summary || extractExcerpt(p.content, 200))}</description>
     </item>`;
     })
@@ -730,7 +732,8 @@ async function serveSitemap(env, request) {
 
   const [{ results: posts }, { results: cats }, { results: tags }] = await Promise.all([
     env.DB.prepare(
-      `SELECT p.slug, p.updated_at FROM posts p WHERE ${publicOnly} ORDER BY p.created_at DESC LIMIT 1000`
+      `SELECT p.slug, p.updated_at FROM posts p WHERE ${publicOnly}
+       ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC LIMIT 1000`
     ).all(),
     env.DB.prepare(
       `SELECT p.category AS c, COUNT(*) AS n FROM posts p WHERE ${publicOnly} AND TRIM(COALESCE(p.category,'')) != '' GROUP BY p.category`

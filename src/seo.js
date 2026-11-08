@@ -65,7 +65,8 @@ export function siteLd(site, origin) {
 /** 文章页：BlogPosting + 面包屑 */
 export function postLd({ post, site, origin, url, image, words }) {
   const siteName = site.name || 'Blog';
-  const pub = iso(post.created_at);
+  // 发布时间优先用 published_at（草稿转发布的时刻），没有才退回创建时间
+  const pub = iso(post.published_at || post.created_at);
   const mod = iso(post.updated_at, pub);
   const images = image ? [abs(image, origin)] : undefined;
 

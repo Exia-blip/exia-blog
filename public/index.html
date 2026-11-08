@@ -134,7 +134,7 @@ function card(p) {
       <h2>${esc(p.title)}${p.is_private ? ' <span class="tiny muted">私密</span>' : ''}</h2>
       ${p.excerpt ? `<p class="excerpt">${esc(p.excerpt)}</p>` : ''}
       <div class="meta">
-        <span>${fmtDate(p.created_at)}</span>
+        <span>${fmtDate(p.published_at || p.created_at)}</span>
         <span class="sep-dot">${p.reading} 分钟</span>
         ${p.comments ? `<span class="sep-dot">${p.comments} 条评论</span>` : ''}
         ${p.category ? `<span class="tag cat-chip">${esc(p.category_name || p.category)}</span>` : ''}

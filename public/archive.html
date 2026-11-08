@@ -83,7 +83,7 @@ function renderTimeline(years) {
         <div class="tl-items">
           ${m.posts
             .map((p) => {
-              const t = monthDay(p.created_at);
+              const t = monthDay(p.published_at || p.created_at);
               return `<a class="tl-item" href="/p/${encodeURIComponent(p.slug)}" title="${esc(p.title)}">
               <span class="tl-day">${t.md}</span>
               <span class="tl-body">
@@ -123,7 +123,7 @@ function renderList(years) {
         <div class="arch-rows">
           ${m.posts
             .map((p) => {
-              const t = monthDay(p.created_at);
+              const t = monthDay(p.published_at || p.created_at);
               return `<a class="arch-row" href="/p/${encodeURIComponent(p.slug)}">
               <span class="arch-day">${t.md}</span>
               <span class="arch-title">${esc(p.title)}</span>

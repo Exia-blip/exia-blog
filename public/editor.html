@@ -74,6 +74,7 @@
       <label>发布设置</label>
       <label class="switch"><input type="checkbox" id="is_private"> 私密（仅自己可见，未登录 404）</label>
       <label class="switch"><input type="checkbox" id="hidden"> 不列入首页（链接仍可直达）</label>
+      <span class="tiny muted" id="pub-state"></span>
     </div>
 
     <div class="field">
@@ -209,6 +210,17 @@ let hasServerRecord = false;
 // 站点头像预览：声明要在 boot 之前，否则 initSiteSettings 早于赋值语句执行会踩 TDZ
 let paintAvatar = () => {};
 let sumTouched = false; // 手动改过摘要就不让 AI 覆盖
+// 发布时间：首次公开时由服务端定下，之后改标题、来回存草稿都不变
+let pubAt = '';
+
+function setPubState(v) {
+  pubAt = v || '';
+  const el = $('pub-state');
+  if (!el) return;
+  el.textContent = pubAt
+    ? `发布时间 ${String(pubAt).slice(0, 10)}（不再改动）`
+    : '草稿 · 首次取消「私密」时定发布时间';
+}
 let sumBusy = false;
 // 栏目/标签规范（/api/taxonomy）：栏目四选一，标签白名单 + 别名表
 let TAX = { categories: [], seed: [] };
@@ -320,6 +332,7 @@ async function saveNow(manual = false) {
     } else {
       res = await api('/api/posts', { method: 'POST', body: payload });
       postId = res.id;
+      if (!payload.is_private && !pubAt) setPubState(new Date().toISOString().slice(0, 10) + ' 00:00:00');
       // 迁移本地草稿 key，避免新建后丢失
       const old = draftKey;
       draftKey = 'draft:' + postId;
@@ -572,6 +585,7 @@ function resetEditor() {
   seriesEl2.value = '';
   privateEl.checked = false;
   hiddenEl.checked = false;
+  setPubState('');
   sumEl.value = '';
   sumTouched = false;
   setSumState('');
@@ -636,6 +650,7 @@ if (!user) {
       seriesEl2.value = p.series_order ? String(p.series_order) : '';
       privateEl.checked = !!p.is_private;
       hiddenEl.checked = !!p.hidden;
+      setPubState(p.published_at || '');
       sumEl.value = p.summary || '';
       sumTouched = false;
       setSumState(p.summary ? (p.summary_src === 'manual' ? '手动' : '') : '');
