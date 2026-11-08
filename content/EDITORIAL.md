@@ -1,6 +1,6 @@
 # 内容排期（2026-11 → 2027-01）
 
-原则：每周三发一篇，宁可少不可断。旧文实质更新优先于新文凑数。
+原则：**每周固定发 1 篇（周三），有余力再加 1 篇，绝不断更**。宁可每周稳定 1 篇，也不要攒 3 篇一次发完再停两周——爬虫回访和读者订阅吃的都是节奏，不是总量。旧文实质更新优先于新文凑数。
 
 ## 已发
 
@@ -11,26 +11,60 @@
 | 11-08 | **（系列 2/4）** PKCE 补的是哪个洞：code 在回调路上被截走 | 协议拆解 | C 机制拆解 |
 | 11-08 | **（系列 3/4）** OAuth Device Flow 是怎么在不配回调域名的情况下完成登录的 | 协议拆解 | C 机制拆解 |
 | 11-08 | **（系列 4/4）** token 到手之后：过期、刷新、撤销分别归谁管 | 协议拆解 | C 机制拆解 |
+| 11-08 | **Cloudflare 踩坑（系列 2/3）** wrangler deploy 失败对照：六条报错原文对应的真实原因 | 工程实录 | B 报错对照 |
+| 11-08 | **（系列 3/3）** Cannot perform I/O on behalf of a different request：Worker 里不能跨请求缓存的东西 | 工程实录 | B 报错对照 |
 
 OAuth 系列四篇共用系列名「OAuth 授权流程拆解」，`series_order` 1~4。互链有三层：文章页自动生成的系列目录（含 `rel=prev/next`）、正文里的上下文链接、首页与 `/cat/teardown` 的列表。四篇合计覆盖 `oauth device flow` / `pkce` / `authorization code` / `token 过期` 四组搜索词，是站内第一个完整互链网。
 
-## 排期
+「Cloudflare 踩坑对照」系列三篇：D1 那篇改成 1/3（正文补了指向另两篇的链接），新增的 deploy 对照是 2/3、跨请求 I/O 是 3/3。三篇都是 B 类报错对照，天然互相引用，且第 2、3 篇的「部署成功但线上 500」直接引第 1 篇。系列里每篇都是**可持续追加**的活文档：以后每踩一个新坑就往对照表里加一条，`updated_at` 变化即真实更新，不算刷 lastmod。
+
+
+## 排期（固定周三，每周 1 篇打底）
 
 | 周 | 日期 | 标题（工作名） | 栏目 | 目标查询词 | 备注 |
 |---|---|---|---|---|---|
-| W1 | 11-11 | wrangler deploy 常见失败信息对照（持续补充） | 工程实录 | `wrangler deploy failed` / `wrangler deploy error` | 单页持续追加，每次新增条目就是一次真实更新 |
-| W2 | 11-18 | 自建博客实录 1/3：Markdown 渲染与白名单，怎么既放行代码块又不放行 XSS | 工程实录 | `markdown xss 白名单` / `sanitize-html 代码块` | 系列第 1 篇，需要系列目录兜住 |
-| W3 | 11-25 | 自建博客实录 2/3：从客户端渲染改成整页 SSR，首屏与收录都变了 | 工程实录 | `cloudflare workers ssr` / `博客 ssr 改造` | 系列第 2 篇，引第 1 篇 |
-| W4 | 12-02 | 自建博客实录 3/3：三层缓存怎么排，才不会被 CF 改写成 4 小时 | 工程实录 | `cloudflare html cache-control` / `s-maxage html` | 系列第 3 篇，引前两篇 |
-| W5 | 12-09 | JWT 的 exp 校验到底发生在哪一层 | 协议拆解 | `jwt exp 校验` / `jwt 过期 在哪校验` | 纯机制，无需实测 |
-| W6 | 12-16 | 浏览器 SameSite 三种取值的真实行为差异 | 协议拆解 | `samesite lax strict none 区别` | **需实测**：三个独立域名 + 三种取值跑一遍 |
-| W7 | 12-23 | Workers 免费额度实测：一天到底能跑多少请求 | 工程实录 | `workers 免费额度` / `workers 每日请求限制` | **需实测**：脚本压一天，出曲线 |
-| W8 | 12-30 | D1 vs KV vs R2 读写延迟实测 | 工程实录 | `d1 延迟` / `kv r2 延迟 对比` | **需实测**：1000 次取 p50/p95 |
-| W9 | 01-06 | Workers 里 crypto.getRandomValues 报错的几种真实原因 | 工程实录 | `crypto.getRandomValues 报错` | 报错对照，可持续追加 |
-| W10 | 01-13 | R2 上传 10MB 图片的真实耗时与流量账单 | 工程实录 | `r2 上传速度` / `r2 流量 费用` | **需实测**：真实上传 + 账单核对 |
-| W11 | 01-20 | Turnstile 拦住了什么、没拦住什么 | 协议拆解 | `turnstile 绕过` / `turnstile 原理` | **需实测**：脚本试探，只写观察不写结论外的猜测 |
+| W1 | 11-11 | 自建博客实录 1/3：Markdown 渲染与白名单，怎么既放行代码块又不放行 XSS | 工程实录 | `markdown xss 白名单` / `sanitize-html 代码块` | 系列第 1 篇 |
+| W2 | 11-18 | 自建博客实录 2/3：从客户端渲染改成整页 SSR，首屏与收录都变了 | 工程实录 | `cloudflare workers ssr` / `博客 ssr 改造` | 引第 1 篇 |
+| W3 | 11-25 | 自建博客实录 3/3：三层缓存怎么排，才不会被 CF 改写成 4 小时 | 工程实录 | `cloudflare html cache-control` / `s-maxage html` | 引前两篇 + 踩坑系列第 3 篇 |
+| W4 | 12-02 | JWT 的 exp 校验到底发生在哪一层 | 协议拆解 | `jwt exp 校验` / `jwt 过期 在哪校验` | 纯机制，无需实测 |
+| W5 | 12-09 | 浏览器 SameSite 三种取值的真实行为差异 | 协议拆解 | `samesite lax strict none 区别` | **需实测**：三个独立域名 + 三种取值跑一遍 |
+| W6 | 12-16 | Workers 免费额度实测：一天到底能跑多少请求 | 工程实录 | `workers 免费额度` / `workers 每日请求限制` | **需实测**：脚本压一天，出曲线 |
+| W7 | 12-23 | D1 vs KV vs R2 读写延迟实测 | 工程实录 | `d1 延迟` / `kv r2 延迟 对比` | **需实测**：1000 次取 p50/p95 |
+| W8 | 12-30 | Workers 里 crypto.getRandomValues 报错的几种真实原因 | 工程实录 | `crypto.getRandomValues 报错` | 报错对照，可持续追加 |
+| W9 | 01-06 | R2 上传 10MB 图片的真实耗时与流量账单 | 工程实录 | `r2 上传速度` / `r2 流量 费用` | **需实测**：真实上传 + 账单核对 |
+| W10 | 01-13 | Turnstile 拦住了什么、没拦住什么 | 协议拆解 | `turnstile 绕过` / `turnstile 原理` | **需实测**：脚本试探，只写观察不写结论外的猜测 |
 
-标「需实测」的五篇，先把采集脚本跑出真数据再写。没有数字就不发——这个站的差异化全在真数据上，编一次就废了。
+标「需实测」的四篇，先把采集脚本跑出真数据再写。没有数字就不发——这个站的差异化全在真数据上，编一次就废了。
+
+## B 类报错池（成本最低，随时插队）
+
+排期表是下限不是上限：某周没时间写长篇，就从这里挑一条发，20 分钟能成稿，节奏也不断。每条都是独立 URL、独立查询词，发完回头给「Cloudflare 踩坑对照」系列里相关那篇补一条链接。
+
+| 报错 / 现象 | 目标查询词 | 现成的素材 |
+|---|---|---|
+| `D1_ERROR: too many SQL variables` | `d1 too many sql variables` | 批量插入超过 100 个绑定参数 |
+| `Body has already been used` | `body has already been used workers` | `clone()` 与读 body 的先后顺序 |
+| `The script will never generate a response` | `script will never generate a response` | 忘记 return / await 悬挂 |
+| `Error 1101` / `Error 1102` | `cloudflare error 1101` / `1102` | Worker 抛异常 vs 超资源 |
+| `Network connection lost` | `d1 network connection lost` | 长事务、批量写、超时 |
+| `env.DB is undefined` | `workers env binding undefined` | 环境里没配 binding（已在 deploy 篇里写了一半） |
+| Turnstile 一直 `invalid-input-response` | `turnstile invalid-input-response` | 域名白名单、测试 key |
+
+## 外部分发（Device Flow 那篇优先）
+
+站内优化边际收益已经很低了，现在外链一个顶站内十个。按平台改语气，**别一处多发同一份**：
+
+| 平台 | 形态 | 注意 |
+|---|---|---|
+| 掘金 | 完整教程转贴，标题改成问题式 | 文末留原文链接，不要放二维码/导流话术，容易被判广告 |
+| V2EX（`/go/create` 或 `/go/programming`） | 纯问题讨论帖，正文只讲「我踩到的那个点」，链接放最后当补充 | 直接贴全文会被当成引流，版规上也不受欢迎 |
+| dev.to | 英文版，`canonical_url` 指回站内 | 英文站对 canonical 处理干净，不会跟自己抢排名 |
+| 知乎 / 少数派 | 暂不做 | 长文平台审核成本高，先跑前三个看回链转化 |
+
+分发前先确认：文章里的示例代码能直接跑、没有本地路径、没有只有作者才懂的上下文（「本站」要改成「我的博客」或直接说具体实现）。
+
+三份稿子已经在 `content/dist/` 里备好（`juejin-device-flow.md` / `v2ex-device-flow.md` / `devto-device-flow.md`），发布顺序和注意事项见 `content/dist/README.md`。贴出去时链接带 `?utm_source=juejin|v2ex|devto&utm_medium=post`，一个月后按来源看回访。
+
 
 ## 每篇发文流程
 
