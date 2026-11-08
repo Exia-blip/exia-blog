@@ -17,7 +17,7 @@
 <main class="wrap">
   <section class="hero">
     <h1 id="hero-title">归档</h1>
-    <p id="hero-sub">加载中…</p>
+    <p id="hero-sub"></p>
   </section>
 
   <div class="arch-bar">
@@ -28,7 +28,7 @@
     <div class="year-filter" id="year-filter"></div>
   </div>
 
-  <div id="arch-body"><div class="empty">加载中…</div></div>
+  <div id="arch-body"></div>
 </main>
 
 <script type="module">
@@ -165,6 +165,7 @@ function renderFilters() {
 
 function render() {
   if (!DATA) return;
+  delete bodyEl.dataset.loading;
 
   if (!DATA.total) {
     subEl.textContent = '还没有公开文章';
@@ -194,6 +195,7 @@ async function load() {
     DATA = await api('/api/archive' + q);
     render();
   } catch (e) {
+    delete bodyEl.dataset.loading;
     subEl.textContent = '加载失败';
     bodyEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
@@ -222,7 +224,10 @@ document.addEventListener('click', async (e) => {
   const m = href.match(/^\/archive\/(\d{4})$/);
   currentYear = m ? m[1] : '';
   history.pushState({}, '', href);
-  bodyEl.innerHTML = '<div class="empty">加载中…</div>';
+  // 切年份时先清空，占位交给 CSS 骨架（#arch-body[data-loading]）画。
+  // 不用文字占位：body.textContent 会把脚本里的文案也算进去，抓取工具遂当成页面内容
+  bodyEl.textContent = '';
+  bodyEl.dataset.loading = '';
   await load();
 });
 

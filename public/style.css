@@ -918,6 +918,29 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .tl-dim + .tl-dim::before { content: '·'; margin-right: 6px; }
 
 /* ---- 时间线 ---- */
+/* 切年份时的骨架：纯 CSS，条形用重复渐变画，不留任何文字占位。
+   用文字（哪怕是「加载中」）会进 body.textContent，抓取工具会当成正文。 */
+#arch-body[data-loading]::before {
+  content: '';
+  display: block;
+  height: 168px;
+  border-radius: 14px;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--line) 0 12px,
+    transparent 12px 30px
+  );
+  opacity: .55;
+  animation: arch-skel 1.1s ease-in-out infinite alternate;
+}
+@keyframes arch-skel {
+  from { opacity: .3; }
+  to { opacity: .62; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #arch-body[data-loading]::before { animation: none; opacity: .45; }
+}
+
 .timeline { position: relative; padding-left: 20px; }
 .timeline::before {
   content: ''; position: absolute; left: 4px; top: 10px; bottom: 10px;

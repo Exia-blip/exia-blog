@@ -690,38 +690,50 @@ function pagerHtml(page, pages, total, base) {
   ].join('');
 }
 
-async function renderList(env, body, url) {
-  if (!body.includes('<!--LIST-->')) return { body, list: null };
-
+/* 列表页 SSR 拆成两半：
+   - listQuery：只查数据库，不碰 HTML —— 这样它能和站点设置、栏目计数一起并发
+   - applyList：纯字符串替换，跑在 THEME/SEO/header 都换完之后
+   合在一起写的话，查询会在模板还没替换时就把 body 复制走，返回时把前面的替换全盖掉。 */
+function listParams(url) {
   const path = url.pathname;
   let tag = '';
   let cat = '';
   if (path.startsWith('/tag/')) tag = decodeURIComponent(path.slice(5).split('/')[0] || '');
   else if (path.startsWith('/cat/')) cat = decodeURIComponent(path.slice(5).split('/')[0] || '');
-  else if (path !== '/') return { body, list: null };
+  else if (path !== '/') return null;
 
   // 搜索结果分页靠前端接管，这里只兜首屏
-  if (url.searchParams.get('q')) return { body, list: null };
+  if (url.searchParams.get('q')) return null;
 
   const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
   const base = tag ? `/tag/${encodeURIComponent(tag)}` : cat ? `/cat/${encodeURIComponent(cat)}` : '/';
+  return { tag, cat, page, base };
+}
 
-  let data;
+async function listQuery(env, url) {
+  const p = listParams(url);
+  if (!p) return null;
   try {
-    data = await listPosts(env.DB, { page, size: 10, tag, cat });
+    return { ...p, data: await listPosts(env.DB, { page: p.page, size: 10, tag: p.tag, cat: p.cat }) };
   } catch (e) {
     console.error('list ssr failed', e);
-    return { body: body.replace('<!--LIST-->', SKELETON), list: null };
+    return { ...p, data: null };
   }
+}
 
+function applyList(body, res) {
+  if (!body.includes('<!--LIST-->') || !res) return { body, list: null };
+  if (!res.data) return { body: body.replace('<!--LIST-->', SKELETON), list: null };
+
+  const data = res.data;
   const cards = data.posts.length
     ? data.posts.map(postCard).join('')
-    : `<div class="empty">${tag || cat ? '这个栏目下还没有文章' : '还没有文章，去写第一篇吧'}</div>`;
+    : `<div class="empty">${res.tag || res.cat ? '这个栏目下还没有文章' : '还没有文章，去写第一篇吧'}</div>`;
 
   const boot = JSON.stringify({ page: data.page, pages: data.pages, total: data.total }).replace(/</g, '\\u003c');
   const out = body
     .replace('<!--LIST-->', cards)
-    .replace('<!--PAGER-->', pagerHtml(page, data.pages, data.total, base))
+    .replace('<!--PAGER-->', pagerHtml(res.page, data.pages, data.total, res.base))
     .replace('</head>', `<script>window.__LIST__=${boot};</script></head>`);
 
   return { body: out, list: data };
@@ -730,10 +742,10 @@ async function renderList(env, body, url) {
 /* ---------- 栏目页 SSR：四个固定栏目直接进 HTML ----------
    栏目就四个，哪怕暂时没有文章也该出现在页面上（空栏目比缺栏目好解释），
    顺便让栏目页对爬虫是一张有内容的目录页，而不是「加载中…」。 */
-async function renderCats(env, body) {
-  if (!body.includes('<!--CATS-->')) return body;
-
-  let counts = new Map();
+/* 栏目计数单独拿出来：它和文章列表、站点设置互不依赖，
+   在 injectTheme 里一起发出去才能真的并行（原来是一个 await 接一个）。 */
+async function catCounts(env) {
+  const counts = new Map();
   try {
     const { results } = await env.DB.prepare(
       `SELECT category, COUNT(*) AS count FROM posts
@@ -747,6 +759,12 @@ async function renderCats(env, body) {
   } catch (e) {
     console.error('cat ssr failed', e);
   }
+  return counts;
+}
+
+/* 纯字符串拼装，不再碰数据库 —— 数据由调用方并行取好传进来 */
+function renderCats(body, counts, tags) {
+  if (!body.includes('<!--CATS-->') && !body.includes('<!--TAGS-->')) return body;
 
   const cells = CATS.map(
     (c) => `<a class="tax-cell cat-cell" href="/cat/${c.slug}">
@@ -764,14 +782,9 @@ async function renderCats(env, body) {
   /* 标签云也直出：/tag/* 页面的唯一入口就是这里，
      客户端渲染等于把整个标签体系对爬虫关掉。 */
   if (out.includes('<!--TAGS-->')) {
-    let tags = [];
-    try {
-      tags = await tagsData(env.DB);
-    } catch (e) {
-      console.error('tag ssr failed', e);
-    }
-    const cloud = tags.length
-      ? tags
+    const list = tags || [];
+    const cloud = list.length
+      ? list
           .map(
             (t) => `<a class="tax-cell" href="/tag/${encodeURIComponent(t.name)}">
       <span class="tax-name">#${esc(t.name)}</span>
@@ -780,9 +793,10 @@ async function renderCats(env, body) {
           )
           .join('')
       : '<div class="empty">还没有标签。正文里写 <code>#标签</code> 会自动归集。</div>';
+
     out = out
       .replace('<!--TAGS-->', cloud)
-      .replace('<!--TAG-TOTAL-->', tags.length ? `${tags.length} 个标签` : '');
+      .replace('<!--TAG-TOTAL-->', list.length ? `${list.length} 个标签` : '');
   }
 
   return out;
@@ -859,7 +873,17 @@ async function injectTheme(env, res, url) {
   let body = await res.text();
   if (!body.includes('<!--THEME-->')) return new Response(body, res);
 
-  const s = await getSite(env);
+  /* 这一页要的三份数据互不依赖：站点设置、文章列表、栏目/标签计数。
+     以前是一个 await 接一个，线上冷启动 cfWorker 跑到 500ms+ 大部分耗在这串行上。
+     现在先全部发出去，最慢的那条决定总时长。 */
+  const siteP = getSite(env);
+  const catsP = body.includes('<!--CATS-->') ? catCounts(env) : Promise.resolve(new Map());
+  const tagsP = body.includes('<!--TAGS-->') ? tagsData(env.DB).catch(() => []) : Promise.resolve(null);
+  // 列表只依赖模板和 URL，不依赖站点设置，所以这里就能先发车
+  const listP = listQuery(env, url);
+
+  const [s, counts, tags] = await Promise.all([siteP, catsP, tagsP]);
+
   const cfg = JSON.stringify({ theme: s.theme, mode: s.mode }).replace(/</g, '\\u003c');
   // 站点头像与站名先落到 window.__SITE__，导航渲染时能立刻用
   const siteCfg = JSON.stringify({ name: s.name, desc: s.desc, avatar: s.avatar }).replace(/</g, '\\u003c');
@@ -877,8 +901,8 @@ async function injectTheme(env, res, url) {
   body = body.replace(/<div id="site-header"[^>]*><\/div>/, renderHeader(s, url.pathname));
   body = renderHero(body, s, url.pathname);
 
-  const { body: listed, list } = await renderList(env, body, url);
-  body = await renderCats(env, listed);
+  const { body: listed, list } = applyList(body, await listP);
+  body = renderCats(listed, counts, tags);
 
   // 结构化数据：站点一条，列表页再加 CollectionPage
   const ld = [ldJson(siteLd(s, url.origin))];

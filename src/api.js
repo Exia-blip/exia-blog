@@ -86,7 +86,8 @@ function shapePost(p, full = false) {
     excerpt: p.summary || extractExcerpt(p.content, 140),
     summary: p.summary || '',
     summary_src: p.summary_src || '',
-    tags: p.tags || [],
+    // tag_str 来自列表查询的内联子查询；文章详情走 attachTags 塞 p.tags，两路都认
+    tags: 'tag_str' in p ? splitTagStr(p.tag_str) : p.tags || [],
     category: p.category || '',
     category_name: p.category ? catName(p.category) : '',
     is_private: !!p.is_private,
@@ -125,6 +126,12 @@ async function syncTags(db, postId, content) {
 
 const AUTHOR_JOIN = 'LEFT JOIN users u ON u.id = p.author_id';
 const AUTHOR_COLS = 'u.name AS author_name, u.login, u.avatar';
+
+/* 标签用相关子查询一次带出，替代「先查 posts 再 attachTags」的第二次往返。
+   char(31) 是 US（unit separator），标签名里不可能出现，拿来当分隔符比逗号安全 —— 标签本身允许逗号。
+   列表页每多一次 D1 往返就是几十毫秒，这一条和下面 COUNT 的并行加起来能砍掉一半 SSR 时间。 */
+const TAG_AGG = `(SELECT GROUP_CONCAT(t.name, char(31)) FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = p.id) AS tag_str`;
+const splitTagStr = (s) => (s ? String(s).split('\u001f').filter(Boolean) : []);
 
 /* ---------- 归档数据（接口与 /archive SSR 共用一份，避免两处 SQL 走偏） ---------- */
 export async function archiveData(db, year = '') {
@@ -230,18 +237,22 @@ export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q
   }
 
   const whereSql = where.join(' AND ');
-  const totalRow = await db.prepare(`SELECT COUNT(*) AS c FROM posts p WHERE ${whereSql}`).bind(...args).first();
 
-  const { results } = await db
-    .prepare(
-      `SELECT p.*, ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
-       FROM posts p ${AUTHOR_JOIN} WHERE ${whereSql}
-       ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC, p.id DESC LIMIT ? OFFSET ?`
-    )
-    .bind(...args, size, offset)
-    .all();
+  /* COUNT 和主查询互不依赖，一起发出去。
+     以前是先 await COUNT 再 await 列表，冷启动时两个往返叠加，
+     等于把 D1 的延迟翻了一倍。 */
+  const [{ results }, totalRow] = await Promise.all([
+    db
+      .prepare(
+        `SELECT p.*, ${AUTHOR_COLS}, ${TAG_AGG}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
+         FROM posts p ${AUTHOR_JOIN} WHERE ${whereSql}
+         ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC, p.id DESC LIMIT ? OFFSET ?`
+      )
+      .bind(...args, size, offset)
+      .all(),
+    db.prepare(`SELECT COUNT(*) AS c FROM posts p WHERE ${whereSql}`).bind(...args).first(),
+  ]);
 
-  await attachTags(db, results);
   const total = totalRow?.c || 0;
   return {
     page,
