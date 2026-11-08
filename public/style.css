@@ -1177,7 +1177,7 @@ body { transition: background-color .26s ease, color .26s ease; }
     radial-gradient(460px 200px at 88% 10%, color-mix(in srgb, #b06bff 22%, transparent), transparent 74%),
     linear-gradient(168deg, color-mix(in srgb, var(--accent) 9%, var(--card)), var(--card) 62%);
   border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--line));
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .65);
 }
 :root[data-theme="anzhiyu"] .hero::after {
   content: '';
@@ -1203,6 +1203,42 @@ body { transition: background-color .26s ease, color .26s ease; }
   color: var(--muted);
   max-width: 620px;
   margin: 0 auto;
+}
+
+/* 首页横幅：SVG 装饰层（光斑 + 细线圆环 + 点阵 + 星点）
+   中间留空 —— 文字区域不能有纹理，否则小字号会糊 */
+.hero-deco { display: none; }
+:root[data-theme="anzhiyu"] .hero-deco {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .95;
+  color: #3f4f88; /* 点阵用 currentColor，深色模式换浅色 */
+}
+.hero-deco svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: hero-deco-drift 16s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes hero-deco-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(0, -7px, 0) scale(1.012); }
+}
+:root[data-theme="anzhiyu"] .hero h1,
+:root[data-theme="anzhiyu"] .hero p { z-index: 1; }
+:root[data-theme="anzhiyu"] .hero::after { z-index: 0; }
+/* 深色底上同一组浅色光斑会发光，压到六成，点阵换成浅蓝才看得见 */
+:root[data-theme="anzhiyu"][data-mode="dark"] .hero-deco { opacity: .6; color: #a8bcff; }
+:root[data-theme="anzhiyu"][data-mode="dark"] .hero {
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-deco svg { animation: none; }
 }
 
 /* 搜索框 + 按钮 */
