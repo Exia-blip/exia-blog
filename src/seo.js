@@ -2,6 +2,7 @@
 // 统一从这里出，避免首页、文章页各写一份、字段慢慢走偏。
 
 import { catName } from './taxonomy.js';
+import { avatarSrc } from '../public/avatar.js';
 
 export function iso(sqlDate, fallback = '') {
   const s = String(sqlDate || '').trim();
@@ -58,7 +59,8 @@ export function siteLd(site, origin) {
       name,
       description: site.desc || '',
       url: `${origin}/`,
-      image: abs(site.avatar, origin) || undefined,
+      // 作者头像也走本站代理：JSON-LD 里递一个 githubusercontent 的外链既慢又可能被墙
+      image: site.avatar ? abs(avatarSrc(site.avatar, 128), origin) : undefined,
     },
   ];
   return { '@context': 'https://schema.org', '@graph': graph };

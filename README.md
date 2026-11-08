@@ -400,12 +400,13 @@ npx wrangler dev --port 8788 --local
 |---|---|---|
 | 浏览器 | `style.css` / `app.js` / `theme.js` / `md.js`（带 `?v=`） | `max-age=31536000, immutable` |
 | 浏览器 | 同上但不带版本号 | `max-age=300, stale-while-revalidate=3600` |
-| 边缘（Cache API） | 匿名访客的公开页面 | 45 秒，`s-maxage=45` |
-| 浏览器/边缘 | R2 图片与 `og-default.jpg` | `max-age=31536000, immutable` |
+| 边缘（Cache API） | 匿名访客的公开页面 | `s-maxage=300` + `stale-while-revalidate=86400` |
+| 浏览器/边缘 | R2 图片、`/avatar` 头像代理 | `max-age=31536000, immutable` |
+| 浏览器/边缘 | `/thumbs/*`（预设头图，文件名复用） | `max-age=86400, stale-while-revalidate=604800` |
 
 资源版本号取自 `CF_VERSION_METADATA.id`（每次 `wrangler deploy` 自动换一个 UUID），HTML 里的 `/style.css?v=<uuid>` 跟着变，所以能放心给一年强缓存——改样式不用教用户清缓存。
 
-**发布即失效**：新建 / 修改 / 删除文章后会主动 `caches.default.delete()` 掉首页、归档、栏目页和新旧文章地址，不用等 45 秒 TTL。带 `sid` cookie 的请求一律绕过缓存，后台、私密文章、登录流程永远实时渲染。
+**发布即失效**：新建 / 修改 / 删除文章后会主动 `caches.default.delete()` 掉首页、归档、栏目页和新旧文章地址，不用等 TTL。TTL 放宽到 300 秒就是靠这一条兜底的——内容更新是主动清的，不是等出来的。带 `sid` cookie 的请求一律绕过缓存，后台、私密文章、登录流程永远实时渲染。
 
 **其它**：`robots.txt` 与 `manifest.webmanifest` 由 Worker 按当前域名动态生成；`/login`、`/editor` 带 `noindex`；文章页顶部有阅读进度条，正文不足一屏时不显示；深色模式下 `theme-color` 会跟着主题底色变。
 
@@ -438,7 +439,30 @@ npx wrangler dev --port 8788 --local
 - **围栏代码块要先剥掉**。讲 Markdown 的文章里，示例图语法就写在 ` ``` ` 里，直接扫会把 `![x](/a.png)` 当真封面，列表里出现一张破图。
 - **`.svg` 与 `favicon` / `icon-` / `emoji` 开头的不算**。这类图当 208×136 缩略图只会糊成一块，宁可退回预设图。
 
-预设图由 `python scripts/gen-auto-thumbs.py` 生成（PIL，无网络依赖），输出 1200×784 JPEG，每张约 30KB。浅色系是有意为之：站点默认 paper 主题是白卡片 + 浅灰底，深色封面会让列表像贴了几块黑胶布。改配色或符号改脚本里的 `PALETTES` 再跑一次即可，文件名 `auto-1..6` 复用，`/thumbs/*` 的缓存是 1 天，换图当天生效。
+预设图由 `python scripts/gen-auto-thumbs.py` 生成（PIL，无网络依赖），**一张图出两份**：
+
+| 文件 | 尺寸 | 体积 | 用途 |
+|---|---|---|---|
+| `auto-N.jpg` | 1200×784 | ~30KB | `og:image` / `BlogPosting.image` / RSS（WebP 在部分社交平台不认） |
+| `auto-N.webp` | 416×272 | ~1.5KB | 列表卡片（显示 208×136，2 倍图刚好） |
+
+浅色系是有意为之：站点默认 paper 主题是白卡片 + 浅灰底，深色封面会让列表像贴了几块黑胶布。改配色或符号改脚本里的 `PALETTES` 再跑一次即可，文件名 `auto-1..6` 复用，`/thumbs/*` 的缓存是 1 天，换图当天生效。
+
+浏览器端上传的图片在**上传前**就转成 WebP（`editor.html` 的 `toWebp()`）：长边 1600、q 0.82，省不到 8% 就直接传原图；GIF 与 SVG 不动（一个丢动画，一个是矢量）。服务端不做转码——Workers 里没有图像库，免费计划也用不了 Image Resizing。
+
+## 图片与第三方请求
+
+页面上的外链越少，首屏越快，被墙的风险面也越小。目前的做法：
+
+| 原来的第三方 | 现在 | 省下 |
+|---|---|---|
+| `avatars.githubusercontent.com` 头像（每页 1–2 个，单个 30KB） | `/avatar?u=…&s=…` 同源代理，首次回源后落 R2，之后 immutable | 1–2 个连接 + ~26KB |
+| Google `s2/favicons`（友链页每个友链一次） | 首字母色块（`span.fav.ph`），有自家头像才出图 | 全部第三方请求 |
+| Markdown 正文外链图 | 统一 `loading="lazy" decoding="async"` | 首屏不必等 |
+
+`/avatar` 只放行 `avatars.githubusercontent.com/u/<数字>`，别的域名一律 400——否则这个口子就是通用 SSRF 跳板。
+
+**剩下一个**：Cloudflare 的 Web Analytics（`static.cloudflareinsights.com/beacon.min.js`，约 20KB）。它不属于站点代码，是边缘在 Worker 之后注入 HTML 的，`no-transform` 能挡住但会连带关掉 Brotli（HTML 从 8KB 涨回 25KB，亏），改 CSP 也没用（Cloudflare 会给注入的脚本套上页面 nonce）。要彻底去掉只能在面板关：**Speed → Optimization → Web Analytics**。它本身是 `defer`，不阻塞渲染，留着不影响 LCP。
 
 ## 安全响应头
 

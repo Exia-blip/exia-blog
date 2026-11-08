@@ -7,7 +7,7 @@
  *   - 第三方（非本站）请求
  *
  * 用法：
- *   node scripts/perf-audit.mjs https://exia.de5.net/ [--mobile] [--json]
+ *   node scripts/perf-audit.mjs https://exia.de5.net/ [--mobile] [--cold] [--json]
  * 前提：已有可调试 Chrome 在 9333 端口（npm run chrome:debug 或手动起）
  */
 import { writeFileSync } from 'node:fs';
@@ -66,12 +66,20 @@ handlers.push((msg) => {
   } else if (msg.method === 'Network.loadingFinished') {
     const r = reqs.get(msg.params.requestId);
     if (r) r.bytes = msg.params.encodedDataLength || 0;
+  } else if (msg.method === 'Network.loadingFailed') {
+    const r = reqs.get(msg.params.requestId);
+    if (r) {
+      r.failed = msg.params.blockedReason || msg.params.errorText || 'failed';
+      r.bytes = 0;
+    }
   }
 });
 
 await send('Page.enable');
 await send('Network.enable');
 await send('Network.setCacheDisabled', { cacheDisabled: false });
+// --cold：清掉浏览器缓存，测“第一次访问”的真实字节数（不清的话 CSS/JS/图全是 0 字节命中）
+if (process.argv.includes('--cold')) await send('Network.clearBrowserCache');
 await send('Emulation.setDeviceMetricsOverride',
   mobile
     ? { width: 390, height: 844, deviceScaleFactor: 3, mobile: true }
@@ -93,7 +101,8 @@ const metricsExpr = `(() => {
     resources: res.length,
     lcpEl: lcp.length ? (lcp[lcp.length-1].element || '').slice(0, 120) : '',
     lcpTime: lcp.length ? Math.round(lcp[lcp.length-1].startTime) : 0,
-    cls: window.__cls || 0
+    cls: window.__cls || 0,
+    scripts: [...document.scripts].map(s => s.src || '(inline)')
   });
 })()`;
 
@@ -140,6 +149,8 @@ const report = {
   lcp_element: m.lcpEl,
   cls: +m.cls.toFixed(4),
   thirdParty: third.length,
+  blocked: all.filter((r) => r.failed).map((r) => `${r.url.replace(/^https?:\/\/[^/]+/, '')} → ${r.failed}`),
+  scripts: m.scripts,
   thirdPartyUrls: third.map((r) => r.url),
   byType: Object.fromEntries(
     Object.entries(byType)
@@ -166,6 +177,12 @@ else {
     console.log('\n最重的资源：');
     for (const h of report.heavy) console.log('  ' + h);
   }
+  if (report.blocked.length) {
+    console.log('被拦下的请求（CSP/其他）：');
+    for (const b of report.blocked) console.log('  ' + b);
+  }
+  console.log('页面脚本：');
+  for (const s of report.scripts) console.log('  ' + s);
   if (third.length) {
     console.log('\n第三方：');
     for (const u of report.thirdPartyUrls) console.log('  ' + u);

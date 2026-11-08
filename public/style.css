@@ -1379,7 +1379,14 @@ body { transition: background-color .26s ease, color .26s ease; }
 
 @media (max-width: 860px) {
   :root[data-theme="anzhiyu"] header.site { padding: 8px 0 2px; }
-  :root[data-theme="anzhiyu"] header.site .inner { height: 50px; padding: 0 44px 0 16px; }
+  /* 粘性导航的毛玻璃是滚动时最贵的一项：每帧都要重新采样背景模糊。
+     手机上换成近乎实色，肉眼几乎看不出，掉帧明显减少。 */
+  :root[data-theme="anzhiyu"] header.site .inner {
+    height: 50px; padding: 0 44px 0 16px;
+    backdrop-filter: none;
+    background: color-mix(in srgb, var(--card) 97%, transparent);
+  }
+  .back-top { backdrop-filter: none; background: var(--card); }
   :root[data-theme="anzhiyu"] .hero { padding: 40px 22px 36px; border-radius: 20px; }
   :root[data-theme="anzhiyu"] .hero h1 { font-size: 28px; }
   :root[data-theme="anzhiyu"] header.site .inner::after { display: none; }

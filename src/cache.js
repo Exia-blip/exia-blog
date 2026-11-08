@@ -8,6 +8,9 @@
    - stale-while-revalidate=86400：过期后先给旧的、后台刷新，回源延迟永远不落在用户身上 */
 export const EDGE_TTL = 300;
 export const EDGE_SWR = 86400;
+/* 注意：别加 no-transform。
+   实测它会连带关掉 Cloudflare 的 Brotli —— 首页 HTML 从 8KB 涨回 25KB，
+   为了挡一个 20KB 的 RUM 脚本反而多传 17KB，这笔账是亏的。 */
 export const pageCacheControl = () =>
   `public, max-age=0, s-maxage=${EDGE_TTL}, stale-while-revalidate=${EDGE_SWR}`;
 
