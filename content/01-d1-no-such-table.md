@@ -108,4 +108,6 @@ npx wrangler d1 execute blog-db --remote --file=./schema.sql
 
 D1 的 `--local` 和 `--remote` 不是「同一个库的两种访问方式」，而是**两个库**。记住这句，这个错基本只会犯一次。
 
+系列里的另外两篇：[wrangler deploy 失败对照](/p/wrangler-deploy-errors)、[Cannot perform I/O on behalf of a different request](/p/workers-io-different-request)。
+
 #cloudflare #d1 #debugging #sqlite

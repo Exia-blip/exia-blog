@@ -582,6 +582,11 @@ a.cat-chip:hover { filter: brightness(0.96); }
   white-space: nowrap;              /* 行内代码不折行，避免 "Ctrl/Cmd + S" 被拆断 */
 }
 .md pre code, .md .code-block code { white-space: pre; }
+/* 行内代码默认不折行是刻意的（"Ctrl/Cmd + S" 不该被拆断），
+   但整条报错原文这种超长标识符在窄屏会把整页撑宽，所以窄屏放开折行。 */
+@media (max-width: 640px) {
+  .md code { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+}
 .md .code-wrap {
   margin: 1.5em 0; border: 1px solid var(--line); border-radius: 11px; overflow: hidden; background: var(--bg-soft);
 }
