@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const SERIES = 'Cloudflare 踩坑对照';
 const AUTHOR = 1;
-const STAMP = '2026-11-08 23:05:00';
+// 和 nowISO() 一致：库里一律存 UTC，别写本地时间，否则 JSON-LD 会出未来日期
+const STAMP = '2026-11-08 14:50:00';
 
 const posts = [
   {
