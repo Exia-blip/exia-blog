@@ -78,6 +78,7 @@ export function catDesc(slug) {
 export const TAG_SEED = [
   'cloudflare', 'workers', 'pages', 'd1', 'r2', 'kv', 'turnstile',
   'oauth', 'jwt', 'tls', 'websocket', 'http', 'dns', 'cors',
+  'security', 'crypto',
   'markdown', 'editor', 'css', 'javascript', 'pwa',
   'bash', 'python', 'sqlite', 'curl', 'regex',
   'testing', 'debugging',
