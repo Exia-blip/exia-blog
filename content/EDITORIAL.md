@@ -23,7 +23,7 @@ OAuth 系列四篇共用系列名「OAuth 授权流程拆解」，`series_order`
 
 | 周 | 日期 | 标题（工作名） | 栏目 | 目标查询词 | 备注 |
 |---|---|---|---|---|---|
-| W1 | 11-11 | 自建博客实录 1/3：Markdown 渲染与白名单，怎么既放行代码块又不放行 XSS | 工程实录 | `markdown xss 白名单` / `sanitize-html 代码块` | 系列第 1 篇 |
+| W1 | 11-11 | 自建博客实录 1/3：Markdown 渲染与白名单，怎么既放行代码块又不放行 XSS | 工程实录 | `markdown xss 白名单` / `sanitize-html 代码块` | 系列第 1 篇。**已起草**：`content/05-blog-markdown-xss.md`，slug `blog-markdown-xss`，seed 见 `scripts/seed-blog-series.sql`（`node scripts/gen-blog-series.mjs` 生成） |
 | W2 | 11-18 | 自建博客实录 2/3：从客户端渲染改成整页 SSR，首屏与收录都变了 | 工程实录 | `cloudflare workers ssr` / `博客 ssr 改造` | 引第 1 篇 |
 | W3 | 11-25 | 自建博客实录 3/3：三层缓存怎么排，才不会被 CF 改写成 4 小时 | 工程实录 | `cloudflare html cache-control` / `s-maxage html` | 引前两篇 + 踩坑系列第 3 篇 |
 | W4 | 12-02 | JWT 的 exp 校验到底发生在哪一层 | 协议拆解 | `jwt exp 校验` / `jwt 过期 在哪校验` | 纯机制，无需实测 |

@@ -69,6 +69,12 @@ export function highlight(code, lang = '') {
   return out;
 }
 
+/* URL 里允许成对括号（维基的 OAuth_(disambiguation)、图床的 p_(1).png 这类），
+   只吃一层：原来的 [^)\s]+ 会在第一个 ) 处截断，还会把结尾那个 ) 漏进正文。 */
+const URL_PART = String.raw`(?:[^()\s]|\([^()\s]*\))+`;
+const IMG_RE = new RegExp(String.raw`!\[([^\]]*)\]\((${URL_PART})(?:\s+&quot;([^&]*)&quot;)?\)`, 'g');
+const LINK_RE = new RegExp(String.raw`\[([^\]]+)\]\((${URL_PART})(?:\s+&quot;([^&]*)&quot;)?\)`, 'g');
+
 function inline(line) {
   const codes = [];
   let s = String(line).replace(/`([^`\n]+)`/g, (_, c) => {
@@ -79,11 +85,11 @@ function inline(line) {
   s = esc(s);
 
   // 图片
-  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, alt, src, title) => {
+  s = s.replace(IMG_RE, (_, alt, src, title) => {
     return `<img src="${safeUrl(src)}" alt="${alt}"${title ? ` title="${title}"` : ''} loading="lazy" decoding="async">`;
   });
   // 链接
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, text, href, title) => {
+  s = s.replace(LINK_RE, (_, text, href, title) => {
     return `<a href="${safeUrl(href)}"${title ? ` title="${title}"` : ''} target="_blank" rel="noopener nofollow">${text}</a>`;
   });
   // 裸链接
@@ -270,7 +276,7 @@ export function renderMarkdown(src = '') {
     }
 
     // 独立图片成段落（用于封面/居中）
-    if (/^!\[[^\]]*\]\([^)]+\)$/.test(line.trim())) {
+    if (new RegExp(String.raw`^!\[[^\]]*\]\((${URL_PART})\)$`).test(line.trim())) {
       flush();
       out.push(`<p class="md-img">${inline(line.trim())}</p>`);
       i++;
@@ -290,10 +296,39 @@ const stripCode = (s) => String(s).replace(/```[\s\S]*?```/g, ' ').replace(/`[^`
 
 /** 正文 → HTML：Markdown 渲染 + 正文里的 #标签 转成可点链接（接口与 SSR 共用） */
 export function renderBody(content = '') {
-  return renderMarkdown(content).replace(
-    /(^|>|\s)#([\p{L}\p{N}_-]{1,24})/gu,
-    (m, pre, name) => `${pre}<a class="tag-inline" href="/tag/${encodeURIComponent(name)}">#${name}</a>`
-  );
+  return linkTags(renderMarkdown(content));
+}
+
+/* 只在元素之间的文本里做 #标签 → 链接。
+   原来直接对整个 HTML 跑正则，`![ #tag ](a.png)` 会把 <a> 插进 alt="..." 里，
+   产出畸形 DOM；顺带把代码块里的 #xxx 也链掉了。 */
+const TAG_SPLIT = /<[^>]*>/g;
+function linkTags(html) {
+  const one = (text) =>
+    text.replace(
+      /(^|\s)#([\p{L}\p{N}_-]{1,24})/gu,
+      (m, pre, name) => `${pre}<a class="tag-inline" href="/tag/${encodeURIComponent(name)}">#${name}</a>`
+    );
+
+  let out = '';
+  let last = 0;
+  let skip = 0; // 处在 <pre> / <code> / <a> 内部时不处理
+
+  for (const m of html.matchAll(TAG_SPLIT)) {
+    const text = html.slice(last, m.index);
+    out += skip > 0 ? text : one(text);
+
+    const tag = m[0];
+    if (/^<(pre|code|a)[\s>]/i.test(tag)) skip++;
+    else if (/^<\/(pre|code|a)\s*>/i.test(tag)) skip = Math.max(0, skip - 1);
+
+    out += tag;
+    last = m.index + tag.length;
+  }
+
+  const tail = html.slice(last);
+  out += skip > 0 ? tail : one(tail);
+  return out;
 }
 
 export function extractTags(content = '') {
@@ -305,14 +340,14 @@ export function extractTags(content = '') {
 }
 
 export function extractCover(content = '') {
-  const m = String(content).match(/!\[[^\]]*\]\(\s*([^)\s]+)/);
+  const m = String(content).match(new RegExp(String.raw`!\[[^\]]*\]\(\s*(${URL_PART})`));
   return m ? m[1] : null;
 }
 
 export function extractExcerpt(content = '', len = 120) {
   const s = stripCode(content)
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/!\[[^\]]*\]\((?:[^()]|\([^()]*\))*\)/g, ' ')
+    .replace(/\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, '$1')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/[*_~>#|-]/g, ' ')
     .replace(/\s+/g, ' ')

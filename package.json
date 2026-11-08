@@ -8,7 +8,8 @@
     "deploy": "node scripts/deploy.mjs",
     "db:init": "wrangler d1 execute blog-db --remote --file=./schema.sql",
     "db:init:local": "wrangler d1 execute blog-db --local --file=./schema.sql",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "test": "node scripts/test-md.mjs"
   },
   "devDependencies": {
     "wrangler": "^3.99.0"
