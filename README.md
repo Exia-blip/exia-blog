@@ -345,6 +345,23 @@ Token 权限两项：`Zone · Transform Rules · Edit` + `Zone · Zone · Read`�
 
 **`wrangler login` 的 OAuth token 一定失败（403 / code 10000）**：Cloudflare 的 OAuth 授权范围里没有 Transform Rules，只支持 API Token 或 Global API Key。2026-11-08 实测确认过，不用再试。
 
+### 怎么判断面板规则到底加没加
+
+三个头分两层，用一条命令就能分清：
+
+```bash
+curl -sD - -o /dev/null https://exia.de5.net/cdn-cgi/trace | grep -iE 'x-content-type|referrer-policy|x-frame'
+```
+
+`/cdn-cgi/trace` 由 Cloudflare 边缘直接返回，**不经过 Worker**：
+
+| 结果 | 含义 |
+|---|---|
+| 无输出 | 面板 Transform Rule 还没加（Worker 侧的头与它无关） |
+| 三条都在 | 已经加了 |
+
+2026-11-08 实测：`/cdn-cgi/trace` 三个头 **均无**，`/` 三个头齐全。这说明 Worker 层是好的、边缘规则确实还没落地。
+
 第三方核验（2026-11-08，securityheaders.com）：**A+**，六项全 present（HSTS / CSP / Permissions-Policy / Referrer-Policy / X-Content-Type-Options / X-Frame-Options）。所以如果某个工具说这几个头缺失，先怀疑工具或缓存，别改代码——用上面两条命令复现一次。
 
 ## 本地开发
