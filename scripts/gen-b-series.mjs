@@ -26,7 +26,21 @@ const posts = [
       '这条报错不是业务 bug，是把请求 A 的 I/O 对象交给了请求 B。模块作用域缓存 Response、复用 ASSETS.fetch 结果、waitUntil 留下引用，四种写法对照修法。',
     tags: ['cloudflare', 'workers', 'javascript'],
   },
+  {
+    slug: 'workers-subrequest-limit',
+    file: 'content/06-workers-subrequest-limit.md',
+    title: 'Workers 里 fetch 超时不是网络慢：subrequest 限额踩坑记',
+    order: 4,
+    // 免费计划实测：50 次封顶，第 51 次抛错；并发 200 次 184ms 就停，串行 851ms
+    stamp: '2026-11-08 15:20:00',
+    summary:
+      'Too many subrequests 长得像超时，其实是调度配额：计数发生在 fetch 派发那一刻，本地 dev 还不复现。实测 45/51/200 次与并发、缓存的对照，以及四条按收益排序的修法。',
+    tags: ['cloudflare', 'workers', 'debugging', 'javascript'],
+  },
 ];
+
+// 只生成某一篇：node scripts/gen-b-series.mjs --only=workers-subrequest-limit
+const ONLY = (process.argv.find((a) => a.startsWith('--only=')) || '').split('=')[1] || '';
 
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
@@ -35,13 +49,14 @@ let out = `-- ${SERIES}：B 类报错对照系列（第 1 篇是已有的 D1 那
 
 `;
 
-for (const p of posts) {
+for (const p of posts.filter((x) => !ONLY || x.slug === ONLY)) {
   const md = readFileSync(p.file, 'utf8');
+  const stamp = p.stamp || STAMP;
   out += `INSERT INTO posts (slug, title, content, cover, category, series, series_order,
                    is_private, hidden, summary, summary_src, summary_hash,
                    author_id, published_at, created_at, updated_at)
 VALUES (${q(p.slug)}, ${q(p.title)}, ${q(md)}, '', 'log', ${q(SERIES)}, ${p.order},
-        0, 0, ${q(p.summary)}, 'manual', '', ${AUTHOR}, ${q(STAMP)}, ${q(STAMP)}, ${q(STAMP)})
+        0, 0, ${q(p.summary)}, 'manual', '', ${AUTHOR}, ${q(stamp)}, ${q(stamp)}, ${q(stamp)})
 ON CONFLICT(slug) DO UPDATE SET
   title = excluded.title, content = excluded.content, category = excluded.category,
   series = excluded.series, series_order = excluded.series_order,
