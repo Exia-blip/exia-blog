@@ -1,4 +1,4 @@
-import { handleApi, listPosts, archiveData } from './api.js';
+import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
 import { html, json } from './utils.js';
 import { checkFriends } from './cron.js';
@@ -222,6 +222,62 @@ async function serveArchivePage(env, request, url) {
     .replace(/<div class="year-filter" id="year-filter"><\/div>/, `<div class="year-filter" id="year-filter">${archFilters(data)}</div>`)
     .replace(/<div id="arch-body">[\s\S]*?<\/div>\s*<\/main>/, `<div id="arch-body">${archBody(data)}</div>\n</main>`)
     .replace('</head>', `<script>window.__ARCH__=${boot};</script></head>`);
+
+  return html(body, 200, { 'cache-control': pageCacheControl() });
+}
+
+/* ---------- 友链：服务端直出 ---------- */
+function friendFavicon(f) {
+  if (f.avatar) return f.avatar;
+  try {
+    return `https://www.google.com/s2/favicons?domain=${new URL(f.url).hostname}&sz=64`;
+  } catch {
+    return '';
+  }
+}
+
+function friendsBody(list) {
+  if (!list.length) return '<div class="empty">还没有友链</div>';
+  return list
+    .map((f) => {
+      let host = '';
+      try {
+        host = new URL(f.url).hostname;
+      } catch {}
+      return `<a class="friend-card" href="${esc(f.url)}" target="_blank" rel="noopener" data-id="${f.id}">
+        <img class="fav" src="${esc(friendFavicon(f))}" alt="" loading="lazy">
+        <div class="info">
+          <div class="nm">
+            <span class="dot ${f.status ? 'on' : 'off'}" title="${f.status ? '可访问' : '无法访问'}"></span>
+            ${esc(f.name)}
+          </div>
+          <div class="ds">${esc(f.desc || host)}</div>
+        </div>
+      </a>`;
+    })
+    .join('');
+}
+
+async function serveFriendsPage(env, request) {
+  const res = await env.ASSETS.fetch(new Request(new URL('/friends', request.url), request));
+  if (res.status !== 200) return res;
+  let body = await res.text();
+
+  let list;
+  try {
+    list = await friendsData(env.DB);
+  } catch (e) {
+    console.error('friends ssr failed', e);
+    return html(body, 200, { 'cache-control': pageCacheControl() });
+  }
+
+  const boot = JSON.stringify({ friends: list }).replace(/</g, '\\u003c');
+  body = body
+    .replace(
+      /(<div class="friend-grid" id="grid">)[\s\S]*?(<section id="admin-box")/,
+      `$1${friendsBody(list)}</div>\n\n  $2`
+    )
+    .replace('</head>', `<script>window.__FRIENDS__=${boot};</script></head>`);
 
   return html(body, 200, { 'cache-control': pageCacheControl() });
 }
@@ -644,9 +700,35 @@ async function renderCats(env, body) {
   ).join('');
 
   const sum = [...counts.values()].reduce((a, b) => a + b, 0);
-  return body
+  let out = body
     .replace('<!--CATS-->', cells)
     .replace('<!--CAT-TOTAL-->', `${CATS.length} 个栏目 · ${sum} 篇`);
+
+  /* 标签云也直出：/tag/* 页面的唯一入口就是这里，
+     客户端渲染等于把整个标签体系对爬虫关掉。 */
+  if (out.includes('<!--TAGS-->')) {
+    let tags = [];
+    try {
+      tags = await tagsData(env.DB);
+    } catch (e) {
+      console.error('tag ssr failed', e);
+    }
+    const cloud = tags.length
+      ? tags
+          .map(
+            (t) => `<a class="tax-cell" href="/tag/${encodeURIComponent(t.name)}">
+      <span class="tax-name">#${esc(t.name)}</span>
+      <span class="tax-count">${t.count}</span>
+    </a>`
+          )
+          .join('')
+      : '<div class="empty">还没有标签。正文里写 <code>#标签</code> 会自动归集。</div>';
+    out = out
+      .replace('<!--TAGS-->', cloud)
+      .replace('<!--TAG-TOTAL-->', tags.length ? `${tags.length} 个标签` : '');
+  }
+
+  return out;
 }
 
 /* ---------- 静态页 SEO：站点名进标签页标题、站点描述进 meta ----------
@@ -677,8 +759,13 @@ function fillSeo(body, site, url) {
   // 分享图固定用本站那张 1200×630：尺寸、域名、可用性都在自己手里
   const ogImage = `${origin}/og-default.jpg`;
 
+  // 搜索结果页是客户端渲染的，爬虫拿不到结果列表；加 noindex 省抓取配额，
+  // 但保留 follow —— 结果里的文章链接仍值得被发现
+  const isSearch = !!(url && (url.searchParams.get('q') || '').trim());
+
   const block = [
     `<title>${esc(title)}</title>`,
+    isSearch ? `<meta name="robots" content="noindex,follow">` : '',
     `<meta name="description" content="${esc(desc)}">`,
     `<meta name="theme-color" content="${THEME_COLOR[site.theme] || '#f7f9fe'}">`,
     `<meta name="color-scheme" content="light dark">`,
@@ -820,22 +907,28 @@ const rfc822 = (v) => {
 
 async function serveRss(env, request) {
   const { results } = await env.DB.prepare(
-    `SELECT slug, title, content, summary, published_at, created_at, updated_at FROM posts
+    `SELECT id, slug, title, content, summary, category, published_at, created_at, updated_at FROM posts
      WHERE is_private = 0 AND hidden = 0
      ORDER BY COALESCE(NULLIF(published_at, ''), created_at) DESC LIMIT 30`
   ).all();
+
+  // <category> 让聚合器按主题归类；栏目用中文名，标签原样
+  await attachTags(env.DB, results);
 
   const origin = new URL(request.url).origin;
   const { name: siteName, desc: siteDesc } = await getSite(env);
   const items = results
     .map((p) => {
       const link = `${origin}/p/${encodeURIComponent(p.slug)}`;
+      const cats = [...new Set([catName(p.category), ...(p.tags || [])].filter(Boolean))];
+      const catXml = cats.map((c) => `      <category>${esc(c)}</category>`).join('\n');
       return `    <item>
       <title>${esc(p.title)}</title>
       <link>${link}</link>
       <guid isPermaLink="true">${link}</guid>
       <pubDate>${rfc822(p.published_at || p.created_at)}</pubDate>
       <description>${esc(p.summary || extractExcerpt(p.content, 200))}</description>
+${catXml}
     </item>`;
     })
     .join('\n');
@@ -1069,6 +1162,11 @@ async function route(request, env, ctx) {
     if (res.status === 200) return html(await res.text());
   }
 
+  // 友链（服务端直出，爬虫能看到真实外链）
+  if (path === '/friends' || path === '/friends/') {
+    return await serveFriendsPage(env, request);
+  }
+
   // /p/:slug 与 /:slug 都指向文章
   if (path.startsWith('/p/')) {
     return await servePostPage(env, request, decodeURIComponent(path.slice(3)));
@@ -1092,6 +1190,27 @@ export default {
   async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
+
+      /* 明文 HTTP 一律跳到 HTTPS。
+         面板的 Always Use HTTPS 也能做到，但那是面板状态、进不了版本库，
+         而且一旦有人误关，站上没有任何代码层面的兜底。这里拦一道，双保险。
+         用 308 不用 301：POST/PUT 跟随重定向时不能把方法改成 GET。
+         本地 wrangler dev 是 http://127.0.0.1:8788，必须放行，否则本地没法开发。 */
+      const host = url.hostname;
+      const LOCAL = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+      const fwdProto = (request.headers.get('x-forwarded-proto') || '').toLowerCase();
+      if (!LOCAL && (url.protocol === 'http:' || fwdProto === 'http')) {
+        const target = new URL(request.url);
+        target.protocol = 'https:';
+        target.port = '';
+        return new Response(null, {
+          status: 308,
+          headers: securityHeaders(
+            new Headers({ location: target.toString(), 'cache-control': 'public, max-age=3600' }),
+            null
+          ),
+        });
+      }
 
       /* 匿名访客的公开页面在边缘缓存几十秒：
          页面 HTML 本身不含任何用户信息（登录态由前端补），所以缓存不会串号；

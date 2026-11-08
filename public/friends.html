@@ -43,21 +43,47 @@ import { api, esc, mountHeader, toast } from '/app.js';
 
 const grid = document.getElementById('grid');
 
+// Worker 已经把卡片渲染进 HTML 了。有这份数据就不重建 DOM，
+// 只补管理员才有的删除按钮——否则爬虫抓到的是「加载中」，用户首屏也会闪一下。
+const SEED = window.__FRIENDS__ || null;
+
 function favicon(f) {
   if (f.avatar) return f.avatar;
   try { return `https://www.google.com/s2/favicons?domain=${new URL(f.url).hostname}&sz=64`; }
   catch { return ''; }
 }
 
-async function load() {
-  try {
-    const { friends } = await api('/api/friends');
-    if (!friends.length) {
-      grid.innerHTML = '<div class="empty">还没有友链</div>';
-      return;
-    }
-    grid.innerHTML = friends.map((f) => `
-      <a class="friend-card" href="${esc(f.url)}" target="_blank" rel="noopener">
+let USER_ADMIN = false;
+
+function bindDeletes() {
+  if (!USER_ADMIN) return;
+  grid.querySelectorAll('.friend-card').forEach((a) => {
+    if (a.querySelector('[data-del]')) return;
+    const id = a.dataset.id;
+    if (!id) return;
+    const btn = document.createElement('button');
+    btn.className = 'btn sm';
+    btn.dataset.del = id;
+    btn.textContent = '×';
+    btn.onclick = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!confirm('删除这条友链？')) return;
+      await api('/api/friends/' + id, { method: 'DELETE' });
+      toast('已删除');
+      load();
+    };
+    a.appendChild(btn);
+  });
+}
+
+function paint(friends) {
+  if (!friends.length) {
+    grid.innerHTML = '<div class="empty">还没有友链</div>';
+    return;
+  }
+  grid.innerHTML = friends.map((f) => `
+      <a class="friend-card" href="${esc(f.url)}" target="_blank" rel="noopener" data-id="${f.id}">
         <img class="fav" src="${esc(favicon(f))}" alt="" loading="lazy">
         <div class="info">
           <div class="nm">
@@ -66,30 +92,26 @@ async function load() {
           </div>
           <div class="ds">${esc(f.desc || new URL(f.url).hostname)}</div>
         </div>
-        ${USER_ADMIN ? `<button class="btn sm" data-del="${f.id}">×</button>` : ''}
       </a>`).join('');
+  bindDeletes();
+}
 
-    if (USER_ADMIN) {
-      grid.querySelectorAll('[data-del]').forEach((b) => {
-        b.onclick = async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!confirm('删除这条友链？')) return;
-          await api('/api/friends/' + b.dataset.del, { method: 'DELETE' });
-          toast('已删除');
-          load();
-        };
-      });
-    }
+async function load() {
+  try {
+    const { friends } = await api('/api/friends');
+    paint(friends);
   } catch (e) {
-    grid.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
+    // 首屏已经有 SSR 内容时，刷新失败不该把页面清空
+    if (!SEED) grid.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
   }
 }
 
-let USER_ADMIN = false;
 const user = await mountHeader('friends');
 USER_ADMIN = !!(user && user.is_admin);
 if (USER_ADMIN) document.getElementById('admin-box').style.display = 'block';
+
+if (SEED) bindDeletes();
+else load();
 
 document.getElementById('add-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -119,8 +141,6 @@ document.getElementById('recheck')?.addEventListener('click', async () => {
     load();
   } catch (e) { toast(e.message); }
 });
-
-load();
 </script>
 </body>
 </html>

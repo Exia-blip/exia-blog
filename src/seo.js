@@ -1,6 +1,8 @@
 // 结构化数据（schema.org / JSON-LD）
 // 统一从这里出，避免首页、文章页各写一份、字段慢慢走偏。
 
+import { catName } from './taxonomy.js';
+
 export function iso(sqlDate, fallback = '') {
   const s = String(sqlDate || '').trim();
   if (!s) return fallback;
@@ -69,6 +71,8 @@ export function postLd({ post, site, origin, url, image, words }) {
   const pub = iso(post.published_at || post.created_at);
   const mod = iso(post.updated_at, pub);
   const images = image ? [abs(image, origin)] : undefined;
+  // 栏目对外一律用中文名：slug 是内部路由用的，写进 JSON-LD 既不好看也不利于分类标注
+  const catLabel = post.category ? catName(post.category) || post.category : '';
 
   const article = {
     '@type': 'BlogPosting',
@@ -90,7 +94,7 @@ export function postLd({ post, site, origin, url, image, words }) {
     publisher: { '@id': `${origin}/#owner` },
     image: images,
     keywords: (post.tags || []).join(','),
-    articleSection: post.category || undefined,
+    articleSection: catLabel || undefined,
     wordCount: words || undefined,
     timeRequired: post.reading ? `PT${post.reading}M` : undefined,
     isAccessibleForFree: true,
@@ -103,12 +107,12 @@ export function postLd({ post, site, origin, url, image, words }) {
 
   const crumbs = [
     { '@type': 'ListItem', position: 1, name: '首页', item: `${origin}/` },
-    post.category
-      ? { '@type': 'ListItem', position: 2, name: post.category, item: `${origin}/cat/${encodeURIComponent(post.category)}` }
+    catLabel
+      ? { '@type': 'ListItem', position: 2, name: catLabel, item: `${origin}/cat/${encodeURIComponent(post.category)}` }
       : null,
     {
       '@type': 'ListItem',
-      position: post.category ? 3 : 2,
+      position: catLabel ? 3 : 2,
       name: post.title,
       item: url,
     },

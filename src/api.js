@@ -38,7 +38,7 @@ function bust(url, slugs = [], cats = []) {
   return bustPaths(url.origin, paths);
 }
 
-async function attachTags(db, posts) {
+export async function attachTags(db, posts) {
   if (!posts.length) return posts;
   const ids = posts.map((p) => p.id);
   const ph = ids.map(() => '?').join(',');
@@ -184,6 +184,27 @@ export async function archiveData(db, year = '') {
     last_at: spanRow?.last_at || '',
     years,
   };
+}
+
+/* ---------- 标签云（接口与 /categories 的 SSR 共用） ---------- */
+export async function tagsData(db) {
+  const { results } = await db
+    .prepare(
+      `SELECT t.name, COUNT(pt.post_id) AS count
+       FROM tags t JOIN post_tags pt ON pt.tag_id = t.id
+       JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0
+       GROUP BY t.name ORDER BY count DESC, t.name ASC`
+    )
+    .all();
+  return results;
+}
+
+/* ---------- 友链（接口与 /friends 的 SSR 共用） ---------- */
+export async function friendsData(db) {
+  const { results } = await db
+    .prepare('SELECT id, name, url, avatar, desc, status, checked_at FROM friends ORDER BY status DESC, id ASC')
+    .all();
+  return results;
 }
 
 /* ---------- 文章列表查询（接口与首页 SSR 共用，避免两份 SQL 走偏） ---------- */
@@ -344,15 +365,7 @@ export async function handleApi(env, request, url, ctx) {
 
   /* ---- 标签云 ---- */
   if (path === '/tags' && method === 'GET') {
-    const { results } = await db
-      .prepare(
-        `SELECT t.name, COUNT(pt.post_id) AS count
-         FROM tags t JOIN post_tags pt ON pt.tag_id = t.id
-         JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0
-         GROUP BY t.name ORDER BY count DESC, t.name ASC`
-      )
-      .all();
-    return json({ ok: true, tags: results });
+    return json({ ok: true, tags: await tagsData(db) });
   }
 
   /* ---- 归档（按年月分组的全部公开文章） ---- */
@@ -750,10 +763,7 @@ export async function handleApi(env, request, url, ctx) {
 
   /* ---- 友链 ---- */
   if (path === '/friends' && method === 'GET') {
-    const { results } = await db
-      .prepare('SELECT id, name, url, avatar, desc, status, checked_at FROM friends ORDER BY status DESC, id ASC')
-      .all();
-    return json({ ok: true, friends: results });
+    return json({ ok: true, friends: await friendsData(db) });
   }
 
   if (path === '/friends' && method === 'POST') {

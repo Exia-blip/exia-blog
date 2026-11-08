@@ -31,9 +31,9 @@
   <section class="tax-section">
     <div class="tax-head">
       <h2>标签</h2>
-      <span class="tiny muted" id="tag-total"></span>
+      <span class="tiny muted" id="tag-total"><!--TAG-TOTAL--></span>
     </div>
-    <div class="tax-grid" id="tag-grid"><div class="empty">加载中…</div></div>
+    <div class="tax-grid" id="tag-grid"><!--TAGS--></div>
   </section>
 </main>
 
@@ -87,7 +87,11 @@ async function syncCatCounts() {
 
 mountHeader('categories');
 syncCatCounts();
-loadTags();
+
+// 标签云已由 Worker 直出（模板里的 TAGS 占位符在服务端就被替换了）。
+// 只有服务端没给出来（查库失败 / 站点还没有标签）时才自己拉一次。
+const tagsRendered = document.querySelectorAll('#tag-grid a.tax-cell').length > 0;
+if (!tagsRendered) loadTags();
 </script>
 </body>
 </html>
