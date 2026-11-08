@@ -330,6 +330,21 @@ done
 
 也可以直接跑 `node scripts/check-headers.mjs`，7 条路径一次过。
 
+### 用脚本代替手点
+
+面板点一遍是一次性动作，脚本的价值是幂等、可回滚、能进版本库：
+
+```bash
+echo 'cf_你的token' > .cf-token        # 已被 .gitignore 忽略
+node scripts/apply-edge-headers.mjs --verify     # 只验证权限，不读规则
+node scripts/apply-edge-headers.mjs              # 预览将写入的规则集
+node scripts/apply-edge-headers.mjs --apply      # 写入（同名规则原地替换，不动其它规则）
+```
+
+Token 权限两项：`Zone · Transform Rules · Edit` + `Zone · Zone · Read`，Zone Resources 选 `exia.de5.net`。
+
+**`wrangler login` 的 OAuth token 一定失败（403 / code 10000）**：Cloudflare 的 OAuth 授权范围里没有 Transform Rules，只支持 API Token 或 Global API Key。2026-11-08 实测确认过，不用再试。
+
 第三方核验（2026-11-08，securityheaders.com）：**A+**，六项全 present（HSTS / CSP / Permissions-Policy / Referrer-Policy / X-Content-Type-Options / X-Frame-Options）。所以如果某个工具说这几个头缺失，先怀疑工具或缓存，别改代码——用上面两条命令复现一次。
 
 ## 本地开发

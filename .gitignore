@@ -3,3 +3,6 @@ node_modules/
 .dev.vars
 .DS_Store
 *.log
+
+# Cloudflare API Token（本地凭据，别提交）
+.cf-token
