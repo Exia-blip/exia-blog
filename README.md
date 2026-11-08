@@ -286,6 +286,48 @@ npx wrangler deploy
 | `R2_BUCKET_NAME` | secret | 否 | 默认 `blog-images` |
 | `WEBHOOK_URL` | secret | 否 | 按域名自动适配企微 / 飞书 / Slack / Discord 报文 |
 
+## 安全响应头
+
+Worker 侧统一在 `src/security.js` 的 `securityHeaders()` 出口挂，**所有**响应路径都过这一层：HTML、静态资源、API、301、404，以及顶层 catch 的 500。
+
+| 头 | 值 |
+|---|---|
+| `x-content-type-options` | `nosniff` |
+| `referrer-policy` | `strict-origin-when-cross-origin` |
+| `x-frame-options` | `DENY`（与 CSP `frame-ancestors 'none'` 同义） |
+| `permissions-policy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=()` |
+| `cross-origin-opener-policy` | `same-origin` |
+| `strict-transport-security` | `max-age=31536000; includeSubDomains; preload` |
+| `content-security-policy` | 仅 HTML，带每次请求的 nonce |
+
+### 面板再兜一层（可选）
+
+Worker 起来之前/挂掉时，边缘返回的是 Cloudflare 自己的错误页（1101、520~527）和 `/cdn-cgi/*`，那些响应**不经过** Worker，也就没有上面这些头。想补齐就在面板加一条 Transform Rule：
+
+`Rules → Transform Rules → Modify Response Header → Create rule`
+
+- 规则名：`security-baseline`
+- 匹配：Custom filter expression → `true`（或 `http.host eq "exia.de5.net"`）
+- 操作：Set static，三条
+
+| Header name | Value |
+|---|---|
+| `x-content-type-options` | `nosniff` |
+| `referrer-policy` | `strict-origin-when-cross-origin` |
+| `x-frame-options` | `DENY` |
+
+三条值必须和 `security.js` **逐字一致**，否则 Worker 会覆盖成自己的值，边缘和源站两套值反而更难排查。
+
+**不要**把 `content-security-policy` 也放进面板：CSP 里有每次请求生成的 nonce，写死会把站内所有内联脚本（主题防闪、SSR 引导数据）全部拦掉。也不要加 `strict-transport-security`，面板的 Set static 会把 Worker 的 `includeSubDomains; preload` 覆盖成短值。
+
+验证（四条路径都应带全三个头）：
+
+```bash
+for u in / /p/about /api/posts /nonexistent; do
+  echo "== $u"; curl -sI "https://exia.de5.net$u" | grep -iE 'x-content-type|referrer-policy|x-frame'
+done
+```
+
 ## 本地开发
 
 ```bash

@@ -97,6 +97,9 @@ function shapePost(p, full = false) {
     // 发布时间：草稿转发布那一刻定下。老数据没有这个字段时退回 created_at，
     // 保证 API 里永远是字符串而不是 null，前端不用再写一遍兜底
     published_at: p.published_at || p.created_at || '',
+    // 落库原值（未发布就是空串）。编辑器靠它区分「真发布过」和「拿 created_at 兜底」，
+    // 否则私密草稿会显示成已发布时间，误导人以为字段已经写进去了
+    published_at_raw: p.published_at || '',
     created_at: p.created_at,
     updated_at: p.updated_at,
     comments: p.comment_count ?? undefined,
@@ -463,6 +466,7 @@ export async function handleApi(env, request, url, ctx) {
     const category = normalizeCat(rawCat);
     if (rawCat && !category) return err('未知栏目：只能是 log / teardown / tools / site');
     const stamp = nowISO();
+    const published = publishedOf('', !!body.is_private, stamp);
 
     const info = await db
       .prepare(
@@ -473,7 +477,7 @@ export async function handleApi(env, request, url, ctx) {
         slug, title, content, cover, category,
         seriesOf(body), seriesOrderOf(body),
         body.is_private ? 1 : 0, body.hidden ? 1 : 0,
-        publishedOf('', !!body.is_private, stamp),
+        published,
         u.id, stamp, stamp
       )
       .run();
@@ -490,7 +494,7 @@ export async function handleApi(env, request, url, ctx) {
 
     await syncTags(db, id, content);
     if (ctx) ctx.waitUntil(bust(url, [slug, ...(await seriesSiblingSlugs(db, seriesOf(body)))], [category]));
-    return json({ ok: true, id, slug, summary: manual, ai: hasAI(env) });
+    return json({ ok: true, id, slug, summary: manual, ai: hasAI(env), published_at: published });
   }
 
   /* ---- 更新 ---- */
@@ -541,6 +545,7 @@ export async function handleApi(env, request, url, ctx) {
     const isPrivate = body.is_private !== undefined ? (body.is_private ? 1 : 0) : p.is_private;
     const isHidden = body.hidden !== undefined ? (body.hidden ? 1 : 0) : p.hidden;
     const stampNow = nowISO();
+    const published = publishedOf(p.published_at, isPrivate, stampNow);
 
     await db
       .prepare(
@@ -556,7 +561,7 @@ export async function handleApi(env, request, url, ctx) {
         body.series_order !== undefined ? seriesOrderOf(body) : p.series_order || 0,
         isPrivate,
         isHidden,
-        publishedOf(p.published_at, isPrivate, stampNow),
+        published,
         stampNow,
         ...sumArgs,
         id
@@ -575,7 +580,7 @@ export async function handleApi(env, request, url, ctx) {
       ];
       ctx.waitUntil(bust(url, [slug, p.slug, ...touched], [category, p.category]));
     }
-    return json({ ok: true, id, slug, updated_at: nowISO(), ai: hasAI(env) });
+    return json({ ok: true, id, slug, updated_at: nowISO(), published_at: published, ai: hasAI(env) });
   }
 
   /* ---- 生成 / 重新生成 AI 摘要 ---- */

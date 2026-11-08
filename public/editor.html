@@ -332,7 +332,6 @@ async function saveNow(manual = false) {
     } else {
       res = await api('/api/posts', { method: 'POST', body: payload });
       postId = res.id;
-      if (!payload.is_private && !pubAt) setPubState(new Date().toISOString().slice(0, 10) + ' 00:00:00');
       // 迁移本地草稿 key，避免新建后丢失
       const old = draftKey;
       draftKey = 'draft:' + postId;
@@ -344,6 +343,9 @@ async function saveNow(manual = false) {
       history.replaceState(null, '', '/editor?id=' + postId);
       hasServerRecord = true;
     }
+
+    // 发布时间以服务端落库值为准，前端不猜：草稿存回来是空串，首次公开才会变成时间
+    if (res && res.published_at !== undefined) setPubState(res.published_at);
 
     currentSlug = res.slug || currentSlug;
     slugEl.placeholder = currentSlug ? `/${currentSlug}` : '如 about → /about';
@@ -650,7 +652,8 @@ if (!user) {
       seriesEl2.value = p.series_order ? String(p.series_order) : '';
       privateEl.checked = !!p.is_private;
       hiddenEl.checked = !!p.hidden;
-      setPubState(p.published_at || '');
+      // 用落库原值：private 草稿的 published_at 在接口里会退回 created_at，那是展示兜底
+      setPubState(p.published_at_raw ?? p.published_at ?? '');
       sumEl.value = p.summary || '';
       sumTouched = false;
       setSumState(p.summary ? (p.summary_src === 'manual' ? '手动' : '') : '');
