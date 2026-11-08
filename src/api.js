@@ -123,6 +123,69 @@ async function syncTags(db, postId, content) {
 const AUTHOR_JOIN = 'LEFT JOIN users u ON u.id = p.author_id';
 const AUTHOR_COLS = 'u.name AS author_name, u.login, u.avatar';
 
+/* ---------- 归档数据（接口与 /archive SSR 共用一份，避免两处 SQL 走偏） ---------- */
+export async function archiveData(db, year = '') {
+  const y = /^\d{4}$/.test(String(year)) ? String(year) : '';
+  const where = ['p.is_private = 0', 'p.hidden = 0'];
+  const args = [];
+  if (y) {
+    where.push("substr(COALESCE(NULLIF(p.published_at, ''), p.created_at), 1, 4) = ?");
+    args.push(y);
+  }
+
+  const { results } = await db
+    .prepare(
+      `SELECT p.*, ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
+       FROM posts p ${AUTHOR_JOIN}
+       WHERE ${where.join(' AND ')}
+       ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC, p.id DESC
+       LIMIT 2000`
+    )
+    .bind(...args)
+    .all();
+
+  await attachTags(db, results);
+
+  const yearMap = new Map();
+  for (const p of results) {
+    const stamp = String(p.published_at || p.created_at || '');
+    const yy = stamp.slice(0, 4) || '未知';
+    const mm = stamp.slice(5, 7) || '00';
+    if (!yearMap.has(yy)) yearMap.set(yy, { year: yy, count: 0, months: new Map() });
+    const yb = yearMap.get(yy);
+    yb.count += 1;
+    if (!yb.months.has(mm)) yb.months.set(mm, { month: mm, label: `${Number(mm) || '?'} 月`, count: 0, posts: [] });
+    const mb = yb.months.get(mm);
+    mb.count += 1;
+    mb.posts.push(shapePost(p));
+  }
+
+  const years = [...yearMap.values()].map((v) => ({
+    year: v.year,
+    count: v.count,
+    months: [...v.months.values()],
+  }));
+
+  // 全站跨度（不受 year 过滤影响）
+  const spanRow = await db
+    .prepare(
+      `SELECT MIN(COALESCE(NULLIF(published_at, ''), created_at)) AS first_at,
+              MAX(COALESCE(NULLIF(published_at, ''), created_at)) AS last_at,
+              COUNT(*) AS total
+       FROM posts WHERE is_private = 0 AND hidden = 0`
+    )
+    .first();
+
+  return {
+    total: spanRow?.total || 0,
+    filtered: results.length,
+    year: y,
+    first_at: spanRow?.first_at || '',
+    last_at: spanRow?.last_at || '',
+    years,
+  };
+}
+
 /* ---------- 文章列表查询（接口与首页 SSR 共用，避免两份 SQL 走偏） ---------- */
 export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q = '' } = {}) {
   const offset = (page - 1) * size;
@@ -295,65 +358,7 @@ export async function handleApi(env, request, url, ctx) {
   /* ---- 归档（按年月分组的全部公开文章） ---- */
   if (path === '/archive' && method === 'GET') {
     const year = (url.searchParams.get('year') || '').trim();
-    const where = ['p.is_private = 0', 'p.hidden = 0'];
-    const args = [];
-    if (/^\d{4}$/.test(year)) {
-      where.push("substr(COALESCE(NULLIF(p.published_at, ''), p.created_at), 1, 4) = ?");
-      args.push(year);
-    }
-
-    const { results } = await db
-      .prepare(
-        `SELECT p.*, ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
-         FROM posts p ${AUTHOR_JOIN}
-         WHERE ${where.join(' AND ')}
-         ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC, p.id DESC
-         LIMIT 2000`
-      )
-      .bind(...args)
-      .all();
-
-    await attachTags(db, results);
-
-    const yearMap = new Map();
-    for (const p of results) {
-      const stamp = String(p.published_at || p.created_at || '');
-      const y = stamp.slice(0, 4) || '未知';
-      const m = stamp.slice(5, 7) || '00';
-      if (!yearMap.has(y)) yearMap.set(y, { year: y, count: 0, months: new Map() });
-      const yb = yearMap.get(y);
-      yb.count += 1;
-      if (!yb.months.has(m)) yb.months.set(m, { month: m, label: `${Number(m) || '?'} 月`, count: 0, posts: [] });
-      const mb = yb.months.get(m);
-      mb.count += 1;
-      mb.posts.push(shapePost(p));
-    }
-
-    const years = [...yearMap.values()].map((y) => ({
-      year: y.year,
-      count: y.count,
-      months: [...y.months.values()],
-    }));
-
-    // 全站跨度（不受 year 过滤影响）
-    const spanRow = await db
-      .prepare(
-        `SELECT MIN(COALESCE(NULLIF(published_at, ''), created_at)) AS first_at,
-                MAX(COALESCE(NULLIF(published_at, ''), created_at)) AS last_at,
-                COUNT(*) AS total
-         FROM posts WHERE is_private = 0 AND hidden = 0`
-      )
-      .first();
-
-    return json({
-      ok: true,
-      total: spanRow?.total || 0,
-      filtered: results.length,
-      year: /^\d{4}$/.test(year) ? year : '',
-      first_at: spanRow?.first_at || '',
-      last_at: spanRow?.last_at || '',
-      years,
-    });
+    return json({ ok: true, ...(await archiveData(db, year)) });
   }
 
   /* ---- 栏目（固定四栏，含空栏目；栏目语义见 src/taxonomy.js） ---- */

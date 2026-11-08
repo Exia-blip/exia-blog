@@ -49,15 +49,17 @@ const pathYear = /^\d{4}$/.test(seg[1] || '') ? seg[1] : '';
 const qYear = new URLSearchParams(location.search).get('year') || '';
 let currentYear = /^\d{4}$/.test(qYear) ? qYear : pathYear;
 let view = localStorage.getItem('arch:view') === 'list' ? 'list' : 'timeline';
-let DATA = null;
+/* SSR 已把数据和时间线一起吐出来，这里直接接住，不再重复请求与重建首屏 */
+let DATA = window.__ARCH__ || null;
+const SSR_VIEW = bodyEl.querySelector('.arch') ? 'list' : bodyEl.querySelector('.timeline') ? 'timeline' : '';
 
 /* ---------- 工具 ---------- */
 const pad = (n) => String(n).padStart(2, '0');
 
+/* 与 Worker SSR 保持一致：库里存 UTC，页面直接截字符串，不做时区换算 */
 function monthDay(s) {
-  const d = new Date(String(s).replace(' ', 'T') + (String(s).includes('Z') ? '' : 'Z'));
-  if (isNaN(d)) return { md: String(s).slice(5, 10), full: String(s).slice(0, 10) };
-  return { md: `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, full: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` };
+  const str = String(s || '');
+  return { md: str.slice(5, 10), full: str.slice(0, 10) };
 }
 
 function fmtSpan(first, last) {
@@ -200,12 +202,13 @@ async function load() {
 /* 视图切换 */
 switchEl.querySelectorAll('button').forEach((btn) => {
   btn.classList.toggle('on', btn.dataset.view === view);
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
     const v = btn.dataset.view;
     if (v === view) return;
     view = v;
     localStorage.setItem('arch:view', v);
     switchEl.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.view === v));
+    if (!DATA) return await load();   // SSR 没给数据（比如接口挂了）就现拉一次
     render();
   });
 });
@@ -229,7 +232,12 @@ window.addEventListener('popstate', () => {
   load();
 });
 
-await load();
+/* 首屏：SSR 已经画好了就直接用，只有「用户偏好和 SSR 视图不一致」时才重绘 */
+if (DATA && SSR_VIEW) {
+  if (view !== SSR_VIEW) render();
+} else {
+  await load();
+}
 </script>
 </body>
 </html>

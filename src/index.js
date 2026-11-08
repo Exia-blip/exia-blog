@@ -1,4 +1,4 @@
-import { handleApi, listPosts } from './api.js';
+import { handleApi, listPosts, archiveData } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
 import { html, json } from './utils.js';
 import { checkFriends } from './cron.js';
@@ -85,6 +85,145 @@ function renderComments(rows, total) {
         </div>
       </form>
     </section>`;
+}
+
+/* ---------- 归档页 SSR ----------
+   原先前端整页渲染，HTML 里只有「加载中…」，一条真实链接都没有：
+   爬虫抓到的是一张空页，内链权重也传不出去。
+   现在 Worker 直接输出时间线、年份筛选与统计，前端只负责视图切换，
+   且不再重建首屏（切视图/切年份才重绘）。 */
+
+const archSpan = (first, last) => {
+  const a = String(first || '').slice(0, 7).replace('-', '.');
+  const b = String(last || '').slice(0, 7).replace('-', '.');
+  if (!a) return '';
+  return a === b ? a : `${a} — ${b}`;
+};
+
+function archSub(data) {
+  if (!data.total) return '还没有公开文章';
+  const shown = data.years.reduce((a, y) => a + y.count, 0);
+  if (data.year) {
+    return `${esc(data.year)} 年共 <b>${shown}</b> 篇 · <a href="/archive" class="lnk">看全部 ${data.total} 篇</a>`;
+  }
+  return `共 <b>${data.total}</b> 篇 · ${esc(archSpan(data.first_at, data.last_at))} · 跨越 ${data.years.length} 个年份`;
+}
+
+function archFilters(data) {
+  if (!data.years.length) return '';
+  // 只有一个年份且没在筛选时，筛选条意义不大，和前端保持同一判断
+  if (data.years.length < 2 && !data.year) return '';
+  const all = `<a class="tag${data.year ? '' : ' on'}" href="/archive">全部</a>`;
+  const ys = data.years
+    .map((y) => {
+      const on = data.year === y.year ? ' on' : '';
+      return `<a class="tag${on}" href="/archive/${esc(y.year)}">${esc(y.year)}<span class="tag-n">${y.count}</span></a>`;
+    })
+    .join('');
+  return all + ys;
+}
+
+const archChips = (p) =>
+  (p.tags || [])
+    .slice(0, 3)
+    .map((t) => `<span class="chi">#${esc(t)}</span>`)
+    .join('');
+
+function archTimeline(data) {
+  return `<div class="timeline">${data.years
+    .map(
+      (y) => `<section class="tl-year">
+      <div class="tl-yhead"><b>${esc(y.year)}</b><span class="tiny muted">${y.count} 篇</span></div>
+      ${y.months
+        .map(
+          (m) => `<div class="tl-month">
+        <div class="tl-mlabel">${esc(m.label)}<span class="tiny muted">${m.count}</span></div>
+        <div class="tl-items">${m.posts
+          .map((p) => {
+            const stamp = String(p.published_at || p.created_at || '');
+            const md = stamp.slice(5, 10);
+            return `<a class="tl-item" href="/p/${encodeURIComponent(p.slug)}" title="${esc(p.title)}">
+              <span class="tl-day">${esc(md)}</span>
+              <span class="tl-body"><span class="tl-title">${esc(p.title)}</span><span class="tl-meta">${
+                p.category ? `<span class="chi cat">${esc(p.category_name || p.category)}</span>` : ''
+              }${archChips(p)}<span class="tl-dim">${p.reading} 分钟</span>${
+                p.comments ? `<span class="tl-dim">${p.comments} 条评论</span>` : ''
+              }</span></span></a>`;
+          })
+          .join('')}</div>
+      </div>`
+        )
+        .join('')}
+    </section>`
+    )
+    .join('')}</div>`;
+}
+
+function archList(data) {
+  return `<div class="arch">${data.years
+    .map(
+      (y) => `<section class="arch-year">
+      <div class="arch-yhead"><b>${esc(y.year)}</b><span class="tiny muted">${y.count} 篇</span></div>
+      ${y.months
+        .map(
+          (m) => `<div class="arch-month">
+        <div class="arch-mlabel">${esc(m.label)}</div>
+        <div class="arch-rows">${m.posts
+          .map((p) => {
+            const md = String(p.published_at || p.created_at || '').slice(5, 10);
+            return `<a class="arch-row" href="/p/${encodeURIComponent(p.slug)}">
+              <span class="arch-day">${esc(md)}</span>
+              <span class="arch-title">${esc(p.title)}</span>
+              <span class="arch-side">${
+                p.category ? `<span class="chi cat">${esc(p.category_name || p.category)}</span>` : ''
+              }</span></a>`;
+          })
+          .join('')}</div>
+      </div>`
+        )
+        .join('')}
+    </section>`
+    )
+    .join('')}</div>`;
+}
+
+function archBody(data) {
+  if (!data.total) {
+    return '<div class="empty">站点还是空的。登录后在后台写第一篇，这里就会长出时间线。</div>';
+  }
+  const shown = data.years.reduce((a, y) => a + y.count, 0);
+  if (!shown) {
+    return `<div class="empty">${esc(data.year)} 年还没有文章。<a class="lnk" href="/archive">看全部</a></div>`;
+  }
+  return archTimeline(data);
+}
+
+async function serveArchivePage(env, request, url) {
+  const m = url.pathname.match(/^\/archive\/(\d{4})\/?$/);
+  const year = m ? m[1] : (url.searchParams.get('year') || '').trim();
+
+  const res = await env.ASSETS.fetch(new Request(new URL('/archive', request.url), request));
+  if (res.status !== 200) return res;
+  let body = await res.text();
+
+  let data;
+  try {
+    data = await archiveData(env.DB, year);
+  } catch (e) {
+    // 查库失败就退回原模板，前端脚本还能自己拉一次，别整页白屏
+    console.error('archive ssr failed', e);
+    return html(body, 200, { 'cache-control': pageCacheControl() });
+  }
+
+  const boot = JSON.stringify(data).replace(/</g, '\\u003c');
+
+  body = body
+    .replace(/<p id="hero-sub">[\s\S]*?<\/p>/, `<p id="hero-sub">${archSub(data)}</p>`)
+    .replace(/<div class="year-filter" id="year-filter"><\/div>/, `<div class="year-filter" id="year-filter">${archFilters(data)}</div>`)
+    .replace(/<div id="arch-body">[\s\S]*?<\/div>\s*<\/main>/, `<div id="arch-body">${archBody(data)}</div>\n</main>`)
+    .replace('</head>', `<script>window.__ARCH__=${boot};</script></head>`);
+
+  return html(body, 200, { 'cache-control': pageCacheControl() });
 }
 
 /* ---------- 系列目录 ----------
@@ -919,11 +1058,9 @@ async function route(request, env, ctx) {
     return html(await res.text());
   }
 
-  // 归档 / 时间线
+  // 归档 / 时间线（服务端直出，不再让爬虫看「加载中…」）
   if (path === '/archive' || /^\/archive\/\d{4}\/?$/.test(path)) {
-    // 注意用无后缀路径：/xxx.html 会被 Assets 以 307 重定向到 /xxx
-    const res = await env.ASSETS.fetch(new Request(new URL('/archive', request.url), request));
-    if (res.status === 200) return html(await res.text());
+    return await serveArchivePage(env, request, url);
   }
 
   // 栏目总览（分类 + 标签）

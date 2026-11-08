@@ -328,6 +328,10 @@ for u in / /p/about /api/posts /nonexistent; do
 done
 ```
 
+也可以直接跑 `node scripts/check-headers.mjs`，7 条路径一次过。
+
+第三方核验（2026-11-08，securityheaders.com）：**A+**，六项全 present（HSTS / CSP / Permissions-Policy / Referrer-Policy / X-Content-Type-Options / X-Frame-Options）。所以如果某个工具说这几个头缺失，先怀疑工具或缓存，别改代码——用上面两条命令复现一次。
+
 ## 本地开发
 
 ```bash
