@@ -47,10 +47,12 @@ const grid = document.getElementById('grid');
 // 只补管理员才有的删除按钮——否则爬虫抓到的是「加载中」，用户首屏也会闪一下。
 const SEED = window.__FRIENDS__ || null;
 
-function favicon(f) {
-  if (f.avatar) return f.avatar;
-  try { return `https://www.google.com/s2/favicons?domain=${new URL(f.url).hostname}&sz=64`; }
-  catch { return ''; }
+// 与 Worker 的 friendIcon 同一套规则：有自家头像才出图，否则首字母方块。
+// 不再回 Google 的 s2/favicons —— 那是一个友链一次第三方请求。
+function iconHTML(f) {
+  if (f.avatar) return `<img class="fav" src="${esc(f.avatar)}" alt="" loading="lazy" decoding="async" width="38" height="38">`;
+  const ch = String(f.name || '?').trim().charAt(0).toUpperCase() || '?';
+  return `<span class="fav ph" aria-hidden="true">${esc(ch)}</span>`;
 }
 
 let USER_ADMIN = false;
@@ -84,7 +86,7 @@ function paint(friends) {
   }
   grid.innerHTML = friends.map((f) => `
       <a class="friend-card" href="${esc(f.url)}" target="_blank" rel="noopener" data-id="${f.id}">
-        <img class="fav" src="${esc(favicon(f))}" alt="" loading="lazy">
+        ${iconHTML(f)}
         <div class="info">
           <div class="nm">
             <span class="dot ${f.status ? 'on' : 'off'}" title="${f.status ? '可访问' : '无法访问'}"></span>

@@ -4,7 +4,8 @@ import { html, json } from './utils.js';
 import { checkFriends } from './cron.js';
 import { getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody } from '../public/md.js';
-import { coverOf, autoCover, isAutoCover } from './cover.js';
+import { coverOf, autoThumb, isAutoCover, thumbOf } from './cover.js';
+import { avatarSrc } from '../public/avatar.js';
 import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders } from './security.js';
 import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
@@ -24,6 +25,61 @@ async function serveImage(env, key) {
   headers.set('etag', obj.httpEtag);
   headers.set('cache-control', 'public, max-age=31536000, immutable');
   return new Response(obj.body, { headers });
+}
+
+/* ---------- 头像代理 ----------
+   只放行 avatars.githubusercontent.com/u/<数字>，别的域名一律 400，
+   免得这个口子变成通用 SSRF 跳板。第一次回源 GitHub，落一份到 R2，
+   之后同源长缓存；边缘直接命中，页面上再没有第三方连接。 */
+async function serveAvatarProxy(env, url) {
+  const raw = url.searchParams.get('u') || '';
+  const size = Math.min(256, Math.max(32, Number(url.searchParams.get('s')) || 96));
+
+  let src;
+  try {
+    src = new URL(raw);
+  } catch {
+    return new Response('bad avatar url', { status: 400 });
+  }
+  const m = src.pathname.match(/^\/u\/(\d{1,12})$/);
+  if (src.protocol !== 'https:' || src.hostname !== 'avatars.githubusercontent.com' || !m) {
+    return new Response('bad avatar url', { status: 400 });
+  }
+
+  const key = `avatar/u${m[1]}-${size}`;
+  const hit = await env.BUCKET.get(key);
+  if (hit) {
+    const headers = new Headers();
+    hit.writeHttpMetadata(headers);
+    headers.set('etag', hit.httpEtag);
+    headers.set('cache-control', 'public, max-age=31536000, immutable');
+    return new Response(hit.body, { headers });
+  }
+
+  // GitHub 的 s 是最终边长，这里给 2 倍图，高分屏不糊
+  let up = null;
+  try {
+    up = await fetch(`https://avatars.githubusercontent.com/u/${m[1]}?s=${size * 2}`, {
+      cf: { cacheEverything: true, cacheTtl: 86400 },
+    });
+  } catch {
+    up = null;
+  }
+  if (!up || !up.ok) {
+    return new Response('', { status: 404, headers: { 'cache-control': 'public, max-age=300' } });
+  }
+
+  const buf = await up.arrayBuffer();
+  const type = up.headers.get('content-type') || 'image/png';
+  try {
+    await env.BUCKET.put(key, buf, {
+      httpMetadata: { contentType: type, cacheControl: 'public, max-age=31536000, immutable' },
+    });
+  } catch {} // 落盘失败不影响这一响应，下次访问再补
+
+  return new Response(buf, {
+    headers: { 'content-type': type, 'cache-control': 'public, max-age=31536000, immutable' },
+  });
 }
 
 /* ---------- 取静态页模板 ---------- */
@@ -228,13 +284,12 @@ async function serveArchivePage(env, request, url) {
 }
 
 /* ---------- 友链：服务端直出 ---------- */
-function friendFavicon(f) {
-  if (f.avatar) return f.avatar;
-  try {
-    return `https://www.google.com/s2/favicons?domain=${new URL(f.url).hostname}&sz=64`;
-  } catch {
-    return '';
-  }
+// 以前这里回 Google 的 s2/favicons：每个友链一次第三方请求，慢、会超时、还被墙。
+// 现在只在自家填了 avatar 时出图，否则用首字母方块 —— 零外部请求。
+function friendIcon(f) {
+  if (f.avatar) return `<img class="fav" src="${esc(f.avatar)}" alt="" loading="lazy" decoding="async" width="38" height="38">`;
+  const ch = String(f.name || '?').trim().charAt(0).toUpperCase() || '?';
+  return `<span class="fav ph" aria-hidden="true">${esc(ch)}</span>`;
 }
 
 function friendsBody(list) {
@@ -246,7 +301,7 @@ function friendsBody(list) {
         host = new URL(f.url).hostname;
       } catch {}
       return `<a class="friend-card" href="${esc(f.url)}" target="_blank" rel="noopener" data-id="${f.id}">
-        <img class="fav" src="${esc(friendFavicon(f))}" alt="" loading="lazy">
+        ${friendIcon(f)}
         <div class="info">
           <div class="nm">
             <span class="dot ${f.status ? 'on' : 'off'}" title="${f.status ? '可访问' : '无法访问'}"></span>
@@ -400,7 +455,7 @@ async function servePostPage(env, request, slug) {
           post.is_private ? ' <span class="tag" style="background:var(--accent-soft);color:var(--accent)">私密</span>' : ''
         }</h1>
         <div class="meta">
-          ${post.avatar ? `<img class="avatar-xs" src="${esc(post.avatar)}" alt="" width="20" height="20">` : ''}
+          ${post.avatar ? `<img class="avatar-xs" src="${esc(avatarSrc(post.avatar, 48))}" alt="" width="20" height="20" loading="lazy" decoding="async">` : ''}
           <span>${esc(post.author_name || post.login || '')}</span>
           <span class="sep-dot">${esc(String(post.published_at || post.created_at || '').slice(0, 10))}</span>
           <span class="sep-dot">${reading} 分钟阅读</span>
@@ -537,7 +592,7 @@ function renderHeader(site, path) {
   const name = site.name || 'Exia Blog';
   const desc = (site.desc || '').trim();
   const avatar = site.avatar
-    ? `<img class="brand-avatar" src="${esc(site.avatar)}" alt="" loading="eager">`
+    ? `<img class="brand-avatar" src="${esc(avatarSrc(site.avatar, 64))}" alt="" width="32" height="32" loading="eager" decoding="async">`
     : `<span class="brand-avatar ph" aria-hidden="true">${esc((name.trim() || 'E').charAt(0).toUpperCase())}</span>`;
 
   const extra = [];
@@ -611,7 +666,7 @@ const SKELETON = Array.from({ length: 3 })
 
 function postCard(p) {
   // 卡片永远有图：shapePost 已经兜过一层，这里再兜一次是防「传进来的是原始行」
-  const cover = `<img class="thumb" src="${esc(p.cover || autoCover(p))}" alt="" loading="lazy" decoding="async" width="208" height="136">`;
+  const cover = `<img class="thumb" src="${esc(p.cover || autoThumb(p))}" alt="" loading="lazy" decoding="async" width="208" height="136">`;
   const tags = (p.tags || [])
     .slice(0, 3)
     .map((t) => `<span class="tag">#${esc(t)}</span>`)
@@ -1013,7 +1068,7 @@ function assetVersion(env) {
 function stampAssets(body, env) {
   const v = assetVersion(env);
   if (!v) return body;
-  return body.replace(/(["'])\/(style\.css|app\.js|theme\.js|md\.js|boot\.js|cover\.js)\1/g, (m, q, f) => `${q}/${f}?v=${v}${q}`);
+  return body.replace(/(["'])\/(style\.css|app\.js|theme\.js|md\.js|boot\.js|cover\.js|avatar\.js)\1/g, (m, q, f) => `${q}/${f}?v=${v}${q}`);
 }
 
 async function asset(env, request, url) {
@@ -1118,6 +1173,7 @@ async function route(request, env, ctx) {
   if (path === '/auth/logout') return logout();
   if (path === '/auth/status') return authStatus(env, request);
   if (path.startsWith('/img/')) return await serveImage(env, path.slice('/img/'.length));
+  if (path === '/avatar') return await serveAvatarProxy(env, url);
   if (path === '/rss.xml') return await serveRss(env, request);
   if (path === '/sitemap.xml') return await serveSitemap(env, request);
   if (path === '/robots.txt') return serveRobots(request);

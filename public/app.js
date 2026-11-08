@@ -1,4 +1,5 @@
 // 前端公共层：API 封装 / 时间格式化 / 顶部导航 / 提示
+import { avatarSrc } from '/avatar.js';
 
 /* 图片加载失败兜底：CSP 之下不能再用 onerror 内联属性，统一在这里收 */
 document.addEventListener(
@@ -113,7 +114,7 @@ export async function site() {
 function userNav(user, active) {
   const isEditor = active === 'editor' || active === 'mine';
   return `<a href="/editor"${isEditor ? ' class="active"' : ''}>${user.is_admin ? '后台' : '写作'}</a>
-    <a href="/auth/logout" title="退出">${user.avatar ? `<img class="avatar-xs" src="${esc(user.avatar)}" alt="">` : '退出'}</a>`;
+    <a href="/auth/logout" title="退出">${user.avatar ? `<img class="avatar-xs" src="${esc(avatarSrc(user.avatar, 40))}" alt="" loading="lazy" decoding="async">` : '退出'}</a>`;
 }
 
 export async function mountHeader(active = '') {
@@ -151,7 +152,7 @@ export async function mountHeader(active = '') {
   const avatar = s.avatar || '';
   // 有头像就显示，没有就退回首字母方块，导航不至于忽宽忽窄
   const brandMark = avatar
-    ? `<img class="brand-avatar" src="${esc(avatar)}" alt="" loading="eager">`
+    ? `<img class="brand-avatar" src="${esc(avatarSrc(avatar, 64))}" alt="" width="32" height="32" loading="eager" decoding="async">`
     : `<span class="brand-avatar ph" aria-hidden="true">${esc((siteName || 'E').trim().charAt(0).toUpperCase())}</span>`;
 
   host.outerHTML = `

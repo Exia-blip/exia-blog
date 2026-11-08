@@ -22,3 +22,13 @@ export function autoCover(post) {
   const seed = id > 0 ? id : hashStr(String((post && (post.slug || post.title)) || ''));
   return `/thumbs/auto-${(seed % AUTO_COVER_COUNT) + 1}.jpg`;
 }
+
+/**
+ * 同一张预设图的列表用缩略版：416×272 的 WebP，约 1.5KB（JPG 是 30KB）。
+ * 只有列表卡片该用它；og:image / RSS 仍然要 autoCover 的 1200×784 大图。
+ */
+export function autoThumb(post) {
+  const id = Number(post && post.id) || 0;
+  const seed = id > 0 ? id : hashStr(String((post && (post.slug || post.title)) || ''));
+  return `/thumbs/auto-${(seed % AUTO_COVER_COUNT) + 1}.webp`;
+}

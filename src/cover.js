@@ -10,9 +10,9 @@
 // 分配规则放在 public/cover.js，浏览器端渲染卡片时用的是同一份。
 
 import { extractCover } from '../public/md.js';
-import { autoCover } from '../public/cover.js';
+import { autoCover, autoThumb } from '../public/cover.js';
 
-export { autoCover };
+export { autoCover, autoThumb };
 export { AUTO_COVER_COUNT } from '../public/cover.js';
 
 /**
@@ -38,4 +38,13 @@ export function coverOf(post) {
 export function isAutoCover(post) {
   if (String(post?.cover || '').trim()) return false;
   return !bodyCoverOf(post);
+}
+
+/**
+ * 列表缩略图（208×136 的框）。
+ * 预设图有专门的 416px WebP，一张 1.5KB；文章自带图没有多尺寸可挑，只能照原样。
+ * og:image / RSS 别用这个 —— 那边要 1200×784 的 JPG。
+ */
+export function thumbOf(post) {
+  return isAutoCover(post) ? autoThumb(post) : coverOf(post);
 }

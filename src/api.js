@@ -2,7 +2,7 @@ import { json, err, pageParams, slugify, uniqueSlug, nowISO } from './utils.js';
 import { currentUser, requireUser, requireAdmin } from './auth.js';
 import { renderBody, extractTags, extractCover, extractExcerpt, readingTime } from '../public/md.js';
 import { sanitizeHtml, cleanMarkdown } from './clean.js';
-import { coverOf } from './cover.js';
+import { coverOf, thumbOf } from './cover.js';
 import { bustPaths } from './cache.js';
 import { presignPut, makeKey, IMAGE_TYPES } from './s3.js';
 import { notifyComment } from './webhook.js';
@@ -80,7 +80,8 @@ function shapePost(p, full = false) {
     slug: p.slug,
     title: p.title,
     // 手填封面 → 正文首图 → 预设自动图，永远有值，前端不用再判空
-    cover: coverOf(p),
+    // 列表用缩略图：预设图走 416px WebP（1.5KB），自传封面照原样
+    cover: thumbOf(p),
     // 有 AI 摘要就用摘要当导语，没有才截正文
     excerpt: p.summary || extractExcerpt(p.content, 140),
     summary: p.summary || '',

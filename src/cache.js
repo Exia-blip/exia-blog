@@ -2,10 +2,12 @@
 
 /* HTML 的统一缓存口径：
    - 浏览器 max-age=0：每次回源校验，不会把旧页面按 zone 的 Browser Cache TTL 压 4 小时
-   - 边缘 s-maxage=60：CF 与 Worker 内 caches.default 都认这个数
-   - stale-while-revalidate=600：过期后先给旧的、后台刷新，回源延迟不落在用户身上 */
-export const EDGE_TTL = 60;
-export const EDGE_SWR = 600;
+   - 边缘 s-maxage=300：CF 与 Worker 内 caches.default 都认这个数。
+     内容更新不靠等 TTL —— 发布/改文/删文都会 bustPaths 主动清，所以放宽到 5 分钟没有延迟感，
+     换来的是回源次数（以及 Worker CPU 时间）成比例下降
+   - stale-while-revalidate=86400：过期后先给旧的、后台刷新，回源延迟永远不落在用户身上 */
+export const EDGE_TTL = 300;
+export const EDGE_SWR = 86400;
 export const pageCacheControl = () =>
   `public, max-age=0, s-maxage=${EDGE_TTL}, stale-while-revalidate=${EDGE_SWR}`;
 

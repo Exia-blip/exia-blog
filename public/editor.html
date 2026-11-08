@@ -469,12 +469,43 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 /* ---------- 图片上传：拖拽 / 粘贴 ---------- */
+
+/* 上传前在浏览器里转 WebP：省的是访客流量，也省 Worker 出口。
+   长边 1600 对正文插图足够（正文栏 720px，2 倍屏也不过 1440）；
+   GIF / SVG 不碰 —— 一个丢动画，一个是矢量，转了反而糟。 */
+async function toWebp(file, maxSide = 1600, quality = 0.82) {
+  if (!/^image\/(jpeg|png)$/.test(file.type)) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    if (scale === 1 && file.size < 200 * 1024) return file; // 本来就小，不折腾
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bmp, 0, 0, w, h);
+    if (bmp.close) bmp.close();
+    const blob = await new Promise((ok) => cv.toBlob(ok, 'image/webp', quality));
+    // 省不到 8% 就不换格式：有些图（已经压过的截图）转完反而更大
+    if (!blob || blob.size >= file.size * 0.92) return file;
+    const name = String(file.name || 'image').replace(/\.[^.]+$/, '') + '.webp';
+    return new File([blob], name, { type: 'image/webp' });
+  } catch {
+    return file; // 老浏览器没有 createImageBitmap，退回原图，别把上传搞挂
+  }
+}
+
 async function uploadFile(file) {
   if (!file || !file.type.startsWith('image/')) return null;
   if (file.size > 12 * 1024 * 1024) {
     toast('图片超过 12MB');
     return null;
   }
+  file = await toWebp(file);
 
   toast('上传中…', 8000);
   try {
@@ -774,6 +805,8 @@ async function uploadAvatar(file) {
   const drop = $('ava-drop');
   drop.classList.add('busy');
   try {
+    // 头像最大显示 96px，2 倍屏 192px；给 512 已经是富余
+    file = await toWebp(file, 512, 0.86);
     const fd = new FormData();
     fd.append('file', file);
     const r = await api('/api/settings/avatar', { method: 'POST', body: fd });

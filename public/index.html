@@ -103,7 +103,7 @@
 
 <script type="module">
 import { api, fmtDate, esc, mountHeader, toast, site } from '/app.js';
-import { autoCover } from '/cover.js';
+import { autoThumb } from '/cover.js';
 
 const listEl = document.getElementById('list');
 const tagbarEl = document.getElementById('tagbar');
@@ -192,7 +192,7 @@ function skeleton(n = 3) {
 function card(p) {
   return `
   <a class="post-card" href="/p/${encodeURIComponent(p.slug)}">
-    <img class="thumb" src="${esc(p.cover || autoCover(p))}" alt="" loading="lazy" decoding="async" width="208" height="136">
+    <img class="thumb" src="${esc(p.cover || autoThumb(p))}" alt="" loading="lazy" decoding="async" width="208" height="136">
     <div class="body">
       <h2>${esc(p.title)}${p.is_private ? ' <span class="tiny muted">私密</span>' : ''}</h2>
       ${p.excerpt ? `<p class="excerpt">${esc(p.excerpt)}</p>` : ''}

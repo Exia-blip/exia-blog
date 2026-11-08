@@ -8,9 +8,12 @@
 - 1200×784，接近列表缩略图 208×136 的 1.53:1，同一张也能直接当 og:image
 - 每张用不同配色 + 不同符号 + 右上角编号点阵，缩略图尺寸下也能区分
 - 同一篇文章永远同一张（由 cover.js 的 id 取模决定），不随浏览变化
+- 两种规格各出一份：
+    auto-N.jpg   1200×784  给 og:image / RSS / 社交卡片（WebP 在部分平台不吃）
+    auto-N.webp   416×272  给列表缩略图（208×136 的 2 倍，DPR2 下不糊，体积只有 JPG 的 1/4）
 
 用法：python scripts/gen-auto-thumbs.py
-输出：public/thumbs/auto-1.jpg … auto-6.jpg
+输出：public/thumbs/auto-1.jpg … auto-6.jpg  +  auto-1.webp … auto-6.webp
 """
 import math
 import os
@@ -189,13 +192,18 @@ def build(i):
     os.makedirs(OUT, exist_ok=True)
     path = os.path.join(OUT, f'auto-{i}.jpg')
     img.save(path, 'JPEG', quality=84, optimize=True, progressive=True, subsampling=1)
-    return path, os.path.getsize(path)
+
+    # 列表缩略图：显示尺寸 208×136，出 2 倍图给高分屏，再大就是白传
+    webp = os.path.join(OUT, f'auto-{i}.webp')
+    img.resize((416, 272), Image.LANCZOS).save(webp, 'WEBP', quality=82, method=6)
+    return (path, os.path.getsize(path)), (webp, os.path.getsize(webp))
 
 
 if __name__ == '__main__':
-    total = 0
+    total_jpg = total_webp = 0
     for i in range(1, len(PALETTES) + 1):
-        p, size = build(i)
-        total += size
-        print(f'{os.path.basename(p):14s} {size / 1024:6.1f} KB')
-    print(f'{"合计":12s} {total / 1024:6.1f} KB')
+        (p1, s1), (p2, s2) = build(i)
+        total_jpg += s1
+        total_webp += s2
+        print(f'{os.path.basename(p1):14s} {s1 / 1024:6.1f} KB    {os.path.basename(p2):14s} {s2 / 1024:6.1f} KB')
+    print(f'{"JPG 合计":12s} {total_jpg / 1024:6.1f} KB    {"WebP 合计":12s} {total_webp / 1024:6.1f} KB')
