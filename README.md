@@ -45,12 +45,15 @@ exia-blog/
 │   ├── webhook.js      # 评论通知
 │   ├── ai.js           # AI 摘要：Workers AI / 外部接口 / 抽取式兜底
 │   ├── settings.js     # 站点名 / 介绍 / 头像 / 默认风格（D1 覆盖 vars）
+│   ├── cover.js        # 封面：手填 → 正文首图 → 预设自动图
 │   └── utils.js        # cookie / token / 分页
 └── public/
     ├── md.js           # Markdown 渲染器（前后端同构，预览与线上一致）
+    ├── cover.js        # 预设头图的分配规则（前后端同构）
     ├── theme.js        # 7 套风格定义 + 切换面板
     ├── app.js          # 前端公共层
     ├── style.css       # 变量体系：主题 × 明暗
+    ├── thumbs/         # 6 张预设头图（scripts/gen-auto-thumbs.py 生成）
     ├── index.html      # 首页 / 搜索 / 标签
     ├── post.html       # 文章 + 评论
     ├── editor.html     # 编辑器
@@ -416,7 +419,26 @@ npx wrangler dev --port 8788 --local
 | 文章 | `BlogPosting`（`headline` / `datePublished` / `dateModified` / `author` / `publisher` / `keywords` / `wordCount` / `timeRequired`）+ `BreadcrumbList` |
 | 首页、归档、栏目、标签 | `CollectionPage` + `ItemList`（前 20 篇） |
 
-`og:image` 的取值顺序：文章封面 → 站点头像 → 站点默认图 `/og-default.jpg`（1200×630，仅在后两者上用 `og:image:width/height`，因为封面尺寸未知）。另外补齐了 `og:url`、`og:locale`、`og:image:alt`、`article:published_time` / `modified_time` / `section` / `tag` 和 `twitter:image`。
+`og:image` 与列表缩略图同源（见下一节）。另外补齐了 `og:url`、`og:locale`、`og:image:alt`、`article:published_time` / `modified_time` / `section` / `tag` 和 `twitter:image`。
+
+## 缩略图与自动头图
+
+列表卡片、`og:image`、`BlogPosting.image` 用的是同一个值，取值顺序写在 `src/cover.js` 的 `coverOf()` 里：
+
+| 顺序 | 来源 | 说明 |
+|---|---|---|
+| 1 | `posts.cover` | 手动指定，优先级最高 |
+| 2 | 正文第一张图 | 直接复用作者已经放进去的图，不用再单独设封面 |
+| 3 | `/thumbs/auto-N.jpg` | 纯文字文章兜底，6 张预设图轮换 |
+
+第三层按 `posts.id % 6 + 1` 分配：id 单调递增，新文章天然轮到下一张，相邻卡片不会撞同一张；同一篇文章永远同一张（换成随机的话列表每次刷新都变脸，边缘缓存也会被打散）。分配规则放在 `public/cover.js`，服务端与浏览器共用一份，避免 hydrate 时缩略图闪一下换脸。
+
+正文提取有两个坑，`extractCover()` 里都处理了：
+
+- **围栏代码块要先剥掉**。讲 Markdown 的文章里，示例图语法就写在 ` ``` ` 里，直接扫会把 `![x](/a.png)` 当真封面，列表里出现一张破图。
+- **`.svg` 与 `favicon` / `icon-` / `emoji` 开头的不算**。这类图当 208×136 缩略图只会糊成一块，宁可退回预设图。
+
+预设图由 `python scripts/gen-auto-thumbs.py` 生成（PIL，无网络依赖），输出 1200×784 JPEG，每张约 30KB。浅色系是有意为之：站点默认 paper 主题是白卡片 + 浅灰底，深色封面会让列表像贴了几块黑胶布。改配色或符号改脚本里的 `PALETTES` 再跑一次即可，文件名 `auto-1..6` 复用，`/thumbs/*` 的缓存是 1 天，换图当天生效。
 
 ## 安全响应头
 

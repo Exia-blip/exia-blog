@@ -340,7 +340,9 @@ export function extractTags(content = '') {
 }
 
 export function extractCover(content = '') {
-  const m = String(content).match(new RegExp(String.raw`!\[[^\]]*\]\(\s*(${URL_PART})`));
+  // 必须先剥掉代码块：讲 Markdown / 讲渲染的文章里，示例图语法就写在围栏里，
+  // 直接扫会把 `![x](/a.png)` 这样的示例当成真封面，列表里出现一张破图。
+  const m = stripCode(String(content)).match(new RegExp(String.raw`!\[[^\]]*\]\(\s*(${URL_PART})`));
   return m ? m[1] : null;
 }
 

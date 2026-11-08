@@ -758,6 +758,8 @@ function updateChecks() {
     [tags.length >= 1 && tags.length <= 4, `标签 ${tags.length} 个（1~4）`],
     [sum.length >= 20, sum ? `摘要 ${sum.length} 字` : '摘要为空，先写结论'],
     [bodyLen >= 200, `正文 ${bodyLen} 字`],
+    // 缩略图不用作者操心，但让他知道发出来长什么样
+    [true, extractCover(md) ? '缩略图：取正文第一张图' : '缩略图：正文无图，自动轮换预设图'],
   ];
   el.innerHTML = rows
     .map(([ok, text]) => `<li class="${ok ? 'ok' : 'todo'}"><span class="ck">${ok ? '✓' : '!'}</span>${esc(text)}</li>`)

@@ -51,6 +51,16 @@ t('危险协议仍被 safeUrl 拦掉', () => {
   assert.ok(!out.includes('href="javascript:'), out);
 });
 
+t('封面提取跳过围栏代码块里的示例图', () => {
+  const md = ['讲一下图片语法：', '', '```md', '![示例](/a.png)', '```', '', '![真封面](/img/real.png)'].join('\n');
+  assert.equal(extractCover(md), '/img/real.png');
+});
+
+t('只有代码块里的图时不算封面', () => {
+  const md = '```md\n![示例](/a.png)\n```\n\n正文没有别的图';
+  assert.equal(extractCover(md), null);
+});
+
 let pass = 0;
 for (const [name, fn] of cases) {
   try {

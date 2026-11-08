@@ -3,7 +3,8 @@ import { loginRedirect, handleCallback, logout, authStatus, currentUser } from '
 import { html, json } from './utils.js';
 import { checkFriends } from './cron.js';
 import { getSite } from './settings.js';
-import { extractExcerpt, extractCover, readingTime, renderBody } from '../public/md.js';
+import { extractExcerpt, readingTime, renderBody } from '../public/md.js';
+import { coverOf, autoCover, isAutoCover } from './cover.js';
 import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders } from './security.js';
 import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
@@ -368,11 +369,13 @@ async function servePostPage(env, request, slug) {
   const canonical = new URL(`/p/${encodeURIComponent(post.slug)}`, request.url).toString();
 
   const desc = post.summary || extractExcerpt(post.content, 150);
-  const cover = post.cover || extractCover(post.content) || '';
-  // 封面 → 本站默认分享图。站点头像不参与：GitHub 头像只有 460px，社交卡片会糊成一团，
+  // 手填封面 → 正文首图 → 预设自动图，永远有值
+  const cover = coverOf(post);
+  // 封面 → 本站分享图。站点头像不参与：GitHub 头像只有 460px，社交卡片会糊成一团，
   // 而且外链域名不受自己控制（改天换图床就 404）。
-  const ogImage = cover ? new URL(cover, request.url).toString() : `${origin}/og-default.jpg`;
-  const isDefaultOg = !cover;
+  const ogImage = new URL(cover, request.url).toString();
+  // 只有预设自动图能确认尺寸（1200×784 JPEG），正文图尺寸未知就不标
+  const ogSized = isAutoCover(post);
 
   const bodyHtml = sanitizeHtml(renderBody(post.content));
   const words = String(post.content || '').replace(/\s/g, '').length;
@@ -434,9 +437,9 @@ async function servePostPage(env, request, slug) {
     `<meta property="og:locale" content="zh_CN">`,
     `<meta property="og:image" content="${esc(ogImage)}">`,
     `<meta property="og:image:alt" content="${esc(post.title)}">`,
-    isDefaultOg ? `<meta property="og:image:type" content="image/jpeg">` : '',
-    isDefaultOg ? `<meta property="og:image:width" content="1200">` : '',
-    isDefaultOg ? `<meta property="og:image:height" content="630">` : '',
+    ogSized ? `<meta property="og:image:type" content="image/jpeg">` : '',
+    ogSized ? `<meta property="og:image:width" content="1200">` : '',
+    ogSized ? `<meta property="og:image:height" content="784">` : '',
     `<meta property="article:published_time" content="${esc(iso(post.published_at || post.created_at))}">`,
     `<meta property="article:modified_time" content="${esc(iso(post.updated_at, iso(post.published_at || post.created_at)))}">`,
     post.category ? `<meta property="article:section" content="${esc(catName(post.category))}">` : '',
@@ -607,9 +610,8 @@ const SKELETON = Array.from({ length: 3 })
   .join('');
 
 function postCard(p) {
-  const cover = p.cover
-    ? `<img class="thumb" src="${esc(p.cover)}" alt="" loading="lazy" decoding="async" width="208" height="136">`
-    : '';
+  // 卡片永远有图：shapePost 已经兜过一层，这里再兜一次是防「传进来的是原始行」
+  const cover = `<img class="thumb" src="${esc(p.cover || autoCover(p))}" alt="" loading="lazy" decoding="async" width="208" height="136">`;
   const tags = (p.tags || [])
     .slice(0, 3)
     .map((t) => `<span class="tag">#${esc(t)}</span>`)
@@ -1011,7 +1013,7 @@ function assetVersion(env) {
 function stampAssets(body, env) {
   const v = assetVersion(env);
   if (!v) return body;
-  return body.replace(/(["'])\/(style\.css|app\.js|theme\.js|md\.js|boot\.js)\1/g, (m, q, f) => `${q}/${f}?v=${v}${q}`);
+  return body.replace(/(["'])\/(style\.css|app\.js|theme\.js|md\.js|boot\.js|cover\.js)\1/g, (m, q, f) => `${q}/${f}?v=${v}${q}`);
 }
 
 async function asset(env, request, url) {
@@ -1023,6 +1025,9 @@ async function asset(env, request, url) {
   const cc = headers.get('cache-control') || '';
   if (url?.searchParams.has('v')) {
     headers.set('cache-control', 'public, max-age=31536000, immutable');
+  } else if (url && url.pathname.startsWith('/thumbs/')) {
+    // 预设头图：文件不变，但换图集时文件名复用，所以给一天而不是一年
+    headers.set('cache-control', 'public, max-age=86400, stale-while-revalidate=604800');
   } else if (!cc || /max-age=0/.test(cc)) {
     headers.set('cache-control', 'public, max-age=300, stale-while-revalidate=3600');
   }
