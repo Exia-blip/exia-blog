@@ -14,7 +14,7 @@
 | 图片上传 | 拖拽或粘贴，SigV4 直传 R2（S3 兼容），自动插入 Markdown |
 | 文章别名 | 设为 `about` 即可通过 `/about` 访问 |
 | 不列入首页 | 仍在线上可直达，只是不出现在列表 |
-| 友链 | Cron 每 20 分钟巡检，卡片上亮状态小圆点 |
+| 友链 | Cron 每 20 分钟巡检，卡片小圆点三态（通 / 有响应但异常 / 拿不到响应），悬停看 HTTP 码与耗时 |
 | 评论 | 两级回复树，游客可评，管理员可删，博主身份标记 |
 | Webhook 通知 | 新评论 POST 到指定地址，兼容企业微信 / 飞书 / Slack / Discord |
 | 自动头图 | 正文第一张图片自动作为列表缩略图 |
@@ -479,6 +479,32 @@ content-security-policy: default-src 'self'; script-src 'self' 'nonce-…'; styl
 ```
 
 CSP 没有 `'unsafe-inline'`：每次渲染生成一个随机 nonce，把页面里所有 `<script>`（含主题防闪脚本、JSON-LD、`window.__POST__` 引导数据、编辑器内联 module）都打上。缓存里存的是「HTML + 配套 CSP 头」这一对，回放时不会错位。代价是**不能再写 `onerror=` 这类内联事件属性**——图片错误兜底改在 `app.js` 里用捕获阶段的 `error` 监听处理。
+
+## 友链存活检测
+
+`src/cron.js` 一个文件，`*/20 * * * *` 触发，`ctx.waitUntil()` 托管。规则和坑都写在文件头注释里，这里只记结论：
+
+| 判定 | 条件 | 页面表现 |
+|---|---|---|
+| 1 正常 | 2xx / 3xx | 绿点 |
+| 2 有响应但异常 | 4xx / 5xx（含 WAF 的 403、DNS 失败的 530） | 黄点，tooltip 带真实状态码 |
+| 0 挂 | 超时（8s）或连接失败 | 灰点 |
+
+实测数据（都在这台账号上跑出来的）：
+
+| 项 | 数值 |
+|---|---|
+| 单次 invocation fetch 上限 | 50，且是**累计**计数（先做 3 次其他 fetch，剩 47 次） |
+| 跳转是否额外计数 | 否，`http://` 301 到 `https` 仍按 1 次算 |
+| 10 个站点串行 | 2026ms |
+| 10 个站点并发（批 10） | 332ms |
+| 死域名 | 返回 `status: 530`，**不抛异常** |
+| fetch 自己 zone 的域名 | 522（37ms），必须跳过 |
+| `cf: { cacheTtl: 0 }` | **不绕缓存**，仍 `cf-cache-status: HIT` |
+
+超过 40 条友链时不存游标，用 `ORDER BY COALESCE(NULLIF(checked_at,''),'') ASC LIMIT 40` 让最久没检的排前面，跑完自动轮转。
+
+对应文章：`/p/worker-cron-friend-check`（正文在 `content/07-worker-cron-friend-check.md`）。
 
 ## 内容清理
 
