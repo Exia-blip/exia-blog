@@ -1019,12 +1019,17 @@ async function serveRss(env, request) {
       const link = `${origin}/p/${encodeURIComponent(p.slug)}`;
       const cats = [...new Set([catName(p.category), ...(p.tags || [])].filter(Boolean))];
       const catXml = cats.map((c) => `      <category>${esc(c)}</category>`).join('\n');
+      // 全文：站内相对链接补成绝对地址，否则阅读器里图片和文内跳转全是坏的
+      const full = sanitizeHtml(renderBody(p.content))
+        .replace(/(src|href)="\/(?!\/)/g, `$1="${origin}/`)
+        .replace(/\]\]>/g, ']]]]><![CDATA[>');
       return `    <item>
       <title>${esc(p.title)}</title>
       <link>${link}</link>
       <guid isPermaLink="true">${link}</guid>
       <pubDate>${rfc822(p.published_at || p.created_at)}</pubDate>
       <description>${esc(p.summary || extractExcerpt(p.content, 200))}</description>
+      <content:encoded><![CDATA[${full}]]></content:encoded>
 ${catXml}
     </item>`;
     })
@@ -1034,7 +1039,7 @@ ${catXml}
   const lastPost = results[0];
   const lastBuild = lastPost ? rfc822(lastPost.updated_at || lastPost.created_at) : new Date().toUTCString();
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
 <channel>
   <title>${esc(siteName)}</title>
   <link>${origin}/</link>
