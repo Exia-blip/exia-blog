@@ -203,6 +203,7 @@ const sumStateEl = $('sum-state');
 let postId = null;      // 服务端 id
 let currentSlug = '';
 let dirty = false;
+let rev = 0;            // 每次输入 +1：用来判断一次保存的响应是否已经过期
 let saving = false;
 let saveTimer = null;
 let draftKey = 'draft:new';
@@ -307,9 +308,12 @@ function schedulePreview() {
 
 /* ---------- 保存到服务端 ---------- */
 async function saveNow(manual = false) {
-  if (saving) return;
+  clearTimeout(saveTimer);              // 手动保存时把排队中的定时器收掉
+  // 正在存又有新改动：别直接吞掉，重新排一次队，否则这次改动要等下一个按键才会上云
+  if (saving) { scheduleSave(); return; }
   if (!dirty && !manual) return;
   saving = true;
+  const myRev = rev;
   setState('saving', '保存中…');
 
   const payload = {
@@ -352,7 +356,12 @@ async function saveNow(manual = false) {
     $('btn-view').href = '/p/' + encodeURIComponent(currentSlug || '');
 
     if (sumTouched && !sumEl.value.trim()) sumTouched = false;  // 用户清空了 → 让 AI 重写
-    dirty = false;
+    // 响应回来时比对版本号：中间又敲过字就不能清 dirty，否则最后几个字永远进不了云端
+    if (rev === myRev) {
+      dirty = false;
+    } else {
+      scheduleSave();      // 这份响应已过期，重新排队
+    }
     saveLocal();
     setState('', '已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
     if (manual) toast('已保存');
@@ -422,6 +431,7 @@ $('btn-sum-clear').onclick = () => {
 /* ---------- 输入绑定 ---------- */
 function onInput() {
   dirty = true;
+  rev++;
   saveLocal();          // 每次输入即写 localStorage
   schedulePreview();
   scheduleSave();       // 停顿 3 秒落库
