@@ -1,6 +1,23 @@
 # Exia Blog
 
+<p>
+  <a href="https://github.com/Exia-blip/exia-blog/actions/workflows/ci.yml"><img src="https://github.com/Exia-blip/exia-blog/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT">
+  <img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white" alt="Cloudflare Workers">
+  <img src="https://img.shields.io/badge/%E4%BE%9D%E8%B5%96-0-brightgreen.svg" alt="zero dependencies">
+</p>
+
+**在线：[exia.de5.net](https://exia.de5.net)** — 这个 README 讲的就是它正在跑的那套东西，不是示例工程。
+
 跑在 Cloudflare 全家桶上的博客系统。Workers + D1 + R2 + 静态资源，没有服务器，不需要备案，一个解析到 Cloudflare 的域名就能上线。
+
+<img src="docs/preview.webp" alt="Exia Blog 首页" width="100%">
+
+## 目录
+
+| 上手 | 深入 |
+|---|---|
+| [功能](#功能) · [目录结构](#目录结构) · [部署](#部署) · [本地开发](#本地开发) | [性能与缓存](#性能与缓存) · [安全响应头](#安全响应头) · [友链存活检测](#友链存活检测) · [常见问题](#常见问题) |
 
 ## 功能
 
@@ -303,6 +320,8 @@ Worker 侧统一在 `src/security.js` 的 `securityHeaders()` 出口挂，**所�
 | `strict-transport-security` | `max-age=31536000; includeSubDomains; preload` |
 | `content-security-policy` | 仅 HTML，带每次请求的 nonce |
 
+CSP 没有 `'unsafe-inline'`：每次渲染生成一个随机 nonce，把页面里所有 `<script>`（含主题防闪脚本、JSON-LD、`window.__POST__` 引导数据、编辑器内联 module）都打上。缓存里存的是「HTML + 配套 CSP 头」这一对，回放时不会错位。代价是**不能再写 `onerror=` 这类内联事件属性**——图片错误兜底改在 `app.js` 里用捕获阶段的 `error` 监听处理。
+
 ### 面板再兜一层（可选）
 
 Worker 起来之前/挂掉时，边缘返回的是 Cloudflare 自己的错误页（1101、520~527）和 `/cdn-cgi/*`，那些响应**不经过** Worker，也就没有上面这些头。想补齐就在面板加一条 Transform Rule：
@@ -463,22 +482,6 @@ npx wrangler dev --port 8788 --local
 `/avatar` 只放行 `avatars.githubusercontent.com/u/<数字>`，别的域名一律 400——否则这个口子就是通用 SSRF 跳板。
 
 **剩下一个**：Cloudflare 的 Web Analytics（`static.cloudflareinsights.com/beacon.min.js`，约 20KB）。它不属于站点代码，是边缘在 Worker 之后注入 HTML 的，`no-transform` 能挡住但会连带关掉 Brotli（HTML 从 8KB 涨回 25KB，亏），改 CSP 也没用（Cloudflare 会给注入的脚本套上页面 nonce）。要彻底去掉只能在面板关：**Speed → Optimization → Web Analytics**。它本身是 `defer`，不阻塞渲染，留着不影响 LCP。
-
-## 安全响应头
-
-`src/security.js` 统一出口，HTML 与静态资源都带：
-
-```
-strict-transport-security: max-age=31536000; includeSubDomains; preload
-x-content-type-options: nosniff
-referrer-policy: strict-origin-when-cross-origin
-x-frame-options: SAMEORIGIN
-permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
-cross-origin-opener-policy: same-origin
-content-security-policy: default-src 'self'; script-src 'self' 'nonce-…'; style-src 'self' 'unsafe-inline'; …
-```
-
-CSP 没有 `'unsafe-inline'`：每次渲染生成一个随机 nonce，把页面里所有 `<script>`（含主题防闪脚本、JSON-LD、`window.__POST__` 引导数据、编辑器内联 module）都打上。缓存里存的是「HTML + 配套 CSP 头」这一对，回放时不会错位。代价是**不能再写 `onerror=` 这类内联事件属性**——图片错误兜底改在 `app.js` 里用捕获阶段的 `error` 监听处理。
 
 ## 友链存活检测
 

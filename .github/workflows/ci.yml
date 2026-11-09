@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 语法检查（Worker 与前端同构模块）
+        run: |
+          set -e
+          for f in src/*.js public/md.js public/theme.js public/cover.js public/avatar.js; do
+            [ -f "$f" ] && node --check "$f"
+          done
+          echo "语法 OK"
+
+      - name: 单元测试
+        run: npm test
