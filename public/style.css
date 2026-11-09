@@ -1570,8 +1570,12 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
   .series-count { margin-left: 0; flex: 1 1 100%; }
 }
 
-/* 手机上的宽表格：横向滚动，别把正文列挤成一条缝 */
+/* 手机上的表格：
+   以前所有单元格 nowrap，一张带句子的三列表会被撑到 700px 以上，读者得横向拖两屏才读完一行。
+   现在允许折行，但首列给一个最小宽度（≈5.5em），避免某一列被挤成一个大字一格；
+   真正放不下的（长 URL、代码）仍靠 overflow-x 兜底。 */
 @media (max-width: 600px) {
   .post-body table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .post-body table th, .post-body table td { white-space: nowrap; }
+  .post-body table th, .post-body table td { white-space: normal; word-break: break-word; }
+  .post-body table th:first-child, .post-body table td:first-child { min-width: 5.5em; }
 }
