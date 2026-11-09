@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>关于我 · Exia Blog</title>
+  <meta name="description" content="分享了个人博客的实践方法和技术实现，包括工程实录、协议拆解、小工具开发，采用Cloudflare技术栈，自建编辑器，强调可复现性、实验验证和简洁架构，提倡先实现后优化，保留原始错误信息，文章采用CC BY-NC-SA 4.0许可。">
+  <meta name="theme-color" content="#f7f9fe">
+  <meta name="color-scheme" content="light dark">
+  <link rel="canonical" href="https://exia.de5.net/p/about">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Exia Blog">
+  <meta property="og:url" content="https://exia.de5.net/p/about">
+  <meta property="og:title" content="关于我">
+  <meta property="og:description" content="分享了个人博客的实践方法和技术实现，包括工程实录、协议拆解、小工具开发，采用Cloudflare技术栈，自建编辑器，强调可复现性、实验验证和简洁架构，提倡先实现后优化，保留原始错误信息，文章采用CC BY-NC-SA 4.0许可。">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:image" content="https://exia.de5.net/thumbs/auto-4.jpg">
+  <meta property="og:image:alt" content="关于我">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="784">
+  <meta property="article:published_time" content="2026-10-30T17:29:40.000Z">
+  <meta property="article:modified_time" content="2026-10-30T17:29:40.000Z">
+  <meta property="article:section" content="站务">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="关于我">
+  <meta name="twitter:description" content="分享了个人博客的实践方法和技术实现，包括工程实录、协议拆解、小工具开发，采用Cloudflare技术栈，自建编辑器，强调可复现性、实验验证和简洁架构，提倡先实现后优化，保留原始错误信息，文章采用CC BY-NC-SA 4.0许可。">
+  <meta name="twitter:image" content="https://exia.de5.net/thumbs/auto-4.jpg">
+  <script nonce="5ee2ec73e8b77905ce648ffaf5736cf5" type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BlogPosting","@id":"https://exia.de5.net/p/about#article","headline":"关于我","name":"关于我","description":"分享了个人博客的实践方法和技术实现，包括工程实录、协议拆解、小工具开发，采用Cloudflare技术栈，自建编辑器，强调可复现性、实验验证和简洁架构，提倡先实现后优化，保留原始错误信息，文章采用CC BY-NC-SA 4.0许可。","url":"https://exia.de5.net/p/about","mainEntityOfPage":{"@type":"WebPage","@id":"https://exia.de5.net/p/about"},"inLanguage":"zh-CN","datePublished":"2026-10-30T17:29:40.000Z","dateModified":"2026-10-30T17:29:40.000Z","author":{"@type":"Person","name":"Exia Blog","url":"https://exia.de5.net/","image":"https://avatars.githubusercontent.com/u/191740539?v=4"},"publisher":{"@id":"https://exia.de5.net/#owner"},"image":["https://exia.de5.net/thumbs/auto-4.jpg"],"keywords":"","articleSection":"站务","wordCount":641,"isAccessibleForFree":true,"isPartOf":"https://exia.de5.net/#website"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"首页","item":"https://exia.de5.net/"},{"@type":"ListItem","position":2,"name":"站务","item":"https://exia.de5.net/cat/site"},{"@type":"ListItem","position":3,"name":"关于我","item":"https://exia.de5.net/p/about"}]}]}</script>
+<script nonce="5ee2ec73e8b77905ce648ffaf5736cf5">window.__THEME_DEFAULT__={"theme":"anzhiyu","mode":"auto"};window.__SITE__={"name":"Exia Blog","desc":"写字的地方","avatar":"https://avatars.githubusercontent.com/u/36541432"};</script><link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<script nonce="5ee2ec73e8b77905ce648ffaf5736cf5">(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m)})();</script>
+<link rel="stylesheet" href="/style.css?v=mw9hq2qx">
+<script nonce="5ee2ec73e8b77905ce648ffaf5736cf5">window.__POST__={"id":3,"slug":"about","title":"关于我","author":"Exia-blip","author_id":1,"is_private":false,"published_at":"2026-10-30 17:29:40","created_at":"2026-10-30 17:29:40","updated_at":"2026-10-30 17:29:40","summary":"分享了个人博客的实践方法和技术实现，包括工程实录、协议拆解、小工具开发，采用Cloudflare技术栈，自建编辑器，强调可复现性、实验验证和简洁架构，提倡先实现后优化，保留原始错误信息，文章采用CC BY-NC-SA 4.0许可。","summary_src":"ai","category":"site","tags":[],"reading":2,"html":true};</script><script nonce="5ee2ec73e8b77905ce648ffaf5736cf5" type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://exia.de5.net/#website","url":"https://exia.de5.net/","name":"Exia Blog","description":"写字的地方","inLanguage":"zh-CN","publisher":{"@id":"https://exia.de5.net/#owner"},"logo":{"@type":"ImageObject","url":"https://exia.de5.net/icon-512.png","width":512,"height":512},"image":"https://exia.de5.net/og-default.jpg","potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://exia.de5.net/?q={search_term_string}"},"query-input":"required name=search_term_string"}},{"@type":"Person","@id":"https://exia.de5.net/#owner","name":"Exia Blog","description":"写字的地方","url":"https://exia.de5.net/","image":"https://exia.de5.net/avatar?u=https%3A%2F%2Favatars.githubusercontent.com%2Fu%2F36541432&s=128"}]}</script></head>
+<body>
+
+<header class="site">
+    <div class="inner">
+      <a class="brand" href="/"><img class="brand-avatar" src="/avatar?u=https%3A%2F%2Favatars.githubusercontent.com%2Fu%2F36541432&amp;s=64" alt="" width="32" height="32" loading="eager" decoding="async"><span class="brand-name">Exia Blog<span class="dot">.</span></span></a>
+      <span class="brand-desc" title="写字的地方">写字的地方</span>
+      <nav class="top"><a href="/">首页</a><a href="/categories">栏目</a><a href="/archive">归档</a><a href="/friends">友链</a><a href="/about" class="active">关于</a><span id="nav-user"></span><button class="theme-btn" data-theme-btn type="button" aria-label="切换风格" aria-expanded="false" title="切换风格"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18 2.2 2.2 0 0 0 1.7-3.6 2.2 2.2 0 0 1 1.7-3.6H18A3 3 0 0 0 21 10.8 9 9 0 0 0 12 3Z"/><circle cx="8" cy="9.2" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.4" cy="7" r="1.1" fill="currentColor" stroke="none"/><circle cx="16.4" cy="9.4" r="1.1" fill="currentColor" stroke="none"/></svg></button></nav>
+    </div>
+  </header>
+
+<main class="wrap" id="page"><article>
+      <header class="post-head">
+        <h1>关于我</h1>
+        <div class="meta">
+          <img class="avatar-xs" src="/avatar?u=https%3A%2F%2Favatars.githubusercontent.com%2Fu%2F191740539%3Fv%3D4&amp;s=48" alt="" width="20" height="20" loading="lazy" decoding="async">
+          <span>Exia-blip</span>
+          <span class="sep-dot">2026-10-30</span>
+          <span class="sep-dot">2 分钟阅读</span>
+          
+          <span class="post-edit" style="margin-left:auto"></span>
+        </div>
+      </header>
+      <aside class="post-lead"><span class="lead-tag">AI 摘要</span><p>分享了个人博客的实践方法和技术实现，包括工程实录、协议拆解、小工具开发，采用Cloudflare技术栈，自建编辑器，强调可复现性、实验验证和简洁架构，提倡先实现后优化，保留原始错误信息，文章采用CC BY-NC-SA 4.0许可。</p></aside>
+      
+      <div class="md post-body"><p>我是 Exia。</p>
+<p>这里不追热点，也不做资讯搬运。写下来的都是自己动手做过、并且真做成了的事——更多时候是失败几轮之后才成的那种。</p>
+<h2 id="我写什么">我写什么</h2>
+<p><strong>工程实录</strong>。一个决定为什么这么定，当时的约束是什么，事后看错在哪。给可复现的步骤和真实输出，不写「应该可以」。</p>
+<p><strong>拆东西</strong>。协议怎么设计的、校验落在哪一层、哪些防护看着唬人其实什么都没拦住。这类文章只分析机制。</p>
+<p><strong>小工具</strong>。自己用得上才写，通常很小，一个文件能跑完。</p>
+<h2 id="这个站">这个站</h2>
+<p>跑在 Cloudflare 上：Workers 处理请求，D1 存数据，R2 放图片。没有服务器，也没有备案流程，一个域名解析过来就上线了。</p>
+<p>写作端是自建的 Markdown 编辑器。左边写、右边立刻出效果，停手三秒自动存到云端，<code>Ctrl/Cmd + S</code> 可以马上保存。草稿同时留在浏览器本地，断网、误关标签页都不会丢。</p>
+<p>正文里写 <code>#标签</code> 会自动归集，归档页按年月把写过的东西串成一条时间线。</p>
+<h2 id="几个习惯">几个习惯</h2>
+<blockquote><p>能跑通比说得漂亮重要。</p></blockquote>
+<ul><li>先做出来再谈架构，过早抽象是负债</li><li>不确定就做实验，不靠推演</li><li>报错信息原样贴出来，不转述、不美化</li><li>能一个文件解决，就不引第三个依赖</li></ul>
+<h2 id="联系">联系</h2>
+<ul><li>GitHub：<a href="https://github.com/Exia-blip" target="_blank" rel="noopener nofollow">@Exia-blip</a></li><li>邮箱：<a href="/cdn-cgi/l/email-protection#68001d091001095a58595a280f05090104460b0705" class="__cf_email__" data-cfemail="68001d091001095a58595a280f05090104460b0705">[email&#160;protected]</a></li><li>站内每篇文章下面都能评论，我会看到</li></ul>
+<p>文章除特别注明外采用 CC BY-NC-SA 4.0 许可，转载请注明出处。</p></div>
+      <footer class="post-foot"><div class="tagbar" style="margin:0"><a class="tag cat-chip" href="/cat/site">站务</a></div></footer>
+    </article>
+
+    <section class="comments" id="comments">
+      <h3>评论 <span class="muted" id="cmt-count"></span></h3>
+      <div id="cmt-list"><div class="muted small" style="padding:14px 0">还没有评论，来抢沙发。</div></div>
+      <form class="cmt-form" id="cmt-form" novalidate>
+        <div id="reply-hint" class="tiny muted" style="display:none"></div>
+        <div class="row" id="guest-fields">
+          <input type="text" name="name" placeholder="昵称 *" maxlength="40" autocomplete="nickname">
+          <input type="email" name="email" placeholder="联系邮箱 *（不公开，仅博主可见）" maxlength="120" autocomplete="email">
+          <input type="url" name="website" placeholder="网站（可选）" maxlength="200">
+        </div>
+        <textarea name="content" placeholder="说点什么…" maxlength="2000"></textarea>
+        <div class="foot">
+          <span class="tiny muted" id="cmt-hint"></span>
+          <button class="btn primary sm" type="submit">发表评论</button>
+        </div>
+      </form>
+    </section></main>
+
+<script nonce="5ee2ec73e8b77905ce648ffaf5736cf5" type="module">
+import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons, bindReadingProgress } from '/app.js?v=mw9hq2qx';
+
+bindCopyButtons(document);
+
+const segs = location.pathname.split('/').filter(Boolean);
+const slug = decodeURIComponent(segs[0] === 'p' ? segs[1] || '' : segs[0] || '');
+
+const page = document.getElementById('page');
+// 服务端已经把正文写进 HTML 了，这里不再重复拉一遍接口
+let POST = window.__POST__ || null;
+let USER = null;
+let replyTo = null;
+
+/* SSR 页面只挂事件、不重建 DOM：正文不会重排，滚动位置也不会跳 */
+function hydrate() {
+  const p = POST;
+  const slot = document.querySelector('.post-edit');
+  if (slot && USER && (USER.is_admin || USER.id === p.author_id)) {
+    slot.innerHTML = `<a class="btn sm" href="/editor?id=${p.id}">编辑</a>`;
+  }
+  bindReply();
+  bindForm();
+  bindReadingProgress(document.querySelector('.post-body'));
+}
+
+/* 正文模板只在 Worker 里有一份（src/index.js servePostPage）。
+   这里以前还留着一套前端模板兜底，改一处忘一处就对不上，SSR 稳定后删掉了。 */
+function fallbackNotice() {
+  page.innerHTML =
+    '<div class="empty">正文没取到，可能是页面缓存过期了。<a href="javascript:location.reload()">刷新一下</a></div>';
+}
+
+/* ---------- 评论 ---------- */
+async function loadComments() {
+  const box = document.getElementById('cmt-list');
+  if (!box) return;
+  try {
+    const { comments, total } = await api('/api/comments?slug=' + encodeURIComponent(slug));
+    document.getElementById('cmt-count').textContent = total ? `(${total})` : '';
+    if (!comments.length) {
+      box.innerHTML = '<div class="muted small" style="padding:14px 0">还没有评论，来抢沙发。</div>';
+      return;
+    }
+    box.innerHTML = comments.map(renderCmt).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="muted small">评论加载失败</div>`;
+  }
+}
+
+function avatarText(name) {
+  return esc(String(name || '?').slice(0, 1).toUpperCase());
+}
+
+function renderCmt(c, isChild = false) {
+  const del = USER && USER.is_admin
+    ? `<button data-del="${c.id}">删除</button>` : '';
+  const reply = !isChild ? `<button data-reply="${c.id}" data-name="${esc(c.name)}">回复</button>` : '';
+  const homepage = c.website
+    ? `<a href="${esc(c.website)}" target="_blank" rel="noopener nofollow" class="muted">${esc(c.name)}</a>`
+    : esc(c.name);
+
+  return `
+  <div class="cmt" data-cid="${c.id}">
+    <div class="ava">${avatarText(c.name)}</div>
+    <div class="main">
+      <div class="head">
+        <b>${homepage}</b>
+        ${c.is_admin ? '<span class="badge-owner">博主</span>' : ''}
+        <span class="when">${fmtRelative(c.created_at)}</span>
+        ${USER && USER.is_admin && c.email
+          ? `<a class="cmt-mail" href="/cdn-cgi/l/email-protection#24005f4157470c470a4149454d480d59" data-cfemail="24005f4157470c470a4149454d480d59" title="联系邮箱，仅管理员可见">${esc(c.email)}</a>`
+          : ''}
+      </div>
+      <div class="text">${esc(c.content)}</div>
+      <div class="acts">${reply}${del}</div>
+      ${c.replies && c.replies.length ? `<div class="replies">${c.replies.map((r) => renderCmt(r, true)).join('')}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function bindReply() {
+  const box = document.getElementById('cmt-list');
+  if (!box) return;
+  box.addEventListener('click', async (e) => {
+    const r = e.target.closest('[data-reply]');
+    if (r) {
+      replyTo = { id: +r.dataset.reply, name: r.dataset.name };
+      const hint = document.getElementById('reply-hint');
+      hint.style.display = 'block';
+      hint.innerHTML = `回复 <b>${esc(replyTo.name)}</b> · <a href="javascript:;" id="cancel-reply">取消</a>`;
+      document.getElementById('cancel-reply').onclick = () => {
+        replyTo = null;
+        hint.style.display = 'none';
+      };
+      document.querySelector('#cmt-form textarea').focus();
+      return;
+    }
+    const d = e.target.closest('[data-del]');
+    if (d) {
+      if (!confirm('删除这条评论？其下的回复也会一并删除。')) return;
+      try {
+        await api('/api/comments/' + d.dataset.del, { method: 'DELETE' });
+        toast('已删除');
+        loadComments();
+      } catch (err) { toast(err.message); }
+    }
+  });
+}
+
+function bindForm() {
+  const form = document.getElementById('cmt-form');
+  // 注意：form.name 是 <form> 自身的 name 属性，不是叫 name 的输入框，
+  // 必须走 form.elements 取字段，否则拿到的是空字符串。
+  const f = form.elements;
+  const field = (n) => f.namedItem(n);
+
+  if (USER) {
+    // 登录用户：昵称锁定成账号名，邮箱预填账号邮箱（可改，用于联系）
+    const nameEl = field('name');
+    nameEl.value = USER.name || USER.login || '';
+    nameEl.readOnly = true;
+    nameEl.title = '登录账号的昵称，无需填写';
+  }
+
+  // 记住游客信息 / 预填邮箱
+  try {
+    const saved = JSON.parse(localStorage.getItem('cmt:guest') || '{}');
+    if (!USER) {
+      if (saved.name) field('name').value = saved.name;
+      if (saved.email) field('email').value = saved.email;
+      if (saved.website) field('website').value = saved.website;
+    } else {
+      field('email').value = USER.email || saved.email || '';
+      if (saved.website) field('website').value = saved.website;
+    }
+  } catch {}
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const content = field('content').value.trim();
+    const name = field('name').value.trim();
+    const email = field('email').value.trim();
+    const website = field('website').value.trim();
+
+    if (!content) { toast('说点什么吧'); field('content').focus(); return; }
+    if (!name) { toast('请先填昵称'); field('name').focus(); return; }
+    if (!email) { toast('请填写联系邮箱'); field('email').focus(); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('邮箱格式不正确'); field('email').focus(); return; }
+
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    btn.textContent = '发送中…';
+
+    try {
+      await api('/api/comments', {
+        method: 'POST',
+        body: {
+          slug,
+          content,
+          parent_id: replyTo?.id || null,
+          name,
+          email,
+          website,
+        },
+      });
+      localStorage.setItem('cmt:guest', JSON.stringify({ name: USER ? '' : name, email, website }));
+      field('content').value = '';
+      replyTo = null;
+      document.getElementById('reply-hint').style.display = 'none';
+      toast('评论已发布');
+      loadComments();
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '发表评论';
+    }
+  });
+}
+
+USER = await mountHeader();
+if (POST) {
+  hydrate();
+  loadComments();
+} else {
+  fallbackNotice();
+}
+</script>
+<script nonce="5ee2ec73e8b77905ce648ffaf5736cf5">(function(){function d(h){var k=parseInt(h.substr(0,2),16),s="";for(var i=2;i<h.length;i+=2)s+=String.fromCharCode(parseInt(h.substr(i,2),16)^k);return s}var e=document.querySelectorAll("[data-cfemail]");for(var i=0;i<e.length;i++){var m=d(e[i].getAttribute("data-cfemail"));e[i].setAttribute("href","mailto:"+m);if(e[i].textContent.indexOf("protected")>-1)e[i].textContent=m}})();</script></body>
+</html>

@@ -40,16 +40,30 @@ const EMAIL_DECODER =
   'e[i].setAttribute("href","mailto:"+m);' +
   'if(e[i].textContent.indexOf("protected")>-1)e[i].textContent=m}})();<\/script>';
 
+const MAILTO_A = /<a([^>]*?)href=(["'])mailto:([^"']+)\2([^>]*)>([\s\S]*?)<\/a>/gi;
+
 export function obfuscateEmail(html) {
+  const src = String(html);
+  if (!/mailto:/i.test(src)) return src;
+
   let hit = false;
-  const out = String(html).replace(/<a([^>]*?)href=(["'])mailto:([^"']+)\2([^>]*)>([\s\S]*?)<\/a>/gi, (m, pre, q, addr, post, text) => {
-    hit = true;
-    const hex = cfEmailHex(addr.trim());
-    const open = '<a' + (pre ? (/^\s/.test(pre) ? pre : ' ' + pre) : ' ');
-    const cls = /class=/i.test(pre + post) ? '' : ' class="__cf_email__"';
-    const label = text.includes('@') ? '[email&#160;protected]' : text;
-    return `${open}href="/cdn-cgi/l/email-protection#${hex}"${cls} data-cfemail="${hex}"${post}>${label}</a>`;
-  });
+  const swap = (chunk) =>
+    chunk.replace(MAILTO_A, (m, pre, q, addr, post, text) => {
+      hit = true;
+      const hex = cfEmailHex(addr.trim());
+      const open = '<a' + (pre ? (/^\s/.test(pre) ? pre : ' ' + pre) : ' ');
+      const cls = /class=/i.test(pre + post) ? '' : ' class="__cf_email__"';
+      const label = text.includes('@') ? '[email&#160;protected]' : text;
+      return `${open}href="/cdn-cgi/l/email-protection#${hex}"${cls} data-cfemail="${hex}"${post}>${label}</a>`;
+    });
+
+  // 只处理 <script> 之外的部分：客户端模板里写着 `href="mailto:${esc(c.email)}"`，
+  // 混淆它等于把模板改成静态死链，评论区直接坏掉。
+  let out = '';
+  for (const seg of src.split(/(<script[\s\S]*?<\/script>)/i)) {
+    out += /^<script/i.test(seg) ? seg : swap(seg);
+  }
+
   if (!hit) return out;
   return out.includes('</body>') ? out.replace('</body>', EMAIL_DECODER + '</body>') : out + EMAIL_DECODER;
 }
