@@ -48,6 +48,8 @@ export default {
 
 `*/20 * * * *` 是 UTC，20 分钟一轮，一天 72 轮。免费计划的 cron 触发有分钟级抖动，别指望整点整分——对存活检测来说无所谓。
 
+这一步的失败方式是静默的：配置字段名写错、`crons` 写成对象、JSON 里多一个逗号，`wrangler deploy` 会在**配置解析**阶段就拒绝，报错里只有 `Unexpected fields found` 或 `Missing entry-point` 这种关键词，跟你真正想干的事完全不搭。这类"报错关键词即阶段名"的对照我单独整理成了一张表：[wrangler deploy 失败对照](/p/wrangler-deploy-errors)，六条原文逐条对根因。
+
 ## 实测：一次 invocation 到底能发几次 fetch
 
 这是整个设计的硬约束，先量清楚。在 Worker 里循环 fetch 同一个地址，数到第几次炸：
@@ -277,6 +279,8 @@ export async function checkFriends(env) {
 ALTER TABLE friends ADD COLUMN http_status INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE friends ADD COLUMN latency_ms INTEGER;
 ```
+
+`ALTER` 有坑：`wrangler d1 execute --local` 改的是 `.wrangler/state` 下的模拟库，`--remote` 才改线上。两个库同名不同物，本地 `ALTER` 完、`wrangler dev` 一切正常，部署上线立刻 500，报 `no such column: http_status`。友链检测是在线上跑的，这条必须 `--remote`——同一条坑的完整排查过程在 [D1 报错 no such table](/p/d1-no-such-table) 里。
 
 `latency_ms` 不是给页面炫技用的。它有个实际用途：某个友链从 200ms 涨到 3 秒，说明对方在换服务器或被打，这种"还没挂但变慢"的状态比挂掉更早出现，是唯一能提前发现的信号。
 
