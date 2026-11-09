@@ -7,7 +7,7 @@ import { extractExcerpt, readingTime, renderBody } from '../public/md.js';
 import { coverOf, autoThumb, isAutoCover, thumbOf } from './cover.js';
 import { avatarSrc } from '../public/avatar.js';
 import { sanitizeHtml } from './clean.js';
-import { makeNonce, applyNonce, securityHeaders } from './security.js';
+import { makeNonce, applyNonce, securityHeaders, obfuscateEmail } from './security.js';
 import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
 import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.js';
 import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
@@ -950,7 +950,8 @@ async function harden(res) {
     });
   }
   const nonce = makeNonce();
-  const body = applyNonce(await res.text(), nonce);
+  // 先混淆邮箱再补 nonce：解码脚本是内联的，得跟着一起拿到 nonce
+  const body = applyNonce(obfuscateEmail(await res.text()), nonce);
   const headers = securityHeaders(new Headers(res.headers), nonce);
   // 所有 HTML 用同一套缓存口径，别再让文章页单独漏成 max-age=60 / 无 s-maxage
   const cc = (headers.get('cache-control') || '').toLowerCase();

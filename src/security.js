@@ -15,6 +15,45 @@ export function applyNonce(html, n) {
   return String(html).replace(/<script(?![^>]*\snonce=)/gi, `<script nonce="${n}"`);
 }
 
+/* ---------- 邮箱混淆 ----------
+ * 页面里只要出现 mailto:，源码就等于把地址直接交给爬虫。
+ * 出口处把链接换成 Cloudflare Scrape Shield 同款格式（/cdn-cgi/l/email-protection#<hex>
+ * + data-cfemail），解码脚本自己带：不依赖面板开关，开关真打开时 CF 也找不到明文可处理，
+ * 两边不会打架。编码规则照抄 CF —— hex 首字节是 key，其余字节是原文 ^ key。
+ */
+const hex2 = (n) => n.toString(16).padStart(2, '0');
+
+function cfEmailHex(addr) {
+  const bytes = Array.from(new TextEncoder().encode(addr));
+  const key = bytes[0];
+  let out = hex2(key);
+  // 全部字节都 ^ key（包括首字节），解码端从第 3 个 hex 字节开始逐字节异或还原
+  for (const b of bytes) out += hex2(b ^ key);
+  return out;
+}
+
+const EMAIL_DECODER =
+  '<script>(function(){function d(h){var k=parseInt(h.substr(0,2),16),s="";' +
+  'for(var i=2;i<h.length;i+=2)s+=String.fromCharCode(parseInt(h.substr(i,2),16)^k);return s}' +
+  'var e=document.querySelectorAll("[data-cfemail]");' +
+  'for(var i=0;i<e.length;i++){var m=d(e[i].getAttribute("data-cfemail"));' +
+  'e[i].setAttribute("href","mailto:"+m);' +
+  'if(e[i].textContent.indexOf("protected")>-1)e[i].textContent=m}})();<\/script>';
+
+export function obfuscateEmail(html) {
+  let hit = false;
+  const out = String(html).replace(/<a([^>]*?)href=(["'])mailto:([^"']+)\2([^>]*)>([\s\S]*?)<\/a>/gi, (m, pre, q, addr, post, text) => {
+    hit = true;
+    const hex = cfEmailHex(addr.trim());
+    const open = '<a' + (pre ? (/^\s/.test(pre) ? pre : ' ' + pre) : ' ');
+    const cls = /class=/i.test(pre + post) ? '' : ' class="__cf_email__"';
+    const label = text.includes('@') ? '[email&#160;protected]' : text;
+    return `${open}href="/cdn-cgi/l/email-protection#${hex}"${cls} data-cfemail="${hex}"${post}>${label}</a>`;
+  });
+  if (!hit) return out;
+  return out.includes('</body>') ? out.replace('</body>', EMAIL_DECODER + '</body>') : out + EMAIL_DECODER;
+}
+
 function csp(n) {
   return [
     "default-src 'self'",
