@@ -300,11 +300,16 @@ function friendsBody(list) {
       try {
         host = new URL(f.url).hostname;
       } catch {}
+      // 三态：1 正常 / 2 有响应但状态异常（4xx、5xx，多半是 WAF 拦爬虫）/ 0 拿不到响应
+      const state = Number(f.status) === 1 ? 'on' : Number(f.status) === 2 ? 'warn' : 'off';
+      const label =
+        state === 'on' ? '可访问' : state === 'warn' ? `有响应（HTTP ${f.http_status || '?'}）` : '无法访问';
+      const ms = Number(f.latency_ms) > 0 ? ` · ${f.latency_ms}ms` : '';
       return `<a class="friend-card" href="${esc(f.url)}" target="_blank" rel="noopener" data-id="${f.id}">
         ${friendIcon(f)}
         <div class="info">
           <div class="nm">
-            <span class="dot ${f.status ? 'on' : 'off'}" title="${f.status ? '可访问' : '无法访问'}"></span>
+            <span class="dot ${state}" title="${label}${ms}"></span>
             ${esc(f.name)}
           </div>
           <div class="ds">${esc(f.desc || host)}</div>

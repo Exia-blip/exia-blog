@@ -212,7 +212,9 @@ export async function tagsData(db) {
 /* ---------- 友链（接口与 /friends 的 SSR 共用） ---------- */
 export async function friendsData(db) {
   const { results } = await db
-    .prepare('SELECT id, name, url, avatar, desc, status, checked_at FROM friends ORDER BY status DESC, id ASC')
+    .prepare(
+      'SELECT id, name, url, avatar, desc, status, http_status, latency_ms, checked_at FROM friends ORDER BY status DESC, id ASC'
+    )
     .all();
   return results;
 }

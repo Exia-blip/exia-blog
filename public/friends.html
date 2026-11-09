@@ -79,6 +79,17 @@ function bindDeletes() {
   });
 }
 
+// 与 Worker 的 friendsBody 同一套三态规则：1 正常 / 2 有响应但状态异常 / 0 拿不到响应
+function dotState(f) {
+  const n = Number(f.status);
+  return n === 1 ? 'on' : n === 2 ? 'warn' : 'off';
+}
+function dotLabel(f) {
+  const st = dotState(f);
+  const base = st === 'on' ? '可访问' : st === 'warn' ? `有响应（HTTP ${f.http_status || '?'}）` : '无法访问';
+  return f.latency_ms > 0 ? `${base} · ${f.latency_ms}ms` : base;
+}
+
 function paint(friends) {
   if (!friends.length) {
     grid.innerHTML = '<div class="empty">还没有友链</div>';
@@ -89,7 +100,7 @@ function paint(friends) {
         ${iconHTML(f)}
         <div class="info">
           <div class="nm">
-            <span class="dot ${f.status ? 'on' : 'off'}" title="${f.status ? '可访问' : '无法访问'}"></span>
+            <span class="dot ${dotState(f)}" title="${dotLabel(f)}"></span>
             ${esc(f.name)}
           </div>
           <div class="ds">${esc(f.desc || new URL(f.url).hostname)}</div>

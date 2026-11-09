@@ -1,0 +1,212 @@
+
+import { api, esc, mountHeader, site, toast } from '/app.js';
+
+const bodyEl = document.getElementById('arch-body');
+const subEl = document.getElementById('hero-sub');
+const filterEl = document.getElementById('year-filter');
+const switchEl = document.getElementById('view-switch');
+
+const SITE = await site();
+document.title = `归档 · ${SITE.name}`;
+mountHeader('archive');
+
+/* 路径 /archive/2026 与 ?year=2026 等价 */
+const seg = location.pathname.split('/').filter(Boolean);
+const pathYear = /^\d{4}$/.test(seg[1] || '') ? seg[1] : '';
+const qYear = new URLSearchParams(location.search).get('year') || '';
+let currentYear = /^\d{4}$/.test(qYear) ? qYear : pathYear;
+let view = localStorage.getItem('arch:view') === 'list' ? 'list' : 'timeline';
+/* SSR 已把数据和时间线一起吐出来，这里直接接住，不再重复请求与重建首屏 */
+let DATA = window.__ARCH__ || null;
+const SSR_VIEW = bodyEl.querySelector('.arch') ? 'list' : bodyEl.querySelector('.timeline') ? 'timeline' : '';
+
+/* ---------- 工具 ---------- */
+const pad = (n) => String(n).padStart(2, '0');
+
+/* 与 Worker SSR 保持一致：库里存 UTC，页面直接截字符串，不做时区换算 */
+function monthDay(s) {
+  const str = String(s || '');
+  return { md: str.slice(5, 10), full: str.slice(0, 10) };
+}
+
+function fmtSpan(first, last) {
+  const a = String(first || '').slice(0, 7).replace('-', '.');
+  const b = String(last || '').slice(0, 7).replace('-', '.');
+  if (!a) return '';
+  return a === b ? a : `${a} — ${b}`;
+}
+
+/* ---------- 渲染：时间线 ---------- */
+function renderTimeline(years) {
+  return `<div class="timeline">${years
+    .map(
+      (y) => `<section class="tl-year">
+      <div class="tl-yhead">
+        <b>${esc(y.year)}</b>
+        <span class="tiny muted">${y.count} 篇</span>
+      </div>
+      ${y.months
+        .map(
+          (m) => `<div class="tl-month">
+        <div class="tl-mlabel">${esc(m.label)}<span class="tiny muted">${m.count}</span></div>
+        <div class="tl-items">
+          ${m.posts
+            .map((p) => {
+              const t = monthDay(p.published_at || p.created_at);
+              return `<a class="tl-item" href="/p/${encodeURIComponent(p.slug)}" title="${esc(p.title)}">
+              <span class="tl-day">${t.md}</span>
+              <span class="tl-body">
+                <span class="tl-title">${esc(p.title)}</span>
+                <span class="tl-meta">
+                  ${p.category ? `<span class="chi cat">${esc(p.category_name || p.category)}</span>` : ''}
+                  ${(p.tags || []).slice(0, 3).map((x) => `<span class="chi">#${esc(x)}</span>`).join('')}
+                  <span class="tl-dim">${p.reading} 分钟</span>
+                  ${p.comments ? `<span class="tl-dim">${p.comments} 条评论</span>` : ''}
+                </span>
+              </span>
+            </a>`;
+            })
+            .join('')}
+        </div>
+      </div>`
+        )
+        .join('')}
+    </section>`
+    )
+    .join('')}</div>`;
+}
+
+/* ---------- 渲染：紧凑归档 ---------- */
+function renderList(years) {
+  return `<div class="arch">${years
+    .map(
+      (y) => `<section class="arch-year">
+      <div class="arch-yhead">
+        <b>${esc(y.year)}</b>
+        <span class="tiny muted">${y.count} 篇</span>
+      </div>
+      ${y.months
+        .map(
+          (m) => `<div class="arch-month">
+        <div class="arch-mlabel">${esc(m.label)}</div>
+        <div class="arch-rows">
+          ${m.posts
+            .map((p) => {
+              const t = monthDay(p.published_at || p.created_at);
+              return `<a class="arch-row" href="/p/${encodeURIComponent(p.slug)}">
+              <span class="arch-day">${t.md}</span>
+              <span class="arch-title">${esc(p.title)}</span>
+              <span class="arch-side">
+                ${p.category ? `<span class="chi cat">${esc(p.category_name || p.category)}</span>` : ''}
+              </span>
+            </a>`;
+            })
+            .join('')}
+        </div>
+      </div>`
+        )
+        .join('')}
+    </section>`
+    )
+    .join('')}</div>`;
+}
+
+/* ---------- 主流程 ---------- */
+function renderFilters() {
+  if (!DATA) return;
+  const years = DATA.years.map((y) => y.year);
+  if (years.length < 2 && !currentYear) {
+    filterEl.innerHTML = '';
+    return;
+  }
+  filterEl.innerHTML =
+    `<a class="tag${currentYear ? '' : ' on'}" href="/archive">全部</a>` +
+    years
+      .map((y) => {
+        const n = DATA.years.find((x) => x.year === y)?.count || 0;
+        const active = currentYear === y;
+        return `<a class="tag${active ? ' on' : ''}" href="/archive/${y}">${y}<span class="tag-n">${n}</span></a>`;
+      })
+      .join('');
+}
+
+function render() {
+  if (!DATA) return;
+  delete bodyEl.dataset.loading;
+
+  if (!DATA.total) {
+    subEl.textContent = '还没有公开文章';
+    bodyEl.innerHTML = '<div class="empty">站点还是空的。登录后在后台写第一篇，这里就会长出时间线。</div>';
+    filterEl.innerHTML = '';
+    return;
+  }
+
+  const shown = DATA.years.reduce((a, y) => a + y.count, 0);
+  subEl.innerHTML = currentYear
+    ? `${esc(currentYear)} 年共 <b>${shown}</b> 篇 · <a href="/archive" class="lnk">看全部 ${DATA.total} 篇</a>`
+    : `共 <b>${DATA.total}</b> 篇 · ${esc(fmtSpan(DATA.first_at, DATA.last_at))} · 跨越 ${DATA.years.length} 个年份`;
+
+  if (!shown) {
+    bodyEl.innerHTML = `<div class="empty">${esc(currentYear)} 年还没有文章。<a class="lnk" href="/archive">看全部</a></div>`;
+    renderFilters();
+    return;
+  }
+
+  bodyEl.innerHTML = view === 'list' ? renderList(DATA.years) : renderTimeline(DATA.years);
+  renderFilters();
+}
+
+async function load() {
+  try {
+    const q = currentYear ? `?year=${currentYear}` : '';
+    DATA = await api('/api/archive' + q);
+    render();
+  } catch (e) {
+    delete bodyEl.dataset.loading;
+    subEl.textContent = '加载失败';
+    bodyEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+/* 视图切换 */
+switchEl.querySelectorAll('button').forEach((btn) => {
+  btn.classList.toggle('on', btn.dataset.view === view);
+  btn.addEventListener('click', async () => {
+    const v = btn.dataset.view;
+    if (v === view) return;
+    view = v;
+    localStorage.setItem('arch:view', v);
+    switchEl.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.view === v));
+    if (!DATA) return await load();   // SSR 没给数据（比如接口挂了）就现拉一次
+    render();
+  });
+});
+
+/* 年份切换不整页刷新，走 history + 局部重绘 */
+document.addEventListener('click', async (e) => {
+  const a = e.target.closest('#year-filter a');
+  if (!a) return;
+  e.preventDefault();
+  const href = a.getAttribute('href');
+  const m = href.match(/^\/archive\/(\d{4})$/);
+  currentYear = m ? m[1] : '';
+  history.pushState({}, '', href);
+  // 切年份时先清空，占位交给 CSS 骨架（#arch-body[data-loading]）画。
+  // 不用文字占位：body.textContent 会把脚本里的文案也算进去，抓取工具遂当成页面内容
+  bodyEl.textContent = '';
+  bodyEl.dataset.loading = '';
+  await load();
+});
+
+window.addEventListener('popstate', () => {
+  const p = location.pathname.split('/').filter(Boolean);
+  currentYear = /^\d{4}$/.test(p[1] || '') ? p[1] : '';
+  load();
+});
+
+/* 首屏：SSR 已经画好了就直接用，只有「用户偏好和 SSR 视图不一致」时才重绘 */
+if (DATA && SSR_VIEW) {
+  if (view !== SSR_VIEW) render();
+} else {
+  await load();
+}

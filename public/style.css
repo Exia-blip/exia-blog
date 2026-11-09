@@ -803,6 +803,8 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: 0 0 7px; }
 .dot.on { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent); }
 .dot.off { background: var(--muted); opacity: 0.45; }
+/* 有响应但状态不是 2xx/3xx：多半是 WAF 拦了爬虫或站点维护中，人点进去往往还能开 */
+.dot.warn { background: #e0a020; box-shadow: 0 0 0 3px color-mix(in srgb, #e0a020 18%, transparent); }
 
 /* ============ 登录页 ============ */
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
