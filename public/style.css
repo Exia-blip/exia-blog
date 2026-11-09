@@ -661,6 +661,11 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .cmt-form .row { display: flex; gap: 9px; flex-wrap: wrap; }
 .cmt-form .row input { flex: 1; min-width: 130px; }
 .cmt-form textarea { min-height: 84px; resize: vertical; }
+/* 蜜罐：真人看不见，自动填表的脚本会填。位置挪出视口而不是 display:none，
+   某些脚本会跳过 display:none 的字段，反而不填了。 */
+.cmt-form .hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.cmt-form .ts-wrap:not([hidden]) { min-height: 65px; }
+.cmt .acts button.cmt-ban:hover { color: #e5484d; }
 .cmt-form .foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 
 /* ============ 编辑器 ============ */

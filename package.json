@@ -9,7 +9,7 @@
     "db:init": "wrangler d1 execute blog-db --remote --file=./schema.sql",
     "db:init:local": "wrangler d1 execute blog-db --local --file=./schema.sql",
     "tail": "wrangler tail",
-    "test": "node scripts/test-md.mjs && node scripts/test-security.mjs"
+    "test": "node scripts/test-md.mjs && node scripts/test-security.mjs && node scripts/test-antispam.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.159.0"

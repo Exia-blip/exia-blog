@@ -130,12 +130,14 @@ function renderComments(rows, total) {
       <div id="cmt-list">${list}</div>
       <form class="cmt-form" id="cmt-form" novalidate>
         <div id="reply-hint" class="tiny muted" style="display:none"></div>
+        <input type="text" name="hp" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true" placeholder="留空">
         <div class="row" id="guest-fields">
           <input type="text" name="name" placeholder="昵称 *" maxlength="40" autocomplete="nickname">
           <input type="email" name="email" placeholder="联系邮箱 *（不公开，仅博主可见）" maxlength="120" autocomplete="email">
           <input type="url" name="website" placeholder="网站（可选）" maxlength="200">
         </div>
         <textarea name="content" placeholder="说点什么…" maxlength="2000"></textarea>
+        <div class="ts-wrap" id="ts-wrap" hidden></div>
         <div class="foot">
           <span class="tiny muted" id="cmt-hint"></span>
           <button class="btn primary sm" type="submit">发表评论</button>
@@ -891,7 +893,13 @@ async function injectTheme(env, res, url) {
 
   const cfg = JSON.stringify({ theme: s.theme, mode: s.mode }).replace(/</g, '\\u003c');
   // 站点头像与站名先落到 window.__SITE__，导航渲染时能立刻用
-  const siteCfg = JSON.stringify({ name: s.name, desc: s.desc, avatar: s.avatar }).replace(/</g, '\\u003c');
+  const siteCfg = JSON.stringify({
+    name: s.name,
+    desc: s.desc,
+    avatar: s.avatar,
+    // 只下发公开的 site key；secret 只在 Worker 里，永不进页面
+    turnstile: env.TURNSTILE_SITE_KEY || '',
+  }).replace(/</g, '\\u003c');
   // 图标用本站文件，不再把 GitHub 头像当 favicon（外链一换就白图，尺寸也不对）
   const icon =
     '<link rel="icon" href="/favicon.ico" sizes="any">' +
@@ -940,19 +948,21 @@ async function injectTheme(env, res, url) {
 }
 
 /* 统一加安全头：HTML 顺带给内联脚本发 nonce（缓存里存的也是配对好的头，回放不会错位） */
-async function harden(res) {
+async function harden(res, env) {
+  // 配了 Turnstile 才在 CSP 里放行它的域名；没配就保持零第三方
+  const tsOn = !!(env && env.TURNSTILE_SITE_KEY);
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('text/html')) {
     return new Response(res.body, {
       status: res.status,
       statusText: res.statusText,
-      headers: securityHeaders(new Headers(res.headers), null),
+      headers: securityHeaders(new Headers(res.headers), null, { turnstile: tsOn }),
     });
   }
   const nonce = makeNonce();
   // 先混淆邮箱再补 nonce：解码脚本是内联的，得跟着一起拿到 nonce
   const body = applyNonce(obfuscateEmail(await res.text()), nonce);
-  const headers = securityHeaders(new Headers(res.headers), nonce);
+  const headers = securityHeaders(new Headers(res.headers), nonce, { turnstile: tsOn });
   // 所有 HTML 用同一套缓存口径，别再让文章页单独漏成 max-age=60 / 无 s-maxage
   const cc = (headers.get('cache-control') || '').toLowerCase();
   if (!cc.includes('no-store') && !cc.includes('private')) headers.set('cache-control', pageCacheControl());
@@ -1318,7 +1328,7 @@ export default {
 
       let res = await route(request, env, ctx);
       res = await injectTheme(env, res, url);
-      res = await harden(res);
+      res = await harden(res, env);
 
       if (cacheable && res.status === 200 && (res.headers.get('content-type') || '').includes('text/html')) {
         // 存缓存用 s-maxage；回给浏览器的副本一律 max-age=0，

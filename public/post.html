@@ -39,6 +39,7 @@ function hydrate() {
   }
   bindReply();
   bindForm();
+  mountTurnstile();
   bindReadingProgress(document.querySelector('.post-body'));
 }
 
@@ -72,7 +73,8 @@ function avatarText(name) {
 
 function renderCmt(c, isChild = false) {
   const del = USER && USER.is_admin
-    ? `<button data-del="${c.id}">删除</button>` : '';
+    ? `<button data-del="${c.id}">删除</button><button data-ban="${c.id}" class="cmt-ban" title="删掉这个来源的全部访客评论，并拉黑该 IP">封 IP</button>`
+    : '';
   const reply = !isChild ? `<button data-reply="${c.id}" data-name="${esc(c.name)}">回复</button>` : '';
   const homepage = c.website
     ? `<a href="${esc(c.website)}" target="_blank" rel="noopener nofollow" class="muted">${esc(c.name)}</a>`
@@ -114,6 +116,16 @@ function bindReply() {
       document.querySelector('#cmt-form textarea').focus();
       return;
     }
+    const b = e.target.closest('[data-ban]');
+    if (b) {
+      if (!confirm('把这个 IP 的访客评论全部删除，并拉黑该地址？')) return;
+      try {
+        const r = await api('/api/comments/ban', { method: 'POST', body: { id: +b.dataset.ban } });
+        toast(`已删除 ${r.removed} 条，IP 已拉黑`);
+        loadComments();
+      } catch (err) { toast(err.message); }
+      return;
+    }
     const d = e.target.closest('[data-del]');
     if (d) {
       if (!confirm('删除这条评论？其下的回复也会一并删除。')) return;
@@ -124,6 +136,27 @@ function bindReply() {
       } catch (err) { toast(err.message); }
     }
   });
+}
+
+/* Turnstile 只在配了 site key 时才加载 —— 没配就一个第三方请求都不发 */
+async function mountTurnstile() {
+  const key = (window.__SITE__ || {}).turnstile;
+  const slot = document.getElementById('ts-wrap');
+  if (!key || !slot) return;
+  slot.hidden = false;
+  try {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      s.async = true;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    window.turnstile.render(slot, { sitekey: key, language: 'zh-cn', size: 'flexible' });
+  } catch {
+    slot.hidden = true;
+  }
 }
 
 function bindForm() {
@@ -166,6 +199,14 @@ function bindForm() {
     if (!email) { toast('请填写联系邮箱'); field('email').focus(); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('邮箱格式不正确'); field('email').focus(); return; }
 
+    // Turnstile 配了才要求 token；没配时 window.turnstile 不存在，这里就是空串
+    const tsToken = window.turnstile && document.getElementById('ts-wrap')?.hidden === false
+      ? window.turnstile.getResponse() : '';
+    if (window.__SITE__ && window.__SITE__.turnstile && !tsToken) {
+      toast('先完成人机验证');
+      return;
+    }
+
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
     btn.textContent = '发送中…';
@@ -180,6 +221,8 @@ function bindForm() {
           name,
           email,
           website,
+          hp: (field('hp') || {}).value || '',
+          turnstile_token: tsToken,
         },
       });
       localStorage.setItem('cmt:guest', JSON.stringify({ name: USER ? '' : name, email, website }));
@@ -187,6 +230,7 @@ function bindForm() {
       replyTo = null;
       document.getElementById('reply-hint').style.display = 'none';
       toast('评论已发布');
+      if (window.turnstile) window.turnstile.reset();
       loadComments();
     } catch (err) {
       toast(err.message);

@@ -1,5 +1,6 @@
-import { json, err, pageParams, slugify, uniqueSlug, nowISO } from './utils.js';
+import { json, err, pageParams, slugify, uniqueSlug, nowISO, setCookie } from './utils.js';
 import { currentUser, requireUser, requireAdmin } from './auth.js';
+import { guard, record, banIp, verifyTurnstile, DID_MAX_AGE } from './antispam.js';
 import { renderBody, extractTags, extractCover, extractExcerpt, readingTime } from '../public/md.js';
 import { sanitizeHtml, cleanMarkdown } from './clean.js';
 import { coverOf, thumbOf } from './cover.js';
@@ -691,13 +692,14 @@ export async function handleApi(env, request, url, ctx) {
 
     const { results } = await db
       .prepare(
-        'SELECT id, parent_id, name, email, website, content, is_admin, created_at FROM comments WHERE post_id = ? ORDER BY created_at ASC'
+        'SELECT id, parent_id, name, email, website, content, is_admin, ip, created_at FROM comments WHERE post_id = ? ORDER BY created_at ASC'
       )
       .bind(p.id)
       .all();
 
-    // 邮箱只给管理员看，游客/普通用户拿不到
-    const rows = user && user.is_admin ? results : results.map(({ email, ...rest }) => rest);
+    // 邮箱与 IP 只给管理员看，游客/普通用户拿不到
+    const isAdm = !!(user && user.is_admin);
+    const rows = isAdm ? results : results.map(({ email, ip, ...rest }) => rest);
 
     const roots = rows.filter((c) => !c.parent_id);
     const children = rows.filter((c) => c.parent_id);
@@ -731,6 +733,23 @@ export async function handleApi(env, request, url, ctx) {
     if (email.length > 120) return err('邮箱太长');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('邮箱格式不正确');
 
+    const isAdmin = user && user.is_admin ? 1 : 0;
+
+    /* ---- 防滥用：蜜罐 → Turnstile → 频率（管理员全部跳过）---- */
+    let rate = null;
+    if (!isAdmin) {
+      // 真人看不见这个框，它是给自动填表的脚本填的
+      if (String(body.hp || '').trim()) return err('验证没通过，刷新页面再试一次', 400);
+
+      const tv = await verifyTurnstile(env, body.turnstile_token, request.headers.get('cf-connecting-ip') || '');
+      if (!tv.ok) return err(tv.error, 400);
+
+      rate = await guard(db, request, Math.floor(Date.now() / 1000));
+      if (!rate.ok) {
+        return json({ ok: false, error: rate.error }, rate.status, { 'retry-after': String(rate.retry || 60) });
+      }
+    }
+
     let parentId = null;
     if (body.parent_id) {
       const parent = await db
@@ -742,7 +761,6 @@ export async function handleApi(env, request, url, ctx) {
       parentId = parent.parent_id || parent.id;
     }
 
-    const isAdmin = user && user.is_admin ? 1 : 0;
     const info = await db
       .prepare(
         `INSERT INTO comments (post_id, parent_id, name, email, website, content, is_admin, ip, created_at)
@@ -761,6 +779,13 @@ export async function handleApi(env, request, url, ctx) {
       )
       .run();
 
+    // 落库成功才计额度：被 400 拒掉的请求不占次数
+    const headers = {};
+    if (rate && rate.ok) {
+      await record(db, rate.ip, rate.did, Math.floor(Date.now() / 1000));
+      if (rate.fresh) headers['set-cookie'] = setCookie('cmt_did', rate.did, { maxAge: DID_MAX_AGE });
+    }
+
     const origin = url.origin;
     await notifyComment(env, {
       postTitle: p.title,
@@ -769,7 +794,56 @@ export async function handleApi(env, request, url, ctx) {
       content,
     });
 
-    return json({ ok: true, id: info.meta.last_row_id });
+    return json({ ok: true, id: info.meta.last_row_id }, 200, headers);
+  }
+
+  /* ---- 批量删评论（管理员）：垃圾评论一般是一串，一条条点太慢 ---- */
+  if (path === '/comments/bulk' && method === 'POST') {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+    const body = await request.json().catch(() => ({}));
+    const ids = (Array.isArray(body.ids) ? body.ids : [])
+      .map((n) => parseInt(n, 10))
+      .filter((n) => Number.isInteger(n) && n > 0)
+      .slice(0, 200);
+    if (!ids.length) return err('没选中要删的评论');
+
+    const ph = ids.map(() => '?').join(',');
+    const stmts = [
+      db.prepare(`DELETE FROM comments WHERE parent_id IN (${ph})`).bind(...ids),
+      db.prepare(`DELETE FROM comments WHERE id IN (${ph})`).bind(...ids),
+    ];
+    const out = await db.batch(stmts);
+    return json({ ok: true, deleted: out[0].meta.changes + out[1].meta.changes });
+  }
+
+  /* ---- 封 IP：把这条评论的来源清空并拉黑，之后它发不出来 ---- */
+  if (path === '/comments/ban' && method === 'POST') {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+    const body = await request.json().catch(() => ({}));
+    const cid = parseInt(body.id, 10);
+    if (!Number.isInteger(cid)) return err('缺少评论 id');
+
+    const c = await db.prepare('SELECT id, ip FROM comments WHERE id = ?').bind(cid).first();
+    if (!c) return err('评论不存在', 404);
+    if (!c.ip) return err('这条评论没有记录来源 IP，只能单独删除');
+
+    // 只清访客评论，管理员自己的一条都不动
+    const { results } = await db
+      .prepare('SELECT id FROM comments WHERE ip = ? AND is_admin = 0')
+      .bind(c.ip)
+      .all();
+    const ids = results.map((r) => r.id);
+    if (ids.length) {
+      const ph = ids.map(() => '?').join(',');
+      await db.batch([
+        db.prepare(`DELETE FROM comments WHERE parent_id IN (${ph})`).bind(...ids),
+        db.prepare(`DELETE FROM comments WHERE id IN (${ph})`).bind(...ids),
+      ]);
+    }
+    await banIp(db, c.ip);
+    return json({ ok: true, removed: ids.length });
   }
 
   /* ---- 删评论 ---- */

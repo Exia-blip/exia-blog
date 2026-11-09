@@ -68,17 +68,19 @@ export function obfuscateEmail(html) {
   return out.includes('</body>') ? out.replace('</body>', EMAIL_DECODER + '</body>') : out + EMAIL_DECODER;
 }
 
-function csp(n) {
+function csp(n, { turnstile = false } = {}) {
+  // Turnstile 没配的时候一个字节都不放：默认状态仍然是"零第三方脚本 + 严格 CSP"
+  const ts = turnstile ? ' https://challenges.cloudflare.com' : '';
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${n}'`,
+    `script-src 'self' 'nonce-${n}'${ts}`,
     // 主题与 Markdown 大量用 style 属性，样式源只能放开内联
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    "connect-src 'self'",
+    `connect-src 'self'${ts}`,
     "media-src 'self' https:",
-    "frame-src 'self' https://www.youtube.com https://player.bilibili.com",
+    `frame-src 'self' https://www.youtube.com https://player.bilibili.com${ts}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -91,8 +93,9 @@ function csp(n) {
 /**
  * 统一出口安全头。HTML 额外挂 CSP，静态资源不挂（省头大小）。
  * 传 nonce 时说明这次响应里可能含内联脚本。
+ * opts.turnstile 为真时才把 challenges.cloudflare.com 加进白名单。
  */
-export function securityHeaders(headers, nonce) {
+export function securityHeaders(headers, nonce, opts = {}) {
   const h = headers instanceof Headers ? headers : new Headers(headers);
   h.set('x-content-type-options', 'nosniff');
   h.set('referrer-policy', 'strict-origin-when-cross-origin');
@@ -100,6 +103,6 @@ export function securityHeaders(headers, nonce) {
   h.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
   h.set('cross-origin-opener-policy', 'same-origin');
   h.set('strict-transport-security', 'max-age=31536000; includeSubDomains; preload');
-  if (nonce) h.set('content-security-policy', csp(nonce));
+  if (nonce) h.set('content-security-policy', csp(nonce, opts));
   return h;
 }
