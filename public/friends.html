@@ -19,9 +19,14 @@
     <p>每 20 分钟自动检测一次可访问状态，绿点表示当前在线。</p>
   </section>
 
-  <div class="friend-grid" id="grid">
-    <div class="empty">加载中…</div>
-  </div>
+  <section class="friend-apply">
+    <h2>想交换友链？</h2>
+    <p>把下面这条放进你的友链页，然后到 <a href="https://github.com/OXeu" target="_blank" rel="noopener me">GitHub @OXeu</a> 说一声。</p>
+    <pre><code>&lt;a href="https://exia.de5.net/" title="Exia Blog"&gt;Exia Blog&lt;/a&gt;</code></pre>
+    <p class="fa-note">要求：原创为主、HTTPS 打得开、本站已经在你的友链里。加完说一声就行——这边每 20 分钟自动检测一轮，点进去能通就算数。</p>
+  </section>
+
+  <div class="friend-grid" id="grid"></div>
 
   <section id="admin-box" style="display:none;margin-bottom:70px">
     <h3 style="font-size:15px;font-family:var(--serif);margin:0 0 12px">添加友链</h3>
@@ -44,7 +49,7 @@ import { api, esc, mountHeader, toast } from '/app.js';
 const grid = document.getElementById('grid');
 
 // Worker 已经把卡片渲染进 HTML 了。有这份数据就不重建 DOM，
-// 只补管理员才有的删除按钮——否则爬虫抓到的是「加载中」，用户首屏也会闪一下。
+// 只补管理员才有的删除按钮——否则爬虫抓到的是一坨占位骨架，用户首屏也会闪一下。
 const SEED = window.__FRIENDS__ || null;
 
 // 与 Worker 的 friendIcon 同一套规则：有自家头像才出图，否则首字母方块。

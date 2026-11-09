@@ -783,7 +783,57 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .cat-item .flag { font-size: 10px; color: var(--muted); flex: 0 0 auto; }
 
 /* ============ 友链 ============ */
+/* 友链交换说明：给来核对的人一条明确的"怎么加、加完怎么找到我"的路。
+   以前页面对访客没有任何入口，只有管理员登录才看得见添加表单。 */
+.friend-apply {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  padding: 18px 20px;
+  margin-bottom: 22px;
+}
+.friend-apply h2 {
+  font-size: 15px;
+  font-family: var(--serif);
+  margin: 0 0 8px;
+}
+.friend-apply p {
+  font-size: 13.5px;
+  color: var(--muted);
+  margin: 0 0 10px;
+  line-height: 1.7;
+}
+.friend-apply a { color: var(--accent); }
+.friend-apply pre {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.friend-apply .fa-note { margin: 0; font-size: 12.5px; }
+
 .friend-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 13px; margin-bottom: 60px; }
+/* 友链是 SSR 直出的：占位骨架交给 CSS 画，HTML 源码里不留「加载中」——
+   爬虫和"查看源代码"看到的都是干净的，JS 挂了也不会永久显示这行字 */
+.friend-grid:empty {
+  grid-template-columns: 1fr;
+}
+.friend-grid:empty::after {
+  content: '';
+  display: block;
+  height: 62px;
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, var(--line) 0 40%, transparent 40% 100%);
+  opacity: .5;
+  animation: arch-skel 1.1s ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .friend-grid:empty::after { animation: none; opacity: .35; }
+}
 .friend-card {
   display: flex; gap: 12px; padding: 14px; border: 1px solid var(--line);
   border-radius: var(--radius); background: var(--card); align-items: center; transition: 0.18s;

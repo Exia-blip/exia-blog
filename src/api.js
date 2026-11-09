@@ -39,6 +39,13 @@ function bust(url, slugs = [], cats = []) {
   return bustPaths(url.origin, paths);
 }
 
+/* 友链页也是 SSR 直出 + 边缘缓存 5 分钟。增删/重检后不清的话，
+   对方站长来核对时看到的是上一次的列表——交换场景里等于没加上。 */
+function bustFriends(url, ctx) {
+  if (!ctx) return;
+  ctx.waitUntil(bustPaths(url.origin, ['/friends']).catch(() => {}));
+}
+
 export async function attachTags(db, posts) {
   if (!posts.length) return posts;
   const ids = posts.map((p) => p.id);
@@ -796,6 +803,7 @@ export async function handleApi(env, request, url, ctx) {
       .run();
 
     checkFriends(env).catch(() => {});
+    bustFriends(url, ctx);
     return json({ ok: true, id: info.meta.last_row_id });
   }
 
@@ -804,6 +812,7 @@ export async function handleApi(env, request, url, ctx) {
     if (res) return res;
     const id = parseInt(path.split('/')[2], 10);
     await db.prepare('DELETE FROM friends WHERE id = ?').bind(id).run();
+    bustFriends(url, ctx);
     return json({ ok: true });
   }
 
@@ -811,6 +820,7 @@ export async function handleApi(env, request, url, ctx) {
     const { res } = await requireAdmin(env, request);
     if (res) return res;
     const r = await checkFriends(env);
+    bustFriends(url, ctx);
     return json({ ok: true, ...r });
   }
 
