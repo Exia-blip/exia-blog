@@ -2,10 +2,14 @@
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (s = '') => String(s).replace(/[&<>"']/g, (c) => ESC[c]);
 
-const SAFE_URL = /^(https?:\/\/|\/|mailto:|data:image\/|\.{0,2}\/)/i;
-function safeUrl(u) {
+/* 白名单按用途分两份：图片允许 data:image/（<img> 里的 SVG 不执行脚本），
+   链接不允许 —— 同一个白名单两边共用过一阵，结果是
+   [x](data:image/svg+xml;base64,...) 能拿到一个可导航的 href。 */
+const SAFE_LINK = /^(https?:\/\/|\/|mailto:|\.{0,2}\/)/i;
+const SAFE_IMG = /^(https?:\/\/|\/|data:image\/|\.{0,2}\/)/i;
+function safeUrl(u, kind = 'link') {
   const s = String(u || '').trim();
-  return SAFE_URL.test(s) ? s : '#';
+  return (kind === 'img' ? SAFE_IMG : SAFE_LINK).test(s) ? s : '#';
 }
 
 /* ---------------- 内置语法高亮（零依赖） ---------------- */
@@ -86,15 +90,17 @@ function inline(line) {
 
   // 图片
   s = s.replace(IMG_RE, (_, alt, src, title) => {
-    return `<img src="${safeUrl(src)}" alt="${alt}"${title ? ` title="${title}"` : ''} loading="lazy" decoding="async">`;
+    return `<img src="${safeUrl(src, 'img')}" alt="${alt}"${title ? ` title="${title}"` : ''} loading="lazy" decoding="async">`;
   });
   // 链接
   s = s.replace(LINK_RE, (_, text, href, title) => {
-    return `<a href="${safeUrl(href)}"${title ? ` title="${title}"` : ''} target="_blank" rel="noopener nofollow">${text}</a>`;
+    return `<a href="${safeUrl(href, 'link')}"${title ? ` title="${title}"` : ''} target="_blank" rel="noopener nofollow">${text}</a>`;
   });
-  // 裸链接
+  // 裸链接：句末标点别吃进 href（"看 https://x.com/a. 结束" 原来会把句号带进链接）
   s = s.replace(/(^|[\s(（])(https?:\/\/[^\s<)）]+)/g, (_, p, u) => {
-    return `${p}<a href="${u}" target="_blank" rel="noopener nofollow">${u}</a>`;
+    const trail = (u.match(/[.,;:!?]+$/) || [''])[0];
+    const href = trail ? u.slice(0, -trail.length) : u;
+    return `${p}<a href="${href}" target="_blank" rel="noopener nofollow">${href}</a>${trail}`;
   });
 
   s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');

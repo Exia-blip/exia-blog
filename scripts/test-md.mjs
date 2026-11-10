@@ -61,6 +61,25 @@ t('只有代码块里的图时不算封面', () => {
   assert.equal(extractCover(md), null);
 });
 
+t('原始 HTML 不执行：标签一律转义成文本', () => {
+  const out = renderBody('正文 <img src=x onerror=alert(1)> 结束');
+  assert.ok(!out.includes('<img src=x'), out);
+  assert.ok(out.includes('&lt;img src=x onerror=alert(1)&gt;'), out);
+});
+
+t('data: 只能进 img，不能进 a', () => {
+  const link = renderBody('[s](data:image/svg+xml;base64,PHN2Zz4=)');
+  assert.ok(link.includes('href="#"'), link);
+  const img = renderBody('![s](data:image/png;base64,iVBORw0KGgo=)');
+  assert.ok(img.includes('src="data:image/png;base64,iVBORw0KGgo="'), img);
+});
+
+t('裸链接不吃句末标点', () => {
+  const out = renderBody('看 https://example.com/a. 结束');
+  assert.ok(out.includes('href="https://example.com/a"'), out);
+  assert.ok(!out.includes('href="https://example.com/a."'), out);
+});
+
 let pass = 0;
 for (const [name, fn] of cases) {
   try {
