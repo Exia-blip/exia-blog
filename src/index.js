@@ -24,6 +24,14 @@ async function serveImage(env, key) {
   obj.writeHttpMetadata(headers);
   headers.set('etag', obj.httpEtag);
   headers.set('cache-control', 'public, max-age=31536000, immutable');
+  // SVG 是文档不是图片：直接访问这个 URL 时浏览器会执行里面的 <script>，
+  // 而这个 URL 跟站点同源（贴进 <img> 时没事，单独打开就成了一次存储型 XSS）。
+  // sandbox + default-src 'none' 把它降级成只能看。
+  const ct = (headers.get('content-type') || '').toLowerCase();
+  if (ct.includes('svg')) {
+    headers.set('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    headers.set('content-disposition', 'inline');
+  }
   return new Response(obj.body, { headers });
 }
 
