@@ -11,6 +11,7 @@ import { makeNonce, applyNonce, securityHeaders, obfuscateEmail } from './securi
 import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
 import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.js';
 import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
+import { normalizePagePath } from './routes.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ESC[c]);
@@ -1324,6 +1325,25 @@ export default {
             null
           ),
         });
+      }
+
+      /* 路径规范化：/p/slug/ 与 /tag/Cloudflare 都 301 到规范地址。
+         放在缓存之前 —— 这类请求不该先查一次边缘缓存（它的 key 就是错的），
+         也不该让它走到 route() 里再各自判断。只对 GET/HEAD 生效：
+         写请求的路径由 API 自己校验，重定向会把方法打回 GET。 */
+      if (request.method === 'GET' || request.method === 'HEAD') {
+        const norm = normalizePagePath(url.pathname);
+        if (norm !== url.pathname) {
+          const target = new URL(request.url);
+          target.pathname = norm;
+          return new Response(null, {
+            status: 301,
+            headers: securityHeaders(
+              new Headers({ location: target.toString(), 'cache-control': 'public, max-age=3600' }),
+              null
+            ),
+          });
+        }
       }
 
       /* 匿名访客的公开页面在边缘缓存几十秒：
