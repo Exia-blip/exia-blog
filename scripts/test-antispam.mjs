@@ -1,7 +1,7 @@
 // 评论限额判定回归。judge() 是纯函数，这里不碰 D1、不发请求。
 // 用法：node scripts/test-antispam.mjs
 import assert from 'node:assert/strict';
-import { judge, dayKey, secsToNextDay, MIN_GAP_SEC, DAY_MAX } from '../src/antispam.js';
+import { judge, dayKey, secsToNextDay, turnstileMode, MIN_GAP_SEC, DAY_MAX } from '../src/antispam.js';
 
 const cases = [];
 const t = (name, fn) => cases.push([name, fn]);
@@ -60,6 +60,23 @@ t('日期按 UTC+8 切：UTC 16:00 就是北京的次日零点', () => {
 t('secsToNextDay 在北京零点等于一整天', () => {
   assert.equal(secsToNextDay(at('2026-11-09T16:00:00Z')), 86400);
   assert.equal(secsToNextDay(at('2026-11-09T16:00:01Z')), 86399);
+});
+
+t('Turnstile 两把 key 都没配 → off，一个第三方请求都不发', () => {
+  assert.equal(turnstileMode({}), 'off');
+  assert.equal(turnstileMode(undefined), 'off');
+});
+
+t('两把 key 齐了才算 on', () => {
+  assert.equal(turnstileMode({ TURNSTILE_SITE_KEY: 'k', TURNSTILE_SECRET: 's' }), 'on');
+});
+
+t('只配 sitekey → site-only（服务端验不了，按失败处理）', () => {
+  assert.equal(turnstileMode({ TURNSTILE_SITE_KEY: 'k' }), 'site-only');
+});
+
+t('只配 secret → secret-only（前端没组件，按未启用处理）', () => {
+  assert.equal(turnstileMode({ TURNSTILE_SECRET: 's' }), 'secret-only');
 });
 
 let pass = 0;

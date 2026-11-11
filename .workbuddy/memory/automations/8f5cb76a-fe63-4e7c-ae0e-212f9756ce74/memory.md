@@ -8,6 +8,14 @@
 - 本地 D1 已跑通 schema + seed 验证，未执行 --remote，未部署。
 - 待老板确认：11-11 当天执行 seed 并 deploy；GSC 对新 URL 请求索引（本机无授权，无法代做）。
 
+## 2026-11-11（周三 19:43）
+- 线上 13 篇。本周（11-09~11-15）已发 3 篇：11-09 `editor-autosave`、11-10 `editor-markdown-xss` 与 `r2-image-pipeline`。节奏未断，但属「两天连发 3 篇」，记一次违反「不要攒几篇一次发完」。
+- W1 篇（`blog-markdown-xss`，05 草稿）未上线，且与已发的 `editor-markdown-xss` 撞题（同为自研渲染器 + 转义/白名单 + XSS）。判定作废，不发布，草稿留作素材库；EDITORIAL 排期表已同步（W1 划掉、W2/W3 去掉系列号改为独立篇）。
+- 当日不发新稿（再发即本周第 4 篇）。
+- 补链（本周唯一实质动作）：`r2-image-pipeline` 原为零内链。已在两篇正文互加 `/p/` 链接，`scripts/gen-crosslinks.mjs` 生成 `scripts/patch-crosslinks.sql`，`wrangler d1 execute --remote --file` 推送成功（2 rows written）。线上验证双向闭合，sitemap lastmod 已变 2026-11-11。
+- 坑：首次 `--file` 推送静默未生效（updated_at 未变），重跑一次才写入。以后推完必须 `SELECT` 回验。
+- GSC：本机无授权、无脚本，未代做。
+
 ## 下次要盯的
-- 11-11 发布后：抽查文章页渲染（正文对 `#tag` 转链的 alt 注入是本文自己指出的待修项）。
-- 2/3（SSR）成稿后，回补 1/3 指向新篇的链接。
+- 11-18（W2）：SSR 独立篇，素材在 `src/index.js` 的 `*ssr failed` 分支与 `src/cache.js`；不挂系列号。
+- 05 草稿里的九个 payload 与回归脚本可拆出来做 B 类短文，别浪费。

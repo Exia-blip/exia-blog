@@ -119,12 +119,38 @@ export async function banIp(db, ip) {
 }
 
 /**
- * Turnstile 校验。没配 secret 就整层跳过 —— 这也是默认状态，
+ * Turnstile 的四种配置状态。半配比不配更危险：
+ * 只配 sitekey 时前端会老老实实弹验证框、服务端却无从校验 —— 那层防护是假的。
+ * 所以 site-only 一律按失败处理（宁可评论挂掉被发现，也别假装有验证）。
+ * 反过来 secret-only 等于前端根本没组件，谁也给不出 token，只能当没开。
+ */
+export function turnstileMode(env = {}) {
+  const site = !!(env && env.TURNSTILE_SITE_KEY);
+  const secret = !!(env && env.TURNSTILE_SECRET);
+  if (site && secret) return 'on';
+  if (site) return 'site-only';
+  if (secret) return 'secret-only';
+  return 'off';
+}
+
+/**
+ * Turnstile 校验。没配就整层跳过 —— 这也是默认状态，
  * 页面因此不会引入任何第三方脚本。
  */
 export async function verifyTurnstile(env, token, ip) {
+  const mode = turnstileMode(env);
+  if (mode === 'off') return { ok: true, skipped: true };
+  if (mode === 'site-only') {
+    // 页面在收 token，服务端却验不了：此时放行等于把假防护当真防护
+    console.error('[antispam] 只配了 TURNSTILE_SITE_KEY，缺 TURNSTILE_SECRET，按配置不完整拒收');
+    return { ok: false, error: '人机验证配置不完整，暂时无法评论' };
+  }
+  if (mode === 'secret-only') {
+    console.warn('[antispam] 只配了 TURNSTILE_SECRET，前端没有组件，按未启用处理');
+    return { ok: true, skipped: true };
+  }
+
   const secret = env.TURNSTILE_SECRET;
-  if (!secret) return { ok: true, skipped: true };
   if (!token) return { ok: false, error: '请先完成人机验证' };
 
   const form = new FormData();

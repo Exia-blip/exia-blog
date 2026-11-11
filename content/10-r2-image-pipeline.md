@@ -96,7 +96,7 @@ async function serveImage(env, key) {
 
 ## 三、`toWebp()` 的 8% 门槛
 
-上传前在浏览器里转 WebP，省的是访客流量和 Worker 出口。但这段代码里有四个短路，比转换本身重要：
+上传前在浏览器里转 WebP，省的是访客流量和 Worker 出口。这套逻辑和 [编辑器自动保存那篇](/p/editor-autosave) 里 `toWebp()` 的注释是同一份，搬到上传链路上之后多了一个判断：上传是一次性的，转坏了没机会重来，所以短路只往"放弃转换"的方向走。这段代码里有四个短路，比转换本身重要：
 
 ```js
   if (!/^image\/(jpeg|png)$/.test(file.type)) return file;   // gif 会丢动画，svg 是矢量，都不碰
@@ -131,6 +131,8 @@ x-frame-options: DENY
 没有 CSP。我传了一个带 `<script>document.title="SVG_RAN"</script>` 的测试文件上去，直开就能执行（nosniff 拦不住，因为 content-type 本来就是对的；`x-frame-options` 只挡 iframe）。
 
 链子是这样接的：`/api/upload-url` 的门槛是 `requireUser`，**任何登录用户都能上传**；上传完拿到 `/img/u/xxx.svg`；把链接发给管理员点开；脚本就以管理员的身份调同源接口——发文章、封 IP、读评论里的 IP 全都可以。会话 cookie 是 `HttpOnly` 的，偷不走，但根本不需要偷。
+
+这和 [渲染器那篇](/p/editor-markdown-xss) 是同一个问题换个入口：那篇防的是"文本里的标签被当标签执行"，靠转义；这里转义完全不管用，因为文件本身就是合法的 `image/svg+xml`，一个字符都不用改。**转义管文字，沙箱管文件类型**，两条路各自堵各自的洞。
 
 修法是在代理层按 content-type 加头，桶里的文件一个都不动：
 

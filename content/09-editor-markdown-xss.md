@@ -182,6 +182,6 @@ node scripts/probe-md.mjs
 
 ## 下一篇
 
-回到图片：拖拽上传到 R2 的链路——上传拿直链还是走 Worker 代理、`image/svg+xml` 要不要放行（这里正好有个安全决策要做）、以及浏览器端转 WebP 为什么设了"省不到 8% 就不换格式"的门槛（见 [这一篇](/p/editor-autosave) 里 `toWebp()` 那段的注释）。
+[图片链路那篇](/p/r2-image-pipeline) 正好接上这个话头：拖拽上传到 R2 的整条路——上传拿直链还是走 Worker 代理、浏览器端转 WebP 为什么设了"省不到 8% 就不换格式"的门槛，以及这篇的同类问题换了个入口：`image/svg+xml` 放行之后，直开那个 URL 会在本站 origin 上跑脚本。转义在这条路上一点用都没有，得靠响应头沙箱。
 
 #markdown #javascript #xss

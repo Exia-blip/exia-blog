@@ -15,6 +15,11 @@
 | 11-08 | **（系列 3/3）** Cannot perform I/O on behalf of a different request：Worker 里不能跨请求缓存的东西 | 工程实录 | B 报错对照 |
 | 11-08 | **（系列 4/4）** Workers 里 fetch 超时不是网络慢：subrequest 限额踩坑记 | 工程实录 | B 报错对照 |
 | 11-09 | 用 Worker Cron 做友链存活检测：20 分钟一轮，403 不算挂 | **小工具** | D 自家功能 |
+| 11-09 | 停手三秒就自动存了：自建编辑器的双保险保存是怎么实现的 | **小工具** | D 自家功能 |
+| 11-10 | 实时预览敢让你敲 `<script>`：自研 Markdown 渲染器的「先转义后拼装」 | **小工具** | D 自家功能 |
+| 11-10 | R2 图片链路：上传走直传，读取走代理，svg 走沙箱 | **小工具** | D 自家功能 |
+
+11-09~11-10 这三篇（编辑器自动保存 / 实时预览渲染器 / R2 图片链路）是编辑器和媒体链路的一组，实际是**两天连着发完的**——违反「宁可每周 1 篇，不要攒几篇一次发完」，已记一次。后续按周三节奏回正。
 
 OAuth 系列四篇共用系列名「OAuth 授权流程拆解」，`series_order` 1~4。互链有三层：文章页自动生成的系列目录（含 `rel=prev/next`）、正文里的上下文链接、首页与 `/cat/teardown` 的列表。四篇合计覆盖 `oauth device flow` / `pkce` / `authorization code` / `token 过期` 四组搜索词，是站内第一个完整互链网。
 
@@ -46,9 +51,9 @@ OAuth 系列四篇共用系列名「OAuth 授权流程拆解」，`series_order`
 
 | 周 | 日期 | 标题（工作名） | 栏目 | 目标查询词 | 备注 |
 |---|---|---|---|---|---|
-| W1 | 11-11 | 自建博客实录 1/3：Markdown 渲染与白名单，怎么既放行代码块又不放行 XSS | 工程实录 | `markdown xss 白名单` / `sanitize-html 代码块` | 系列第 1 篇。**已起草**：`content/05-blog-markdown-xss.md`，slug `blog-markdown-xss`，seed 见 `scripts/seed-blog-series.sql`（`node scripts/gen-blog-series.mjs` 生成） |
-| W2 | 11-18 | 自建博客实录 2/3：从客户端渲染改成整页 SSR，首屏与收录都变了 | 工程实录 | `cloudflare workers ssr` / `博客 ssr 改造` | 引第 1 篇 |
-| W3 | 11-25 | 自建博客实录 3/3：三层缓存怎么排，才不会被 CF 改写成 4 小时 | 工程实录 | `cloudflare html cache-control` / `s-maxage html` | 引前两篇 + 踩坑系列第 3 篇 |
+| W1 | 11-11 | ~~自建博客实录 1/3：Markdown 渲染与白名单~~ **作废** | 工程实录 | — | **与 11-10 已发的 `editor-markdown-xss` 撞题**：那篇把三道闸（转义/占位/白名单）、27 条探针、`![ #tag ](/a.png)` 的 alt 注入全写了。草稿 `content/05-blog-markdown-xss.md` 不再发布，留作素材库。11-11 当日不发新稿——11-09~11-10 已连发 3 篇，再发就是第 4 篇 |
+| W2 | 11-18 | 从客户端渲染改成整页 SSR，首屏与收录都变了 | 工程实录 | `cloudflare workers ssr` / `博客 ssr 改造` | 改**独立单篇**，不挂系列号（1/3 已作废）。站内 `/`、`/cat/*`、`/archive`、`/tag/*` 都已是 SSR，素材在 `src/index.js` 的 `*SSL failed` 分支与 `src/cache.js` |
+| W3 | 11-25 | 三层缓存怎么排，才不会被 CF 改写成 4 小时 | 工程实录 | `cloudflare html cache-control` / `s-maxage html` | 引 W2 的 SSR 篇 + 踩坑系列第 3 篇（跨请求 I/O） |
 | W4 | 12-02 | JWT 的 exp 校验到底发生在哪一层 | 协议拆解 | `jwt exp 校验` / `jwt 过期 在哪校验` | 纯机制，无需实测 |
 | W5 | 12-09 | 浏览器 SameSite 三种取值的真实行为差异 | 协议拆解 | `samesite lax strict none 区别` | **需实测**：三个独立域名 + 三种取值跑一遍 |
 | W6 | 12-16 | Workers 免费额度实测：一天到底能跑多少请求 | 工程实录 | `workers 免费额度` / `workers 每日请求限制` | **需实测**：脚本压一天，出曲线 |

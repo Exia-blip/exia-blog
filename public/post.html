@@ -139,6 +139,8 @@ function bindReply() {
 }
 
 /* Turnstile 只在配了 site key 时才加载 —— 没配就一个第三方请求都不发 */
+let tsFailed = false;   // 配了 key 但脚本没下来（断网、被拦截插件掐掉）
+
 async function mountTurnstile() {
   const key = (window.__SITE__ || {}).turnstile;
   const slot = document.getElementById('ts-wrap');
@@ -155,6 +157,8 @@ async function mountTurnstile() {
     });
     window.turnstile.render(slot, { sitekey: key, language: 'zh-cn', size: 'flexible' });
   } catch {
+    // 组件没下来就别装作"请勾选"——那个框用户根本看不见，报错得说实话
+    tsFailed = true;
     slot.hidden = true;
   }
 }
@@ -203,7 +207,7 @@ function bindForm() {
     const tsToken = window.turnstile && document.getElementById('ts-wrap')?.hidden === false
       ? window.turnstile.getResponse() : '';
     if (window.__SITE__ && window.__SITE__.turnstile && !tsToken) {
-      toast('先完成人机验证');
+      toast(tsFailed ? '人机验证组件没加载出来，刷新页面或换个网络再试' : '先完成人机验证');
       return;
     }
 
