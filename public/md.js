@@ -189,15 +189,27 @@ function parseTable(lines, i) {
 
 export function renderMarkdown(src = '') {
   const blocks = [];
+  const seenIds = new Map(); // 同名标题要各自有 id，否则第二个锚点永远指向第一个
   let text = String(src).replace(/\r\n?/g, '\n');
 
   // 1. 抽出 fenced code，占位保护
   text = text.replace(/```([\w+#.\-]*)[ \t]*\n([\s\S]*?)```/g, (_, lang, code) => {
     const l = lang || 'text';
-    const body = highlight(code.replace(/\n$/, ''), l);
+    const src = code.replace(/\n$/, '');
+    const body = highlight(src, l);
+    const lines = src.split('\n').length;
+    const long = lines >= 20; // 短块给行号只是噪音，超长块才需要"第 30 行"这种坐标
+    // 行号单独一列，不往高亮后的 HTML 里插换行标记 —— 多行字符串/块注释的 span 会跨行，
+    // 在那种位置切分等于把标签劈成两半。
+    const gutter = long
+      ? `<span class="gutter" aria-hidden="true">${Array.from({ length: lines }, (_, i) => i + 1).join('\n')}</span>`
+      : '';
     blocks.push(
-      `<div class="code-wrap"><div class="code-head"><span>${esc(l)}</span><button class="copy-btn" data-copy>复制</button></div>` +
-        `<pre class="code-block"><code class="language-${esc(l)}">${body}</code></pre></div>`
+      `<div class="code-wrap" data-lang="${esc(l)}" data-lines="${lines}">` +
+        `<div class="code-head"><span class="code-meta"><span class="code-lang">${esc(l)}</span>` +
+        `${long ? `<span class="code-ln">${lines} 行</span>` : ''}</span>` +
+        `<button class="copy-btn" data-copy>复制</button></div>` +
+        `<pre class="code-block${long ? ' has-ln' : ''}">${gutter}<code class="language-${esc(l)}">${body}</code></pre></div>`
     );
     return `\n\u0000CB${blocks.length - 1}\u0000\n`;
   });
@@ -236,8 +248,15 @@ export function renderMarkdown(src = '') {
     if (h) {
       flush();
       const lv = h[1].length;
-      const id = h[2].toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || `h${out.length}`;
-      out.push(`<h${lv} id="${esc(id)}">${inline(h[2])}</h${lv}>`);
+      const base =
+        h[2].toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || `h${out.length}`;
+      // 同名标题追加 -2、-3：不然两节共用一个 id，锚点和目录都指错地方
+      const n = (seenIds.get(base) || 0) + 1;
+      seenIds.set(base, n);
+      const id = n === 1 ? base : `${base}-${n}`;
+      out.push(
+        `<h${lv} id="${esc(id)}"><a class="h-anchor" href="#${esc(id)}" aria-label="本节链接">#</a>${inline(h[2])}</h${lv}>`
+      );
       i++;
       continue;
     }
@@ -303,6 +322,29 @@ const stripCode = (s) => String(s).replace(/```[\s\S]*?```/g, ' ').replace(/`[^`
 /** 正文 → HTML：Markdown 渲染 + 正文里的 #标签 转成可点链接（接口与 SSR 共用） */
 export function renderBody(content = '') {
   return linkTags(renderMarkdown(content));
+}
+
+const unesc = (s) =>
+  s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+
+/**
+ * 从渲染好的正文 HTML 里抽 h2，给侧边目录用。
+ * 故意不重新解析 Markdown：id 的生成规则只该有一份，两套迟早漂移成"目录点了跳偏"。
+ */
+export function tocOf(html = '') {
+  const items = [];
+  const re = /<h2 id="([^"]+)">([\s\S]*?)<\/h2>/g;
+  let m;
+  while ((m = re.exec(String(html)))) {
+    const text = unesc(m[2].replace(/<a class="h-anchor"[\s\S]*?<\/a>/g, '').replace(/<[^>]+>/g, '')).trim();
+    if (text) items.push({ id: m[1], text });
+  }
+  return items;
 }
 
 /* 只在元素之间的文本里做 #标签 → 链接。

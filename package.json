@@ -9,9 +9,12 @@
     "db:init": "wrangler d1 execute blog-db --remote --file=./schema.sql",
     "db:init:local": "wrangler d1 execute blog-db --local --file=./schema.sql",
     "tail": "wrangler tail",
-    "test": "node scripts/test-md.mjs && node scripts/test-security.mjs && node scripts/test-antispam.mjs && node scripts/test-routes.mjs"
+    "test": "node scripts/test-md.mjs && node scripts/test-security.mjs && node scripts/test-antispam.mjs && node scripts/test-routes.mjs",
+    "cards": "node scripts/gen-cards.mjs",
+    "shots": "node scripts/shot.mjs"
   },
   "devDependencies": {
+    "puppeteer-core": "^23.11.1",
     "wrangler": "^4.159.0"
   }
 }

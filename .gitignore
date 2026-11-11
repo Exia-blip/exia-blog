@@ -6,3 +6,7 @@ node_modules/
 
 # Cloudflare API Token（本地凭据，别提交）
 .cf-token
+
+# 视觉回归截图（本地产物，不入库）
+shots/
+scripts/.cards-input.json

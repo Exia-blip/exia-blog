@@ -3,8 +3,8 @@ import { loginRedirect, handleCallback, logout, authStatus, currentUser } from '
 import { html, json } from './utils.js';
 import { checkFriends } from './cron.js';
 import { getSite } from './settings.js';
-import { extractExcerpt, readingTime, renderBody } from '../public/md.js';
-import { coverOf, autoThumb, isAutoCover, thumbOf } from './cover.js';
+import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
+import { coverOf, autoThumb, isAutoCover, isCardCover, thumbOf } from './cover.js';
 import { avatarSrc } from '../public/avatar.js';
 import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders, obfuscateEmail } from './security.js';
@@ -379,7 +379,7 @@ function renderSeries(post, list) {
     ${next ? `<a href="/p/${encodeURIComponent(next.slug)}" rel="next">${esc(next.title)} →</a>` : '<span></span>'}
   </div>`
       : '';
-  return `<nav class="series" aria-label="系列目录">
+  return `<nav class="series" id="series" aria-label="系列目录">
     <div class="series-top">
       <span class="series-kicker">系列连载</span>
       <strong class="series-name">${esc(post.series)}</strong>
@@ -445,8 +445,13 @@ async function servePostPage(env, request, slug) {
   // 封面 → 本站分享图。站点头像不参与：GitHub 头像只有 460px，社交卡片会糊成一团，
   // 而且外链域名不受自己控制（改天换图床就 404）。
   const ogImage = new URL(cover, request.url).toString();
-  // 只有预设自动图能确认尺寸（1200×784 JPEG），正文图尺寸未知就不标
-  const ogSized = isAutoCover(post);
+  /* og:image 的尺寸只标能确认的两种：预设图 1200×784 JPEG、标题卡 1200×630 PNG。
+     作者自己传的图尺寸未知，标错了平台会按错的框去裁。 */
+  const ogKind = isAutoCover(post)
+    ? { type: 'image/jpeg', w: 1200, h: 784 }
+    : isCardCover(post)
+      ? { type: 'image/png', w: 1200, h: 630 }
+      : null;
 
   const bodyHtml = sanitizeHtml(renderBody(post.content));
   const words = String(post.content || '').replace(/\s/g, '').length;
@@ -465,11 +470,40 @@ async function servePostPage(env, request, slug) {
     (post.tags || []).map((t) => `<a class="tag" href="/tag/${encodeURIComponent(t)}">#${esc(t)}</a>`).join(''),
   ].join('');
 
-  const article = `<article>
+  /* 侧边目录：只有 h2 够多才出（少于 3 节的文章不需要目录，出了反而是噪音）。
+     id 直接从渲染结果里抽，不重算 slug —— 两套规则迟早漂移成"目录点了跳偏"。 */
+  const heads = tocOf(bodyHtml);
+  const toc =
+    heads.length >= 3
+      ? `<aside class="post-toc" aria-label="本文目录"><div class="toc-inner">
+        <div class="toc-kicker">目录</div>
+        <ol>${heads
+          .map(
+            (h, i) =>
+              `<li><a href="#${esc(h.id)}" data-toc="${esc(h.id)}"><span class="toc-n">${String(i + 1).padStart(
+                2,
+                '0'
+              )}</span><span class="toc-t">${esc(h.text)}</span></a></li>`
+          )
+          .join('')}</ol>
+      </div></aside>`
+      : '';
+
+  // 系列徽章：四个系列是站里最大的资产，得让人一眼看出"这是连载，可以追"
+  const seriesIdx = post.series ? seriesPosts.findIndex((p) => p.slug === post.slug) : -1;
+  const seriesChip =
+    seriesIdx >= 0 && seriesPosts.length > 1
+      ? `<a class="series-chip" href="#series"><span class="sc-dot"></span>${esc(post.series)} · 第 ${seriesIdx + 1}/${seriesPosts.length} 篇</a>`
+      : '';
+
+  const article = `<article class="post-article">
+      ${toc}
+      <div class="post-main">
       <header class="post-head">
         <h1>${esc(post.title)}${
           post.is_private ? ' <span class="tag" style="background:var(--accent-soft);color:var(--accent)">私密</span>' : ''
         }</h1>
+        ${seriesChip}
         <div class="meta">
           ${post.avatar ? `<img class="avatar-xs" src="${esc(avatarSrc(post.avatar, 48))}" alt="" width="20" height="20" loading="lazy" decoding="async">` : ''}
           <span>${esc(post.author_name || post.login || '')}</span>
@@ -487,9 +521,9 @@ async function servePostPage(env, request, slug) {
       ${renderSeries(post, seriesPosts)}
       <div class="md post-body">${bodyHtml}</div>
       <footer class="post-foot"><div class="tagbar" style="margin:0">${tagbar}</div></footer>
-    </article>
-
-    ${renderComments(cmtRows, cmtRows.length)}`;
+      ${renderComments(cmtRows, cmtRows.length)}
+      </div>
+    </article>`;
 
   const meta = [
     `<title>${esc(post.title)} · ${esc(siteName)}</title>`,
@@ -508,9 +542,9 @@ async function servePostPage(env, request, slug) {
     `<meta property="og:locale" content="zh_CN">`,
     `<meta property="og:image" content="${esc(ogImage)}">`,
     `<meta property="og:image:alt" content="${esc(post.title)}">`,
-    ogSized ? `<meta property="og:image:type" content="image/jpeg">` : '',
-    ogSized ? `<meta property="og:image:width" content="1200">` : '',
-    ogSized ? `<meta property="og:image:height" content="784">` : '',
+    ogKind ? `<meta property="og:image:type" content="${ogKind.type}">` : '',
+    ogKind ? `<meta property="og:image:width" content="${ogKind.w}">` : '',
+    ogKind ? `<meta property="og:image:height" content="${ogKind.h}">` : '',
     `<meta property="article:published_time" content="${esc(iso(post.published_at || post.created_at))}">`,
     `<meta property="article:modified_time" content="${esc(iso(post.updated_at, iso(post.published_at || post.created_at)))}">`,
     post.category ? `<meta property="article:section" content="${esc(catName(post.category))}">` : '',
@@ -560,7 +594,7 @@ async function servePostPage(env, request, slug) {
       '</head>',
       `<script>window.__POST__=${JSON.stringify(boot).replace(/</g, '\\u003c')};</script></head>`
     )
-    .replace(/<main class="wrap" id="page">[\s\S]*?<\/main>/, `<main class="wrap" id="page">${article}</main>`);
+    .replace(/<main class="wrap" id="page">[\s\S]*?<\/main>/, `<main class="wrap wrap-post" id="page">${article}</main>`);
 
   return html(stampAssets(injected, env), 200, {
     // 私密文章不进缓存；公开文章统一走 pageCacheControl（浏览器不缓存、边缘 60s + SWR 600s）
@@ -682,7 +716,7 @@ const SKELETON = Array.from({ length: 3 })
 
 function postCard(p) {
   // 卡片永远有图：shapePost 已经兜过一层，这里再兜一次是防「传进来的是原始行」
-  const cover = `<img class="thumb" src="${esc(p.cover || autoThumb(p))}" alt="" loading="lazy" decoding="async" width="208" height="136">`;
+  const cover = `<img class="thumb" src="${esc(thumbOf(p))}" alt="" loading="lazy" decoding="async" width="108" height="78">`;
   const tags = (p.tags || [])
     .slice(0, 3)
     .map((t) => `<span class="tag">#${esc(t)}</span>`)
@@ -726,11 +760,53 @@ function listParams(url) {
   return { tag, cat, page, base };
 }
 
+/* 首页导语位：固定三篇代表作。新访客第一眼看到的不是"最新"，而是"该从哪读起"。
+   只查这三条，不参与列表排序 —— 精选是编辑决定，不该被发布时间推着走。 */
+const PICKS = ['d1-no-such-table', 'oauth-device-flow', 'editor-markdown-xss'];
+
+async function pickPosts(db) {
+  try {
+    const { results } = await db
+      .prepare(
+        `SELECT slug, title, category, published_at FROM posts
+         WHERE slug IN (${PICKS.map(() => '?').join(',')}) AND is_private = 0 AND hidden = 0`
+      )
+      .bind(...PICKS)
+      .all();
+    const by = new Map(results.map((r) => [r.slug, r]));
+    return PICKS.map((s) => by.get(s)).filter(Boolean);
+  } catch (e) {
+    console.error('picks failed', e);
+    return [];
+  }
+}
+
+function picksHtml(list) {
+  if (!list || !list.length) return '';
+  const rows = list
+    .map(
+      (p, i) => `<a class="pick" href="/p/${encodeURIComponent(p.slug)}">
+        <span class="pick-n">${String(i + 1).padStart(2, '0')}</span>
+        <span class="pick-t">${esc(p.title)}</span>
+        <span class="pick-m">${esc(catName(p.category))}</span>
+      </a>`
+    )
+    .join('');
+  return `<section class="picks" aria-label="先读这三篇">
+    <div class="picks-kicker">不知道从哪读起</div>
+    ${rows}
+  </section>`;
+}
+
 async function listQuery(env, url) {
   const p = listParams(url);
   if (!p) return null;
   try {
-    return { ...p, data: await listPosts(env.DB, { page: p.page, size: 10, tag: p.tag, cat: p.cat }) };
+    const [data, picks] = await Promise.all([
+      listPosts(env.DB, { page: p.page, size: 10, tag: p.tag, cat: p.cat }),
+      p.base === '/' && p.page === 1 ? pickPosts(env.DB) : null,
+    ]);
+    return { ...p, data, picks };
   } catch (e) {
     console.error('list ssr failed', e);
     return { ...p, data: null };
@@ -748,7 +824,7 @@ function applyList(body, res) {
 
   const boot = JSON.stringify({ page: data.page, pages: data.pages, total: data.total }).replace(/</g, '\\u003c');
   const out = body
-    .replace('<!--LIST-->', cards)
+    .replace('<!--LIST-->', (res.picks ? picksHtml(res.picks) : '') + cards)
     .replace('<!--PAGER-->', pagerHtml(res.page, data.pages, data.total, res.base))
     .replace('</head>', `<script>window.__LIST__=${boot};</script></head>`);
 
@@ -1134,8 +1210,8 @@ async function asset(env, request, url) {
   const cc = headers.get('cache-control') || '';
   if (url?.searchParams.has('v')) {
     headers.set('cache-control', 'public, max-age=31536000, immutable');
-  } else if (url && url.pathname.startsWith('/thumbs/')) {
-    // 预设头图：文件不变，但换图集时文件名复用，所以给一天而不是一年
+  } else if (url && (url.pathname.startsWith('/thumbs/') || url.pathname.startsWith('/cards/'))) {
+    // 预设头图与标题卡：文件名按 slug 固定，内容跟着文章改，给一天而不是一年
     headers.set('cache-control', 'public, max-age=86400, stale-while-revalidate=604800');
   } else if (!cc || /max-age=0/.test(cc)) {
     headers.set('cache-control', 'public, max-age=300, stale-while-revalidate=3600');

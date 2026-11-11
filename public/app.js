@@ -180,12 +180,17 @@ export function bindCopyButtons(root = document) {
     const btn = e.target.closest('[data-copy]');
     if (!btn) return;
     const wrap = btn.closest('.code-wrap');
-    const code = wrap?.querySelector('code');
+    const code = wrap?.querySelector('pre.code-block > code:not(.gutter)');
     if (!code) return;
     navigator.clipboard.writeText(code.innerText).then(
       () => {
         btn.textContent = '已复制';
-        setTimeout(() => (btn.textContent = '复制'), 1400);
+        btn.classList.add('done');
+        clearTimeout(btn._t);
+        btn._t = setTimeout(() => {
+          btn.textContent = '复制';
+          btn.classList.remove('done');
+        }, 1400);
       },
       () => toast('复制失败')
     );

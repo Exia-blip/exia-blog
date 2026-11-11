@@ -46,5 +46,15 @@ export function isAutoCover(post) {
  * og:image / RSS 别用这个 —— 那边要 1200×784 的 JPG。
  */
 export function thumbOf(post) {
-  return isAutoCover(post) ? autoThumb(post) : coverOf(post);
+  if (isAutoCover(post)) return autoThumb(post);
+  const c = coverOf(post);
+  /* 标题卡是给分享卡片用的 1200×630，塞进 108×78 的方框只会露出半截字。
+     列表这时退回抽象预设图：识别靠标题文字，不靠一张被裁过的分享图。 */
+  if (isCardCover(post)) return autoThumb(post);
+  return c;
+}
+
+/** 是不是自动生成的标题卡（决定 og:image 的尺寸与 MIME） */
+export function isCardCover(post) {
+  return /^\/cards\/.+\.png$/.test(coverOf(post));
 }

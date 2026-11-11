@@ -10,7 +10,7 @@
 - 同一篇文章永远同一张（由 cover.js 的 id 取模决定），不随浏览变化
 - 两种规格各出一份：
     auto-N.jpg   1200×784  给 og:image / RSS / 社交卡片（WebP 在部分平台不吃）
-    auto-N.webp   416×272  给列表缩略图（208×136 的 2 倍，DPR2 下不糊，体积只有 JPG 的 1/4）
+    auto-N.webp   216×156  给列表缩略图（108×78 的 2 倍，比例与 CSS 盒子一致，不靠 object-fit 裁）
 
 用法：python scripts/gen-auto-thumbs.py
 输出：public/thumbs/auto-1.jpg … auto-6.jpg  +  auto-1.webp … auto-6.webp
@@ -195,7 +195,7 @@ def build(i):
 
     # 列表缩略图：显示尺寸 208×136，出 2 倍图给高分屏，再大就是白传
     webp = os.path.join(OUT, f'auto-{i}.webp')
-    img.resize((416, 272), Image.LANCZOS).save(webp, 'WEBP', quality=82, method=6)
+    img.resize((216, 156), Image.LANCZOS).save(webp, 'WEBP', quality=82, method=6)
     return (path, os.path.getsize(path)), (webp, os.path.getsize(webp))
 
 

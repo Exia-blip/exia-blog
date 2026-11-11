@@ -245,9 +245,33 @@ function bindForm() {
   });
 }
 
+
+/* 目录高亮：判据是「标题顶端越过视口上沿 96px」，比 IntersectionObserver 更贴手感——
+   IO 在长段落里会同时命中两节，得再加一套优先级逻辑，反而不如直接比位置。 */
+function bindTocSpy() {
+  const links = [...document.querySelectorAll('.post-toc a[data-toc]')];
+  if (!links.length) return;
+  const pairs = links
+    .map((a) => [document.getElementById(a.dataset.toc), a])
+    .filter(([el]) => el);
+  let cur = null;
+  const onScroll = () => {
+    const line = window.scrollY + 96;
+    let active = pairs[0][0];
+    for (const [el] of pairs) if (el.getBoundingClientRect().top + window.scrollY <= line) active = el;
+    if (active === cur) return;
+    cur = active;
+    for (const [el, a] of pairs) a.classList.toggle('on', el === active);
+  };
+  addEventListener('scroll', onScroll, { passive: true });
+  addEventListener('resize', onScroll);
+  onScroll();
+}
+
 USER = await mountHeader();
 if (POST) {
   hydrate();
+  bindTocSpy();
   loadComments();
 } else {
   fallbackNotice();
