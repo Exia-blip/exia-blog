@@ -287,9 +287,17 @@ function bindTocSpy() {
   let cur = null;
   const onScroll = () => {
     const line = window.scrollY + 96;
+    /* 到底兜底：最后一个标题往往离页尾很近，永远越不过 96px 那条线，
+       于是读完最后一段目录还停在第 7 项。滚到底就直接认最后一项。 */
+    const atBottom = Math.ceil(window.scrollY + innerHeight) >= document.documentElement.scrollHeight - 2;
     let active = pairs[0][0];
     let activeLink = pairs[0][1];
-    for (const [el, a] of pairs) {
+    if (atBottom) {
+      active = pairs[pairs.length - 1][0];
+      const last = all.filter((x) => x.dataset.toc === active.id);
+      activeLink = last.find((x) => x.offsetParent !== null) || last[0] || activeLink;
+    }
+    for (const [el, a] of (atBottom ? [] : pairs)) {
       if (el.getBoundingClientRect().top + window.scrollY <= line) {
         active = el;
         // 同一标题在桌面与抽屉里各有一条链接，优先记可见的那条
