@@ -246,31 +246,144 @@ function bindForm() {
 }
 
 
-/* 目录高亮：判据是「标题顶端越过视口上沿 96px」，比 IntersectionObserver 更贴手感——
-   IO 在长段落里会同时命中两节，得再加一套优先级逻辑，反而不如直接比位置。 */
+/* 目录跟随：高亮 + 进度 + 目录内部滚动，三件事共用一次 scroll 回调。
+   判据是「标题顶端越过视口上沿 96px」，比 IntersectionObserver 更贴手感 ——
+   IO 在长段落里会同时命中两节，还得再加一套优先级逻辑，不如直接比位置。 */
 function bindTocSpy() {
-  const links = [...document.querySelectorAll('.post-toc a[data-toc]')];
-  if (!links.length) return;
-  const pairs = links
-    .map((a) => [document.getElementById(a.dataset.toc), a])
-    .filter(([el]) => el);
+  const desktop = document.querySelector('.post-toc');
+  const ol = desktop && desktop.querySelector('ol');
+  const all = [...document.querySelectorAll('a[data-toc]')];
+  if (!all.length) return;
+
+  const pairs = [];
+  for (const a of all) {
+    const el = document.getElementById(a.dataset.toc);
+    if (el) pairs.push([el, a]);
+  }
+  if (!pairs.length) return;
+
+  // 每个链接各自最近的滚动容器（桌面是 .toc-inner，抽屉是 .mtoc-body）
+  const scrollerOf = (a) => {
+    for (let n = a.parentElement; n; n = n.parentElement) {
+      const st = getComputedStyle(n);
+      if (/(auto|scroll)/.test(st.overflowY) && n.scrollHeight > n.clientHeight + 4) return n;
+    }
+    return null;
+  };
+
+  /* 把高亮项拉进目录可视区：只动目录自己的 scrollTop，不碰页面。
+     上边留 1/3、下边留 1/3 —— 让下一项也露出来，读者知道后面还有。 */
+  const keepVisible = (a) => {
+    const box = scrollerOf(a);
+    if (!box) return;
+    const br = box.getBoundingClientRect();
+    const ar = a.getBoundingClientRect();
+    const padTop = br.height * 0.28;
+    const padBottom = br.height * 0.28;
+    if (ar.top < br.top + padTop) box.scrollTo({ top: box.scrollTop - (br.top + padTop - ar.top), behavior: 'smooth' });
+    else if (ar.bottom > br.bottom - padBottom) box.scrollTo({ top: box.scrollTop + (ar.bottom - (br.bottom - padBottom)), behavior: 'smooth' });
+  };
+
   let cur = null;
   const onScroll = () => {
     const line = window.scrollY + 96;
     let active = pairs[0][0];
-    for (const [el] of pairs) if (el.getBoundingClientRect().top + window.scrollY <= line) active = el;
+    let activeLink = pairs[0][1];
+    for (const [el, a] of pairs) {
+      if (el.getBoundingClientRect().top + window.scrollY <= line) {
+        active = el;
+        // 同一标题在桌面与抽屉里各有一条链接，优先记可见的那条
+        const links = all.filter((x) => x.dataset.toc === el.id);
+        activeLink = links.find((x) => x.offsetParent !== null) || links[0] || a;
+      }
+    }
+
+    // 进度条：端点落在当前项的中点，transitions 让它是滑过去的
+    if (ol) {
+      const li = activeLink.closest('li');
+      if (li) {
+        const oR = ol.getBoundingClientRect();
+        const lR = li.getBoundingClientRect();
+        const p = oR.height ? ((lR.top + lR.height / 2 - oR.top) / oR.height) * 100 : 0;
+        ol.style.setProperty('--toc-p', Math.max(0, Math.min(100, p)).toFixed(1) + '%');
+      }
+    }
+
     if (active === cur) return;
     cur = active;
-    for (const [el, a] of pairs) a.classList.toggle('on', el === active);
+    for (const a of all) a.classList.toggle('on', a.dataset.toc === active.id);
+    keepVisible(activeLink);
   };
-  addEventListener('scroll', onScroll, { passive: true });
-  addEventListener('resize', onScroll);
-  onScroll();
+
+  let raf = 0;
+  const tick = () => { raf = 0; onScroll(); };
+  const onEvt = () => { if (!raf) raf = requestAnimationFrame(tick); };
+  addEventListener('scroll', onEvt, { passive: true });
+  addEventListener('resize', onEvt);
+  tick();
+}
+
+/* 窄屏目录：从已有的桌面目录复制一份到底部抽屉，不重算标题、不碰 SSR 结构 */
+function mountMobileToc() {
+  const src = document.querySelectorAll('.post-toc a[data-toc]');
+  if (!src.length || document.querySelector('.mtoc')) return;
+
+  const btn = document.createElement('button');
+  btn.className = 'mtoc-btn';
+  btn.type = 'button';
+  btn.setAttribute('aria-label', '打开目录');
+  btn.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">' +
+    '<path d="M4 7h16M4 12h11M4 17h7"/></svg><span>目录</span><span class="n">' + src.length + '</span>';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'mtoc';
+  // href 直接照抄桌面那条：SSR 里是 `#<中文id>`，自己再 encode 一遍会变成两种地址
+  const items = [...src]
+    .map((a) => `<a href="${a.getAttribute('href')}" data-toc="${a.dataset.toc}">${a.innerHTML}</a>`)
+    .join('');
+  wrap.innerHTML =
+    '<div class="mtoc-mask" data-close></div>' +
+    '<div class="mtoc-panel" role="dialog" aria-label="目录">' +
+    '<div class="mtoc-head"><span>目录 · ' + src.length + ' 节</span>' +
+    '<button class="mtoc-close" type="button" data-close>关闭</button></div>' +
+    '<div class="mtoc-body">' + items + '</div></div>';
+
+  document.body.append(btn, wrap);
+
+  const open = () => {
+    wrap.classList.add('open');
+    document.documentElement.style.overflow = 'hidden';
+    const on = wrap.querySelector('a.on');
+    if (on) on.scrollIntoView({ block: 'center' });
+  };
+  const close = () => {
+    wrap.classList.remove('open');
+    document.documentElement.style.overflow = '';
+  };
+
+  btn.addEventListener('click', open);
+  wrap.addEventListener('click', (e) => {
+    const a = e.target.closest('a[data-toc]');
+    if (a) { close(); return; }              // 交给浏览器做锚点跳转，scroll-margin-top 已处理吸顶遮挡
+    if (e.target.closest('[data-close]')) close();
+  });
+  addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+
+  // 滚过文章头部才露出按钮：一进来就浮着太吵
+  const btnSpy = () => {
+    const head = document.querySelector('.post-head');
+    const past = head ? scrollY > head.offsetTop + head.offsetHeight - 120 : scrollY > 300;
+    btn.classList.toggle('on', past);
+  };
+  addEventListener('scroll', btnSpy, { passive: true });
+  btnSpy();
 }
 
 USER = await mountHeader();
 if (POST) {
   hydrate();
+  mountMobileToc();
   bindTocSpy();
   loadComments();
 } else {

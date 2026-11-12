@@ -1639,8 +1639,11 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
 
 /* 文章页在宽屏上把容器放宽，左边让出 200px 给目录；正文仍锁在 760px，
    行宽不跟着变 —— 目录是给眼睛的导航，不是把正文拉宽的理由。 */
-.post-article { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+/* 关键：grid item 必须 stretch 到整行高度，否则 sticky 没有可滚的余量 ——
+   目录父容器只有自身那么高，滚两屏就跟着文章一起跑出视口，等于没固定。 */
+.post-article { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; }
 .post-main { min-width: 0; }
+.post-toc { align-self: stretch; }
 
 .post-toc { display: none; }
 .post-toc .toc-inner {
@@ -1651,12 +1654,20 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
   font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
   color: var(--muted); margin: 0 0 10px 13px;
 }
-.post-toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); }
+.post-toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); position: relative; }
+/* 阅读进度：一条跟着当前小节走的色条，末端停在高亮项中间 */
+.post-toc ol::before {
+  content: ''; position: absolute; left: -1px; top: 0; width: 2px;
+  height: var(--toc-p, 0%); border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  transition: height .18s ease-out;
+}
 .post-toc li { margin: 0; }
 .post-toc a {
   display: flex; gap: 7px; padding: 4px 0 4px 12px; margin-left: -1px;
   border-left: 2px solid transparent; color: var(--muted);
   font-size: 12.5px; line-height: 1.5; text-decoration: none;
+  position: relative; z-index: 1;
 }
 .post-toc a:hover { color: var(--fg); }
 .post-toc a.on { color: var(--accent); border-left-color: var(--accent); }
@@ -1759,4 +1770,66 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
 @media (max-width: 640px) {
   /* 窄屏上表格改为横向滚动，别把四列压成每列两个字 */
   .md table { min-width: 460px; }
+}
+
+
+/* ============ 窄屏目录：右下浮动按钮 + 底部抽屉 ============ */
+.mtoc-btn {
+  position: fixed; right: 16px; bottom: 78px; z-index: 95;
+  display: none; align-items: center; gap: 6px;
+  height: 40px; padding: 0 14px 0 11px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  backdrop-filter: blur(10px); box-shadow: var(--shadow);
+  color: var(--fg-soft); font-family: var(--mono); font-size: 11.5px; letter-spacing: .06em;
+  opacity: 0; transform: translateY(8px); pointer-events: none;
+  transition: opacity .18s, transform .18s;
+}
+.mtoc-btn.on { opacity: 1; transform: none; pointer-events: auto; }
+.mtoc-btn svg { width: 14px; height: 14px; }
+.mtoc-btn .n { color: var(--muted); }
+
+.mtoc {
+  position: fixed; inset: 0; z-index: 120; display: none;
+}
+.mtoc.open { display: block; }
+.mtoc-mask {
+  position: absolute; inset: 0; background: rgba(20, 18, 16, .34);
+  backdrop-filter: blur(2px); opacity: 0; transition: opacity .2s;
+}
+.mtoc.open .mtoc-mask { opacity: 1; }
+.mtoc-panel {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  max-height: 74vh; display: flex; flex-direction: column;
+  background: var(--bg); border-top: 1px solid var(--line);
+  border-radius: 18px 18px 0 0; box-shadow: 0 -18px 40px -20px rgba(0,0,0,.3);
+  transform: translateY(100%); transition: transform .24s cubic-bezier(.22,1,.36,1);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.mtoc.open .mtoc-panel { transform: none; }
+.mtoc-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 10px; border-bottom: 1px solid var(--line);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--muted);
+}
+.mtoc-close {
+  border: 0; background: none; color: var(--muted); font-size: 13px;
+  padding: 4px 6px; cursor: pointer;
+}
+.mtoc-body { overflow-y: auto; padding: 6px 8px 14px; -webkit-overflow-scrolling: touch; }
+.mtoc-body a {
+  display: flex; gap: 10px; padding: 11px 10px; border-radius: 9px;
+  color: var(--fg-soft); font-size: 14px; line-height: 1.45; text-decoration: none;
+}
+.mtoc-body a .toc-n { font-family: var(--mono); font-size: 11px; color: var(--muted); padding-top: 2px; }
+.mtoc-body a.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.mtoc-body a.on .toc-n { color: var(--accent); opacity: .8; }
+
+@media (max-width: 1079px) {
+  .mtoc-btn { display: inline-flex; }
+  .post-toc { display: none; }
+}
+@media (min-width: 1080px) {
+  .mtoc, .mtoc-btn { display: none !important; }
 }

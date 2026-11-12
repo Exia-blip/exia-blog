@@ -486,9 +486,13 @@ node scripts/gen-cards.mjs --apply    # 出图并写回 posts.cover
 
 ## 阅读体验
 
+> 目录的 sticky 有个隐蔽前提：`.post-article` 是 grid，`align-items: start` 会让 `.post-toc` 的高度等于内容高度，sticky 元素没有可滚余量，滚两屏目录就跟着文章跑出视口 —— 表现是"高亮在变，但目录看不见了"。改成 `stretch` 才真正固定。
+
+
 | 能力 | 实现 | 备注 |
 |---|---|---|
-| 侧边目录 | `.post-toc`，SSR 从渲染好的 HTML 抽 h2（`tocOf()`） | ≥1080px 才出现，正文仍锁 760px；`bindTocSpy()` 按「标题顶端越过视口 96px」高亮 |
+| 侧边目录 | `.post-toc`，SSR 从渲染好的 HTML 抽 h2（`tocOf()`） | ≥1080px 出现，正文仍锁 760px；`bindTocSpy()` 按「标题顶端越过视口 96px」高亮，左侧竖条按当前项中点填充进度，目录超长时只在目录内部滚动把高亮项拉进视野 |
+| 窄屏目录 | `.mtoc-btn` + 底部抽屉（JS 从桌面目录复制，不重算标题） | ≤1079px；滚过文章头部才浮出，点条目跳转并自动关闭；`scroll-margin-top: 88px` 防吸顶遮挡 |
 | 标题锚点 | 每个 h2/h3 前挂 `.h-anchor` | hover 才显形，负 margin 挂在正文留白里；同名标题自动加 `-2`、`-3` |
 | 代码块 | 语言徽章 + 超长块（≥20 行）行号 + 复制按钮「已复制」态 | 行号是独立一列，不往高亮后的 HTML 里插标记：多行字符串的 span 会跨行，切了就把标签劈开 |
 | 系列徽章 | 文章头部 `series-chip`：`OAuth 授权流程拆解 · 第 3/4 篇` | 点进去跳到系列目录 |
