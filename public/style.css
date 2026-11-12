@@ -395,6 +395,26 @@ nav.top a, nav.top button {
 nav.top a:hover, nav.top button:hover { color: var(--fg); background: var(--bg-soft); }
 nav.top a.active { color: var(--fg); background: var(--bg-soft); }
 
+/* 窄屏汉堡：桌面不出现，640 以下顶掉整条导航（见文件末尾的移动端规则） */
+.nav-toggle {
+  display: none;
+  place-items: center;
+  width: 34px; height: 34px; padding: 0;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); color: var(--fg-soft);
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.nav-toggle:hover { color: var(--fg); }
+.nav-toggle svg { width: 19px; height: 19px; }
+/* 三条线收成叉：上下两条各自平移 5px 到中线再旋转 */
+.nav-toggle path {
+  transform-box: fill-box; transform-origin: center;
+  transition: transform .2s ease, opacity .14s ease;
+}
+.nav-toggle.on .nt-b { opacity: 0; }
+.nav-toggle.on .nt-a { transform: translateY(5px) rotate(45deg); }
+.nav-toggle.on .nt-c { transform: translateY(-5px) rotate(-45deg); }
+
 .avatar-xs { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; border: 1px solid var(--line); }
 
 /* ============ 通用元件 ============ */
@@ -908,36 +928,40 @@ a.cat-chip:hover { filter: brightness(0.96); }
   .post-head h1 { font-size: 24px; }
   .post-body { font-size: 15.5px; }
   .wrap, .wrap-wide { padding: 0 16px; }
-  header.site .inner { padding: 0 44px 0 14px; height: 52px; gap: 10px; position: relative; }
-  .brand { font-size: 15px; gap: 7px; }
+
+  /* 顶栏：站名不再给导航让位，右侧只留汉堡。
+     以前是「品牌名截到 30vw + 导航横向滚动」，390 上站名被切成 Exia Bl...，
+     导航挤成一条还看不出能滑，两头都难受。 */
+  header.site .inner { padding: 0 12px; height: 54px; gap: 8px; position: relative; }
+  .brand { font-size: 15px; gap: 7px; min-width: 0; }
   .brand-avatar { width: 23px; height: 23px; }
-  .brand-name { max-width: 30vw; }
-  /* 窄屏导航单行横向滚动，风格按钮固定在右侧不随滚动 */
+  .brand-name { max-width: none; }
+  .nav-toggle { display: grid; margin-left: auto; flex: 0 0 auto; }
+
+  /* 抽屉：贴顶栏下沿向下展开，一条一行。
+     绝对定位挂在 .inner 上，不用去算各主题 header 的实际高度（anzhiyu 多 16px padding）。 */
   nav.top {
-    gap: 0; flex-wrap: nowrap; overflow-x: auto; min-width: 0;
-    /* flex-end 在内容溢出时会让整排向左溢出、压到品牌名上，改用 flex-start */
-    justify-content: flex-start; scrollbar-width: none;
-    padding-right: 0;
-    margin-left: auto;
+    position: absolute; top: 100%; left: 0; right: 0; z-index: 120;
+    display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+    margin: 0; padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
+    background: var(--card);
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 26px 48px -34px rgba(12, 20, 45, .6);
+    max-height: 70vh; overflow-y: auto;
+    opacity: 0; transform: translateY(-8px); pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
   }
-  nav.top::-webkit-scrollbar { display: none; }
-  /* 右端渐隐，暗示还能横向滑；放在按钮左边，别盖住调到色板 */
-  header.site .inner::after {
-    content: '';
-    position: absolute;
-    right: 42px;
-    top: 0;
-    bottom: 0;
-    width: 20px;
-    pointer-events: none;
-    background: linear-gradient(to right, transparent, var(--bg));
+  nav.top.open { opacity: 1; transform: none; pointer-events: auto; }
+  nav.top a, nav.top button {
+    padding: 12px; font-size: 15px; text-align: left; flex: none; border-radius: 10px;
   }
-  nav.top a, nav.top button { padding: 5px 6px; font-size: 12.5px; flex: 0 0 auto; }
+  /* 色板在抽屉底部靠右，保持一个独立入口的感觉 */
   nav.top .theme-btn {
-    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-    width: 26px; height: 26px; padding: 0; margin: 0; z-index: 2;
+    position: static; transform: none; width: 34px; height: 34px;
+    margin: 6px 0 0; align-self: flex-end; z-index: auto;
   }
-  nav.top .theme-btn svg { width: 15px; height: 15px; }
+  nav.top .theme-btn svg { width: 17px; height: 17px; }
+
   .editor-top { padding: 8px 12px; gap: 8px; }
   #md-input, .preview { padding: 16px; }
 }
@@ -1132,8 +1156,20 @@ body { transition: background-color .26s ease, color .26s ease; }
 
 .tp-tip { font-size: 10.5px; color: var(--muted); margin-top: 8px; text-align: center; opacity: .8; }
 
+/* 主题面板在手机上的位置：按钮已挪进抽屉（还贴着底边），
+   原来「贴着按钮往下展开、放不下就上翻」的算法会把面板推到屏幕顶撞上顶栏。
+   直接改成底部弹层 —— 拇指够得着，也不用管按钮在哪。
+   JS 会写 inline 的 left/right/top，这里用 !important 压掉。
+   注意必须写在 .theme-pop 基础定义之后，否则 width 会被 274px 抢回去。 */
 @media (max-width: 640px) {
-  .theme-pop { width: 260px; padding: 11px; }
+  .theme-pop {
+    left: 12px !important; right: 12px !important; top: auto !important;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: auto; max-width: none; max-height: 74vh; overflow-y: auto;
+    padding: 11px;
+    transform: translateY(10px) scale(.99);
+  }
+  .theme-pop.on { transform: none; }
 }
 
 /* ============ 站点头像设置 ============ */

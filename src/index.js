@@ -616,6 +616,10 @@ const NAV = [
 
 const THEME_BTN = `<button class="theme-btn" data-theme-btn type="button" aria-label="切换风格" aria-expanded="false" title="切换风格"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18 2.2 2.2 0 0 0 1.7-3.6 2.2 2.2 0 0 1 1.7-3.6H18A3 3 0 0 0 21 10.8 9 9 0 0 0 12 3Z"/><circle cx="8" cy="9.2" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.4" cy="7" r="1.1" fill="currentColor" stroke="none"/><circle cx="16.4" cy="9.4" r="1.1" fill="currentColor" stroke="none"/></svg></button>`;
 
+/* 窄屏汉堡：640 以下导航整块收进抽屉，站名才不会被压成「Exia Bl...」。
+   按钮与抽屉都在 SSR 里出，JS 没跑也能看见入口（点了没反应好过看不见）。 */
+const NAV_TOGGLE = `<button class="nav-toggle" id="nav-toggle" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="site-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path class="nt-a" d="M4 7h16"/><path class="nt-b" d="M4 12h16"/><path class="nt-c" d="M4 17h16"/></svg></button>`;
+
 // 各主题主色，用于浏览器地址栏（theme-color）
 const THEME_COLOR = {
   anzhiyu: '#f7f9fe',
@@ -662,7 +666,8 @@ function renderHeader(site, path) {
     <div class="inner">
       <a class="brand" href="/">${avatar}<span class="brand-name">${esc(name)}<span class="dot">.</span></span></a>
       ${desc ? `<span class="brand-desc" title="${esc(desc)}">${esc(desc)}</span>` : ''}
-      <nav class="top">${links}${extra.join('')}<span id="nav-user"></span>${THEME_BTN}</nav>
+      <nav class="top" id="site-nav">${links}${extra.join('')}<span id="nav-user"></span>${THEME_BTN}</nav>
+      ${NAV_TOGGLE}
     </div>
   </header>`;
 }

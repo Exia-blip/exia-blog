@@ -134,6 +134,7 @@ export async function mountHeader(active = '') {
     const slot = document.getElementById('nav-user');
     if (slot) slot.innerHTML = user ? userNav(user, active) : '<a href="/login">登录</a>';
     initSwitcher();
+    initNavToggle();
     return user;
   }
 
@@ -160,7 +161,7 @@ export async function mountHeader(active = '') {
     <div class="inner">
       <a class="brand" href="/">${brandMark}<span class="brand-name">${esc(siteName)}<span class="dot">.</span></span></a>
       ${siteDesc ? `<span class="brand-desc" title="${esc(siteDesc)}">${esc(siteDesc)}</span>` : ''}
-      <nav class="top">
+      <nav class="top" id="site-nav">
         ${links
           .map((l) => `<a href="${l.href}" class="${active === l.key ? 'active' : ''}">${l.label}</a>`)
           .join('')}
@@ -168,10 +169,49 @@ export async function mountHeader(active = '') {
         <span id="nav-user">${user ? userNav(user, active) : '<a href="/login">登录</a>'}</span>
         ${buttonHTML}
       </nav>
+      <button class="nav-toggle" id="nav-toggle" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="site-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path class="nt-a" d="M4 7h16"/><path class="nt-b" d="M4 12h16"/><path class="nt-c" d="M4 17h16"/></svg></button>
     </div>
   </header>`;
   initSwitcher();
+  initNavToggle();
   return user;
+}
+
+/* 窄屏汉堡。CSS 在 640 以下把 nav 变成抽屉，这里只管开合。
+   桌面端按钮是 display:none，绑了也不会被点到，所以不用判断视口。 */
+export function initNavToggle() {
+  const btn = document.getElementById('nav-toggle');
+  const nav = document.getElementById('site-nav');
+  if (!btn || !nav || btn.dataset.bound) return;
+  btn.dataset.bound = '1';
+
+  const set = (on) => {
+    nav.classList.toggle('open', on);
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-expanded', String(on));
+    btn.setAttribute('aria-label', on ? '关闭导航' : '打开导航');
+  };
+  const close = () => set(false);
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    set(!nav.classList.contains('open'));
+  });
+  // 点了链接就收起来：同页锚点不会触发跳转重建，不主动收会一直挂着。
+  // 色板也收 —— 主题面板是从底部弹的，抽屉开着会叠成两层背景，看着乱
+  nav.addEventListener('click', (e) => {
+    if (e.target.closest('a') || e.target.closest('.theme-btn')) close();
+  });
+  document.addEventListener('click', (e) => {
+    if (!nav.contains(e.target) && !btn.contains(e.target)) close();
+  });
+  addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') close();
+  });
+  // 转屏/拉宽回到桌面布局时，别把 open 状态留在 DOM 上
+  addEventListener('resize', () => {
+    if (innerWidth > 640) close();
+  }, { passive: true });
 }
 
 /* 复制代码按钮 */
