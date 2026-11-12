@@ -881,6 +881,39 @@ export async function handleApi(env, request, url, ctx) {
     return json({ ok: true, id: info.meta.last_row_id });
   }
 
+  /* 就地改。换 URL 时状态必须归零重测 —— 否则绿点会挂在一个从没探测过的新地址上，
+     点进去是 404，而面板说「可访问」。只改名字/描述/头像则保留原检测结果。 */
+  if (/^\/friends\/\d+$/.test(path) && (method === 'PATCH' || method === 'PUT')) {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+
+    const id = parseInt(path.split('/')[2], 10);
+    const body = await request.json();
+    const name = String(body.name || '').trim();
+    const furl = String(body.url || '').trim();
+    if (!name || !furl) return err('名称和链接必填');
+
+    const row = await db.prepare('SELECT url FROM friends WHERE id = ?').bind(id).first();
+    if (!row) return err('友链不存在', 404);
+
+    const moved = String(row.url) !== furl;
+    const fields = [name.slice(0, 60), furl.slice(0, 300), String(body.avatar || ''), String(body.desc || '')];
+    if (moved) {
+      await db
+        .prepare(
+          'UPDATE friends SET name=?, url=?, avatar=?, desc=?, status=0, http_status=0, latency_ms=NULL, checked_at=? WHERE id=?'
+        )
+        .bind(...fields, nowISO(), id)
+        .run();
+      checkFriends(env).catch(() => {});
+    } else {
+      await db.prepare('UPDATE friends SET name=?, url=?, avatar=?, desc=? WHERE id=?').bind(...fields, id).run();
+    }
+
+    bustFriends(url, ctx);
+    return json({ ok: true, recheck: moved });
+  }
+
   if (/^\/friends\/\d+$/.test(path) && method === 'DELETE') {
     const { res } = await requireAdmin(env, request);
     if (res) return res;

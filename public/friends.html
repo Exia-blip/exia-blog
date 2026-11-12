@@ -29,15 +29,16 @@
   <div class="friend-grid" id="grid"></div>
 
   <section id="admin-box" style="display:none;margin-bottom:70px">
-    <h3 style="font-size:15px;font-family:var(--serif);margin:0 0 12px">添加友链</h3>
+    <h3 id="form-title" style="font-size:15px;font-family:var(--serif);margin:0 0 12px">添加友链</h3>
     <form id="add-form" style="display:grid;gap:9px;grid-template-columns:1fr 1fr;max-width:560px">
       <input type="text" name="name" placeholder="站点名称 *" required maxlength="60">
       <input type="url" name="url" placeholder="https://... *" required maxlength="300">
       <input type="url" name="avatar" placeholder="头像地址（可选）" maxlength="300">
       <input type="text" name="desc" placeholder="一句话描述（可选）" maxlength="120">
-      <div style="grid-column:1/-1;display:flex;gap:9px">
-        <button class="btn primary sm" type="submit">添加</button>
-        <button class="btn sm" type="button" id="recheck">立即重新检测</button>
+      <div style="grid-column:1/-1;display:flex;gap:9px;align-items:center">
+        <button class="btn primary sm" type="submit" id="submit-btn">添加</button>
+        <button class="btn sm" type="button" id="cancel-edit" hidden>取消</button>
+        <button class="btn sm" type="button" id="recheck" style="margin-left:auto">立即重新检测</button>
       </div>
     </form>
   </section>
@@ -51,6 +52,7 @@ const grid = document.getElementById('grid');
 // Worker 已经把卡片渲染进 HTML 了。有这份数据就不重建 DOM，
 // 只补管理员才有的删除按钮——否则爬虫抓到的是一坨占位骨架，用户首屏也会闪一下。
 const SEED = window.__FRIENDS__ || null;
+let CACHE = (SEED && Array.isArray(SEED.friends)) ? SEED.friends : [];
 
 // 与 Worker 的 friendIcon 同一套规则：有自家头像才出图，否则首字母方块。
 // 不再回 Google 的 s2/favicons —— 那是一个友链一次第三方请求。
@@ -62,17 +64,24 @@ function iconHTML(f) {
 
 let USER_ADMIN = false;
 
-function bindDeletes() {
+/* 管理员在卡片右上角挂两个按钮。编辑复用页面底部同一个表单 ——
+   改一条友链不该让人重打四个字段，也不该经过「删掉再加回来」这种会丢 id 的路径。 */
+const PAY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+
+function bindAdminActions() {
   if (!USER_ADMIN) return;
   grid.querySelectorAll('.friend-card').forEach((a) => {
-    if (a.querySelector('[data-del]')) return;
+    if (a.querySelector('.fc-act')) return;
     const id = a.dataset.id;
     if (!id) return;
-    const btn = document.createElement('button');
-    btn.className = 'btn sm';
-    btn.dataset.del = id;
-    btn.textContent = '×';
-    btn.onclick = async (e) => {
+
+    const box = document.createElement('span');
+    box.className = 'fc-act';
+    box.innerHTML =
+      `<button class="fc-btn" type="button" data-edit title="编辑">${PAY}</button>` +
+      '<button class="fc-btn" type="button" data-del title="删除">×</button>';
+
+    box.querySelector('[data-del]').onclick = async (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (!confirm('删除这条友链？')) return;
@@ -80,7 +89,14 @@ function bindDeletes() {
       toast('已删除');
       load();
     };
-    a.appendChild(btn);
+
+    box.querySelector('[data-edit]').onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      startEdit(id);
+    };
+
+    a.appendChild(box);
   });
 }
 
@@ -96,6 +112,7 @@ function dotLabel(f) {
 }
 
 function paint(friends) {
+  CACHE = friends;
   if (!friends.length) {
     grid.innerHTML = '<div class="empty">还没有友链</div>';
     return;
@@ -111,7 +128,7 @@ function paint(friends) {
           <div class="ds">${esc(f.desc || new URL(f.url).hostname)}</div>
         </div>
       </a>`).join('');
-  bindDeletes();
+  bindAdminActions();
 }
 
 async function load() {
@@ -128,26 +145,61 @@ const user = await mountHeader('friends');
 USER_ADMIN = !!(user && user.is_admin);
 if (USER_ADMIN) document.getElementById('admin-box').style.display = 'block';
 
-if (SEED) bindDeletes();
+if (SEED) bindAdminActions();
 else load();
 
-document.getElementById('add-form')?.addEventListener('submit', async (e) => {
+const form = document.getElementById('add-form');
+const formTitle = document.getElementById('form-title');
+const submitBtn = document.getElementById('submit-btn');
+const cancelBtn = document.getElementById('cancel-edit');
+let editingId = null;
+
+function resetForm() {
+  editingId = null;
+  form?.reset();
+  if (formTitle) formTitle.textContent = '添加友链';
+  if (submitBtn) submitBtn.textContent = '添加';
+  if (cancelBtn) cancelBtn.hidden = true;
+}
+
+function startEdit(id) {
+  const f = CACHE.find((x) => String(x.id) === String(id));
+  if (!f) { toast('数据已过期，刷新一下'); return; }
+  editingId = id;
+  // 必须走 form.elements：form.name 是 <form> 自己的 name 属性（字符串），不是输入框
+  const el = form.elements;
+  el.name.value = f.name || '';
+  el.url.value = f.url || '';
+  el.avatar.value = f.avatar || '';
+  el.desc.value = f.desc || '';
+  formTitle.textContent = `编辑友链 #${id}`;
+  submitBtn.textContent = '保存修改';
+  cancelBtn.hidden = false;
+  document.getElementById('admin-box').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.name.focus({ preventScroll: true });
+}
+
+cancelBtn?.addEventListener('click', resetForm);
+
+form?.addEventListener('submit', async (e) => {
   e.preventDefault();
   // 用 FormData 取值：form.name 拿到的是 <form> 的 name 属性（空串），不是输入框
   const d = new FormData(e.target);
+  const body = {
+    name: d.get('name') || '',
+    url: d.get('url') || '',
+    avatar: d.get('avatar') || '',
+    desc: d.get('desc') || '',
+  };
+  const id = editingId;
   try {
-    await api('/api/friends', {
-      method: 'POST',
-      body: {
-        name: d.get('name') || '',
-        url: d.get('url') || '',
-        avatar: d.get('avatar') || '',
-        desc: d.get('desc') || '',
-      },
+    const r = await api(id ? '/api/friends/' + id : '/api/friends', {
+      method: id ? 'PATCH' : 'POST',
+      body,
     });
-    e.target.reset();
-    toast('已添加，正在检测状态…');
-    setTimeout(load, 1500);
+    resetForm();
+    toast(id ? (r.recheck ? '已保存，地址变了，正在重新检测…' : '已保存') : '已添加，正在检测状态…');
+    setTimeout(load, id ? (r.recheck ? 1500 : 0) : 1500);
   } catch (err) { toast(err.message); }
 });
 

@@ -1833,3 +1833,20 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
 @media (min-width: 1080px) {
   .mtoc, .mtoc-btn { display: none !important; }
 }
+
+/* 管理员在友链卡片右上角的编辑/删除：平时不占视线，hover 才出现 */
+.friend-card { position: relative; }
+.fc-act {
+  position: absolute; top: 8px; right: 8px; display: flex; gap: 4px;
+  opacity: 0; transition: opacity .15s;
+}
+.friend-card:hover .fc-act, .fc-act:focus-within { opacity: 1; }
+.fc-btn {
+  width: 24px; height: 24px; display: grid; place-items: center;
+  padding: 0; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--muted);
+  font-size: 13px; line-height: 1;
+}
+.fc-btn:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.fc-btn svg { width: 13px; height: 13px; }
+@media (hover: none) { .fc-act { opacity: 1; } }
