@@ -18,8 +18,11 @@
 
 <script type="module">
 import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons, bindReadingProgress } from '/app.js';
+import { bindCopyNotice } from '/copy-notice.js';
 
 bindCopyButtons(document);
+// 复制正文自动附署名。只挂在文章页 —— 首页复制卡片摘要不需要这段
+bindCopyNotice();
 
 const segs = location.pathname.split('/').filter(Boolean);
 const slug = decodeURIComponent(segs[0] === 'p' ? segs[1] || '' : segs[0] || '');
