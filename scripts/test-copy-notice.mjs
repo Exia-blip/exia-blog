@@ -77,6 +77,19 @@ t('富文本版转义尖括号，配置写进 HTML 也炸不了', () => {
   assert.ok(html.includes('&lt;script&gt;'), html);
 });
 
+t('富文本版把来源做成可点链接', () => {
+  const html = noticeHtml();
+  assert.ok(/<a href="https:\/\/blog\.126600\.xyz\/"/.test(html), html);
+  assert.ok(html.includes('>https://blog.126600.xyz/<'), '链接文字要是地址本身');
+});
+
+t('只有来源行变成链接，作者行保持纯文本', () => {
+  const html = noticeHtml();
+  const [first] = html.split('<br>');
+  assert.ok(!first.includes('<a '), first);
+  assert.ok(first.includes('<strong'), first);
+});
+
 let pass = 0;
 for (const [name, fn] of cases) {
   try {

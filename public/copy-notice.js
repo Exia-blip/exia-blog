@@ -43,11 +43,19 @@ const escHtml = (s) =>
    声明单独包一层虚线，跟正文分得开。样式全部内联 —— 对面不认识我们的 class。 */
 export function noticeHtml(notice = noticeText()) {
   const [first, ...rest] = notice.split('\n');
+  // 来源那行挂成真链接：粘到 Word / Notion 里读者能点回去，纯文本版只能手动抄
+  const linkify = (line) => {
+    const m = line.match(/https?:\/\/\S+/);
+    if (!m) return escHtml(line);
+    const url = m[0];
+    const href = `<a href="${escHtml(url)}" style="color:#888;text-decoration:underline">${escHtml(url)}</a>`;
+    return escHtml(line.slice(0, m.index)) + href + escHtml(line.slice(m.index + url.length));
+  };
   return (
     '<div style="margin-top:20px;padding-top:12px;border-top:1px solid #d8d8d8;' +
     'font-size:13px;line-height:1.75;color:#777">' +
     `<strong style="color:#555;font-weight:600">${escHtml(first)}</strong><br>` +
-    rest.map(escHtml).join('<br>') +
+    rest.map(linkify).join('<br>') +
     '</div>'
   );
 }
