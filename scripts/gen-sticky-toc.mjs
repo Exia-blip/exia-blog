@@ -14,7 +14,9 @@ const HIDDEN = process.argv.includes('--hidden') ? 1 : 0;
 const SUMMARY =
   '目录滚两屏就跟着文章跑出视口，高亮却还在正常变——不是 sticky 写错，是 grid 里那格只有 336px 高。把 align-items 从 start 改回 stretch，父格变成 12939px，滚到 35%/60%/95% 目录都停在 86px。附进度条、到底兜底、内部滚动、手机抽屉四处连带改动与实测数字。';
 
-const md = readFileSync(new URL('../content/12-sticky-toc-grid-align-items.md', import.meta.url), 'utf8');
+// Windows 上编辑器可能把文件写成 CRLF；库里统一 LF，否则渲染出来的围栏行尾会多出 \r
+const md = readFileSync(new URL('../content/12-sticky-toc-grid-align-items.md', import.meta.url), 'utf8')
+  .replace(/\r\n/g, '\n');
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
 let out = `-- 工程实录：侧边目录 sticky 失效（grid align-items）+ 四处连带修复
