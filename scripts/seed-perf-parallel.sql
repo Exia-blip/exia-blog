@@ -235,17 +235,38 @@ curl -s -o /dev/null -w "%{time_starttransfer}\n" "https://exia.de5.net/api/post
 
 不是并发没用，是**这两个页面压根不在那个 `Promise.all` 里**。那次提交只动了列表页那条链（`renderList` / `renderCats`），归档页和文章页的取数代码一行没改，自然一动不动。
 
-文章页现在的顺序是这样：
+文章页当时的顺序是这样：
 
 ```js
-const post = await env.DB.prepare(`SELECT p.*, ... WHERE p.slug = ?`).bind(slug).first();  // 1
-const tpl = await assetText(env, request, ''/post'');                                          // 模板
-const [{ results: tagRows }, { results: cmtRows }] = await Promise.all([...]);                // 2（已经是并发）
-if (post.series) { /* 系列目录 */ }                                                          // 3
-const site = await getSite(env);                                                              // 4
+const post = await env.DB.prepare(`SELECT p.*, ... WHERE p.slug = ?`).bind(slug).first();      // D1 第 1 次
+const tpl = await assetText(env, request, ''/post'');                                            // 模板走 ASSETS，不是 D1
+const [{ results: tagRows }, { results: cmtRows }] = await Promise.all([...]);                  // D1 第 2 次，标签与评论已经并发
+if (post.series) { /* 系列目录 */ }                                                            // 这篇没有系列归属，不发起
+const site = await getSite(env);                                                                // 30 秒进程内缓存，多数请求不落库
 ```
 
-四次数据库往返，串着。峰值 115ms——比并发后的栏目页还慢，因为它一次都没并发。
+**我一开始把这段数成了"四次数据库往返"，这是错的。** 数 `await` 不等于数往返：`series` 只有文章属于某个系列时才发，`getSite()` 有 30 秒进程内缓存。对一篇没有系列归属的文章，真实往返是 **2 次**——正文一次，标签与评论一次。
+
+所以 115ms 不是四次排队，是：2 次 D1 往返（按 32ms/次算约 64ms）+ 一次模板读取 + 渲染与响应。
+
+那空间在哪？在**依赖深度**。第 2 次往返之所以不能跟第 1 次合并，是因为要先拿到 `post.id` 才能去查 `post_tags` 和 `comments`。
+
+把关联条件从 id 换成 slug，这几条查询就不再互相等待：
+
+```js
+const [post, tagRes, cmtRes, seriesRes, site, tpl] = await Promise.all([
+  env.DB.prepare(`... FROM posts p LEFT JOIN users u ON u.id = p.author_id WHERE p.slug = ?`).bind(slug).first(),
+  env.DB.prepare(`... JOIN posts p ON p.id = pt.post_id WHERE p.slug = ?`).bind(slug).all(),
+  env.DB.prepare(`... JOIN posts p ON p.id = c.post_id WHERE p.slug = ?`).bind(slug).all(),
+  env.DB.prepare(`... WHERE series = (SELECT series FROM posts WHERE slug = ?)`).bind(slug).all(),
+  getSite(env),
+  assetText(env, request, ''/post''),
+]);
+```
+
+同一 URL、同样绕开缓存、各取中位：**127ms → 86ms**（p10 79、p90 89）。
+
+这里有个能复用的判断：**并发的单位不是"查询"，是"依赖链"**。同样是这四条 SQL，只把绑定参数的来源从 `post.id` 换成 `slug`，串行就变并行，代码行数几乎没变。
 
 归档页更值得说。它只有两次往返，但照样 170ms，因为第一次查询本身重：
 
@@ -255,14 +276,24 @@ const site = await getSite(env);                                                
  FROM posts p ${AUTHOR_JOIN} WHERE ... LIMIT 2000`
 ```
 
-`p.*` 把正文一起查出来了。这个站现在 14 篇公开文章，正文合计 **79KB**（最长一篇 12KB）。归档页要渲染的只是 14 个标题，却把 79KB 正文全搬了一遍，然后 `attachTags()` 再补一次往返。
+`p.*` 把正文一起查出来了。这个站当时 14 篇公开文章，正文合计 **79KB**（最长一篇 12KB）。归档页要渲染的只是 14 个标题，却把 79KB 正文全搬了一遍，然后 `attachTags()` 再补一次往返。
+
+改成只取需要的列，阅读时长用 SQL 现算（口径必须和 `readingTime()` 一致，否则归档显示 26 分钟、文章页显示 24 分钟）：
+
+```sql
+SELECT p.id, p.slug, p.title, p.summary, p.cover, p.category, p.published_at, p.created_at,
+       length(replace(replace(replace(replace(COALESCE(p.content,''''), char(32), ''''), char(10), ''''), char(13), ''''), char(9), '''')) AS content_len
+FROM posts p ...
+```
+
+实测 **175ms → 159ms**。省得不算多，因为它本来就只有两次往返，减掉的是一次查询里的传输量而不是一次排队。
 
 两条结论：
 
 1. **并发的收益 = 被并发的次数 × 单次往返成本。** 没有 await 可叠的页面，改多少 `Promise.all` 都是 0。
-2. **单条慢查询不会因为并发变快。** 归档页 170ms 里，能靠并发省的只有 `attachTags` 那一次；剩下的大头是 `p.*` 搬了 79KB 不该搬的数据。这个只能改 SQL（`SELECT slug,title,category,published_at`），改并发没用。
+2. **单条慢查询不会因为并发变快。** 归档页 170ms 里能靠并发省的只有一次，剩下的大头是搬了 79KB 不该搬的数据，只能改 SQL。
 
-如果下一步动文章页，预估收益是可以算的：四次往返压成一次（模板、标签、评论、系列、站点设置全部无依赖），按 32ms/次算，115ms → 约 70ms。而归档页把 `p.*` 收窄之后能省多少，得实测，我没做就不写数。
+上面这两处都是后来真做了才有的数字。写第六节初稿时我按"数 await"预估过一个"115ms → 约 70ms"，实际做出来是 86ms——**预估方向对，幅度偏乐观**，因为省掉的那次往返只有 32ms 上下，剩下的是渲染和响应，那部分动不了。
 
 ## 七、另一半：`s-maxage` 和 `s-maxage` 之外的那个参数
 
@@ -313,7 +344,22 @@ export async function edgePut(url, res, ttl) {
 
 实际影响不大（Worker 那层命中只要 4ms，回源一次也就 84ms），但两套口径不一致这件事本身是个隐患：以后调参数时，你以为改了一处，其实只改了一半。
 
-还有一个实测出来的观察：这套 HTML 现在**只有首页会在 CF 边缘出 `CF-Cache-Status: HIT`**，`/cat/*`、`/p/*`、`/archive` 全是 `DYNAMIC`（没有这个头）。也就是说，实际在兜底的几乎全是 Worker 内那层 `caches.default`。这意味着上面那个"swr 写丢了"的问题，比看起来更值得修。
+还有一个实测出来的观察：这套 HTML 现在**只有首页会在 CF 边缘出 `CF-Cache-Status: HIT`**，`/cat/*`、`/p/*`、`/archive` 全是 `DYNAMIC`（没有这个头）。也就是说，实际在兜底的几乎全是 Worker 内那层 `caches.default`。因为这个观察，上面那处不一致就不是"影响不大"了，而是**主力那一层没有 SWR**。
+
+改法是把两个参数都从同一组常量里传，写副本时跟出给浏览器的响应头对齐：
+
+```js
+export async function edgePut(url, res, ttl = EDGE_TTL, swr = EDGE_SWR) {
+  const headers = new Headers(res.headers);
+  headers.set(''cache-control'', `public, s-maxage=${ttl}, stale-while-revalidate=${swr}`);
+  ...
+}
+
+export const pageCacheControl = () =>
+  `public, max-age=0, s-maxage=${EDGE_TTL}, stale-while-revalidate=${EDGE_SWR}`;
+```
+
+现在改 `EDGE_TTL` 一处，两层一起变。以前是改了一处、另一处悄悄留着旧值——这类问题不会报错，只会让你在半年后排查"为什么偶尔有一次慢请求"。
 
 ### 一个不要碰的参数
 
@@ -361,7 +407,9 @@ npx wrangler tail --format json
 4. 有箭头指向它的，串行，且放在越后面越好；
 5. 能从 SQL 里一次带出来的，别发第二次（`GROUP_CONCAT` 那一条）。
 
-按这个流程数，一页 HTML 的往返次数应该等于**依赖链的深度**，不是查询的条数。`/cat/tools` 的依赖深度是 1，所以理想值就是 1 次——现在做到了。文章页的深度也是 1（正文取到之后其余全部无关），现在还是 4 次，这就是它 115ms 的原因。
+按这个流程数，一页 HTML 的往返次数应该等于**依赖链的深度**，不是查询的条数。`/cat/tools` 的依赖深度是 1，理想值就是 1 次——现在做到了。文章页理论上也是 1（正文取到之后其余全部无关），但当时被「必须先有 id」卡成了 2；把绑定参数换成 slug 之后才真的落到 1 次，86ms。
+
+这个流程有个前提：**只数真正会执行的往返**。`await` 摆在代码里不代表这次请求会走它——它可能在 `if` 里，可能被进程内缓存挡住。我最初数错就是因为没区分这两件事。
 
 至于标题里那个 549 → 96：数字是真的，但它跨了两个实验。写成"我只改了一件事"会让人以为并发能省 450ms，然后照着做一遍发现只省了 90ms，最后得出"网上文章都是假的"的结论。
 

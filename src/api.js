@@ -90,8 +90,8 @@ function shapePost(p, full = false) {
     // 手填封面 → 正文首图 → 预设自动图，永远有值，前端不用再判空
     // 列表用缩略图：预设图走 416px WebP（1.5KB），自传封面照原样
     cover: thumbOf(p),
-    // 有 AI 摘要就用摘要当导语，没有才截正文
-    excerpt: p.summary || extractExcerpt(p.content, 140),
+    // 有 AI 摘要就用摘要当导语，没有才截正文（归档查询只带 content_len，没有正文）
+    excerpt: p.summary || (p.content ? extractExcerpt(p.content, 140) : ''),
     summary: p.summary || '',
     summary_src: p.summary_src || '',
     // tag_str 来自列表查询的内联子查询；文章详情走 attachTags 塞 p.tags，两路都认
@@ -103,7 +103,8 @@ function shapePost(p, full = false) {
     author: p.author_name || p.login || '',
     author_id: p.author_id,
     avatar: p.avatar || '',
-    reading: readingTime(p.content),
+    // 归档查询没带正文，改用 SQL 算好的 content_len（口径与 readingTime 一致）
+    reading: p.content_len != null ? Math.max(1, Math.round(Number(p.content_len) / 400)) : readingTime(p.content),
     series: p.series || '',
     series_order: p.series_order || 0,
     // 发布时间：草稿转发布那一刻定下。老数据没有这个字段时退回 created_at，
@@ -135,6 +136,15 @@ async function syncTags(db, postId, content) {
 const AUTHOR_JOIN = 'LEFT JOIN users u ON u.id = p.author_id';
 const AUTHOR_COLS = 'u.name AS author_name, u.login, u.avatar';
 
+/* 「已到点」闸门：所有对外可见的查询都要过这一关。
+   hidden 是手动下架开关，时间闸门是自动上架开关 —— 预排文章靠它，
+   不用再指望每次都记得把 hidden 置 1（11-12 就漏过一次，两篇提前上线）。
+   published_at 为空的老文章退回 created_at，语义与排序用的表达式保持一致。
+   SQLite 同一语句内的 datetime('now') 是常量，不会逐行求值。 */
+export function liveSql(a = 'p') {
+  return `COALESCE(NULLIF(${a}.published_at, ''), ${a}.created_at) <= datetime('now')`;
+}
+
 /* 标签用相关子查询一次带出，替代「先查 posts 再 attachTags」的第二次往返。
    char(31) 是 US（unit separator），标签名里不可能出现，拿来当分隔符比逗号安全 —— 标签本身允许逗号。
    列表页每多一次 D1 往返就是几十毫秒，这一条和下面 COUNT 的并行加起来能砍掉一半 SSR 时间。 */
@@ -144,16 +154,27 @@ const splitTagStr = (s) => (s ? String(s).split('\u001f').filter(Boolean) : []);
 /* ---------- 归档数据（接口与 /archive SSR 共用一份，避免两处 SQL 走偏） ---------- */
 export async function archiveData(db, year = '') {
   const y = /^\d{4}$/.test(String(year)) ? String(year) : '';
-  const where = ['p.is_private = 0', 'p.hidden = 0'];
+  const where = ['p.is_private = 0', 'p.hidden = 0', liveSql('p')];
   const args = [];
   if (y) {
     where.push("substr(COALESCE(NULLIF(p.published_at, ''), p.created_at), 1, 4) = ?");
     args.push(y);
   }
 
+  /* 归档只渲染日期、标题、slug、阅读时长，却一直 SELECT p.*，
+     把当年全部正文（14 篇合计约 79KB）从 D1 读出来、穿过网络传进 Worker，
+     再全部丢掉。这里改成只取需要的列，阅读时长用 SQL 直接算：
+     与 public/md.js 的 readingTime() 同口径（去掉空白后 / 400 取整），
+     否则归档页显示 26 分钟、文章页显示 24 分钟，读者会以为哪里算错了。 */
+  const CONTENT_LEN = `length(replace(replace(replace(replace(COALESCE(p.content, ''), char(32), ''), char(10), ''), char(13), ''), char(9), ''))`;
+
   const { results } = await db
     .prepare(
-      `SELECT p.*, ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
+      `SELECT p.id, p.slug, p.title, p.summary, p.summary_src, p.cover, p.category,
+              p.series, p.series_order, p.is_private, p.hidden,
+              p.published_at, p.created_at, p.updated_at,
+              ${CONTENT_LEN} AS content_len,
+              ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
        FROM posts p ${AUTHOR_JOIN}
        WHERE ${where.join(' AND ')}
        ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC, p.id DESC
@@ -190,7 +211,7 @@ export async function archiveData(db, year = '') {
       `SELECT MIN(COALESCE(NULLIF(published_at, ''), created_at)) AS first_at,
               MAX(COALESCE(NULLIF(published_at, ''), created_at)) AS last_at,
               COUNT(*) AS total
-       FROM posts WHERE is_private = 0 AND hidden = 0`
+       FROM posts WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')}`
     )
     .first();
 
@@ -210,7 +231,7 @@ export async function tagsData(db) {
     .prepare(
       `SELECT t.name, COUNT(pt.post_id) AS count
        FROM tags t JOIN post_tags pt ON pt.tag_id = t.id
-       JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0
+       JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}
        GROUP BY t.name ORDER BY count DESC, t.name ASC`
     )
     .all();
@@ -230,7 +251,7 @@ export async function friendsData(db) {
 /* ---------- 文章列表查询（接口与首页 SSR 共用，避免两份 SQL 走偏） ---------- */
 export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q = '' } = {}) {
   const offset = (page - 1) * size;
-  const where = ['p.is_private = 0', 'p.hidden = 0'];
+  const where = ['p.is_private = 0', 'p.hidden = 0', liveSql('p')];
   const args = [];
 
   if (tag) {
@@ -403,7 +424,7 @@ export async function handleApi(env, request, url, ctx) {
     const { results } = await db
       .prepare(
         `SELECT category, COUNT(*) AS count FROM posts
-         WHERE is_private = 0 AND hidden = 0 GROUP BY category`
+         WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')} GROUP BY category`
       )
       .all();
 
@@ -437,7 +458,7 @@ export async function handleApi(env, request, url, ctx) {
       .prepare(
         `SELECT t.name, COUNT(pt.post_id) AS count FROM tags t
          LEFT JOIN post_tags pt ON pt.tag_id = t.id
-         LEFT JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0
+         LEFT JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}
          GROUP BY t.name ORDER BY count DESC, t.name ASC`
       )
       .all();
@@ -457,7 +478,7 @@ export async function handleApi(env, request, url, ctx) {
       .prepare(
         `SELECT series AS name, COUNT(*) AS count, MAX(updated_at) AS updated_at
          FROM posts
-         WHERE is_private = 0 AND hidden = 0 AND TRIM(series) != ''
+         WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')} AND TRIM(series) != ''
          GROUP BY series ORDER BY updated_at DESC`
       )
       .all();

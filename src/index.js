@@ -1,4 +1,4 @@
-import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData } from './api.js';
+import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
 import { html, json } from './utils.js';
 import { checkFriends } from './cron.js';
@@ -99,7 +99,6 @@ async function assetText(env, request, path) {
 }
 
 /* ---------- 文章页 SSR（正文 / 评论 / 结构化数据全部进 HTML） ---------- */
-const TAG_JOIN_SQL = `SELECT t.name FROM tags t JOIN post_tags pt ON pt.tag_id = t.id WHERE pt.post_id = ? ORDER BY t.name`;
 
 function relTime(sqlDate) {
   const d = new Date(String(sqlDate || '').replace(' ', 'T') + 'Z');
@@ -393,47 +392,68 @@ function renderSeries(post, list) {
 async function servePostPage(env, request, slug) {
   const user = await currentUser(env, request);
 
-  const post = await env.DB.prepare(
-    `SELECT p.*, u.name AS author_name, u.login, u.avatar FROM posts p
-     LEFT JOIN users u ON u.id = p.author_id WHERE p.slug = ?`
-  )
-    .bind(slug)
-    .first();
+  /* 依赖深度压到 1：标签和评论不再等 post.id，直接用 slug 关联，就能跟正文一起发。
+     上一版把 [标签, 评论] 并在一起，看着像"已经并发了"，但深度的成因不是查询条数，
+     而是"必须先拿到 id 才能查子表"——真正的串行段是 post → 子表这一跳。
+     系列目录同理，用子查询按 slug 找同系列名，也进同一批。
+     D1 单库单线程、单次调用最多 6 条连接，这里 4 条查询远没到顶。 */
+  const [post, tagRes, cmtRes, seriesRes, site, tpl] = await Promise.all([
+    env.DB.prepare(
+      `SELECT p.*, u.name AS author_name, u.login, u.avatar,
+              COALESCE(NULLIF(p.published_at, ''), p.created_at) <= datetime('now') AS is_live
+       FROM posts p
+       LEFT JOIN users u ON u.id = p.author_id WHERE p.slug = ?`
+    )
+      .bind(slug)
+      .first(),
+    env.DB.prepare(
+      `SELECT t.name FROM tags t
+       JOIN post_tags pt ON pt.tag_id = t.id
+       JOIN posts p ON p.id = pt.post_id
+       WHERE p.slug = ? ORDER BY t.name`
+    )
+      .bind(slug)
+      .all(),
+    env.DB.prepare(
+      `SELECT c.id, c.parent_id, c.name, c.website, c.content, c.is_admin, c.created_at
+       FROM comments c JOIN posts p ON p.id = c.post_id
+       WHERE p.slug = ? ORDER BY c.created_at ASC`
+    )
+      .bind(slug)
+      .all(),
+    env.DB.prepare(
+      `SELECT slug, title, series_order FROM posts
+       WHERE TRIM(COALESCE(series, '')) != ''
+         AND series = (SELECT series FROM posts WHERE slug = ?)
+         AND is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
+       ORDER BY series_order ASC, created_at ASC`
+    )
+      .bind(slug)
+      .all(),
+    getSite(env),
+    assetText(env, request, '/post'),
+  ]);
 
   if (!post) return await notFoundPage(env, request, '页面走丢了');
   if (post.is_private && (!user || (user.id !== post.author_id && !user.is_admin))) {
     return await notFoundPage(env, request, '页面走丢了');
   }
+  // 预排：时间没到就当这页不存在。列表/RSS/sitemap 已经挡住了，但直接拿到 slug
+  // 的人还是能拼出来 —— 不挡的话，预排等于提前公开，只是没人知道地址。
+  // 作者与站长例外，要能提前预览。
+  if (!post.is_live && !(user && (user.id === post.author_id || user.is_admin))) {
+    return await notFoundPage(env, request, '页面走丢了');
+  }
 
-  const tpl = await assetText(env, request, '/post');
   if (!tpl) return new Response('模板缺失', { status: 500 });
 
-  const [{ results: tagRows }, { results: cmtRows }] = await Promise.all([
-    env.DB.prepare(TAG_JOIN_SQL).bind(post.id).all(),
-    env.DB.prepare(
-      'SELECT id, parent_id, name, website, content, is_admin, created_at FROM comments WHERE post_id = ? ORDER BY created_at ASC'
-    )
-      .bind(post.id)
-      .all(),
-  ]);
-
+  const tagRows = tagRes.results;
+  const cmtRows = cmtRes.results;
   post.tags = tagRows.map((r) => r.name);
   post.comments = cmtRows.length;
 
   // 系列目录：同系列公开文章按序号排，当前这篇标出来，顺带算出上下篇
-  let seriesPosts = [];
-  if (post.series) {
-    const { results } = await env.DB.prepare(
-      `SELECT slug, title, series_order FROM posts
-       WHERE series = ? AND is_private = 0 AND hidden = 0
-       ORDER BY series_order ASC, created_at ASC`
-    )
-      .bind(post.series)
-      .all();
-    seriesPosts = results;
-  }
-
-  const site = await getSite(env);
+  const seriesPosts = seriesRes.results;
   const siteName = site.name;
   const origin = new URL(request.url).origin;
   // canonical 必须和 sitemap / RSS 里给的地址一致，否则同一篇文章被收录两份
@@ -600,7 +620,7 @@ async function servePostPage(env, request, slug) {
     .replace(/<main class="wrap" id="page">[\s\S]*?<\/main>/, `<main class="wrap wrap-post" id="page">${article}</main>`);
 
   return html(stampAssets(injected, env), 200, {
-    // 私密文章不进缓存；公开文章统一走 pageCacheControl（浏览器不缓存、边缘 60s + SWR 600s）
+    // 私密文章不进缓存；公开文章统一走 pageCacheControl（浏览器不缓存、边缘 300s + SWR 86400）
     'cache-control': post.is_private ? 'private, no-store' : pageCacheControl(),
   });
 }
@@ -777,7 +797,7 @@ async function pickPosts(db) {
     const { results } = await db
       .prepare(
         `SELECT slug, title, category, published_at FROM posts
-         WHERE slug IN (${PICKS.map(() => '?').join(',')}) AND is_private = 0 AND hidden = 0`
+         WHERE slug IN (${PICKS.map(() => '?').join(',')}) AND is_private = 0 AND hidden = 0 AND ${liveSql('posts')}`
       )
       .bind(...PICKS)
       .all();
@@ -849,7 +869,7 @@ async function catCounts(env) {
   try {
     const { results } = await env.DB.prepare(
       `SELECT category, COUNT(*) AS count FROM posts
-       WHERE is_private = 0 AND hidden = 0 GROUP BY category`
+       WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')} GROUP BY category`
     ).all();
     for (const r of results) {
       const slug = normalizeCat(r.category);
@@ -1098,7 +1118,7 @@ const rfc822 = (v) => {
 async function serveRss(env, request) {
   const { results } = await env.DB.prepare(
     `SELECT id, slug, title, content, summary, category, published_at, created_at, updated_at FROM posts
-     WHERE is_private = 0 AND hidden = 0
+     WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
      ORDER BY COALESCE(NULLIF(published_at, ''), created_at) DESC LIMIT 30`
   ).all();
 
@@ -1128,9 +1148,14 @@ ${catXml}
     })
     .join('\n');
 
-  // lastBuildDate 取最近一次改动的时间：聚合器靠它判断要不要重抓
+  // lastBuildDate 取最近一次改动的时间：聚合器靠它判断要不要重抓。
+  // 注意必须夹到「现在」以内 —— 预排文章的 updated_at 可能是未来的时间戳，
+  // 上面虽然有 liveSql 把正文挡住了，但 lastBuildDate 单独取 MAX 仍然会顶到未来，
+  // 聚合器见到未来日期会认为这份 feed 异常（实测出现过 Wed, 18 Nov 2026 而当天是 11-12）。
   const lastPost = results[0];
-  const lastBuild = lastPost ? rfc822(lastPost.updated_at || lastPost.created_at) : new Date().toUTCString();
+  const now = Date.now();
+  const rawBuild = lastPost ? rfc822(lastPost.updated_at || lastPost.created_at) : null;
+  const lastBuild = rawBuild && new Date(rawBuild).getTime() <= now ? rawBuild : new Date(now).toUTCString();
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
 <channel>
@@ -1155,7 +1180,7 @@ ${items}
 
 async function serveSitemap(env, request) {
   const origin = new URL(request.url).origin;
-  const publicOnly = 'p.is_private = 0 AND p.hidden = 0';
+  const publicOnly = `p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}`;
 
   const [{ results: posts }, { results: cats }, { results: tags }] = await Promise.all([
     env.DB.prepare(
@@ -1325,7 +1350,7 @@ async function route(request, env, ctx) {
     const hit = await env.DB.prepare(
       `SELECT 1 FROM tags t
        JOIN post_tags pt ON pt.tag_id = t.id
-       JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0
+       JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}
        WHERE t.name = ? LIMIT 1`
     )
       .bind(tag)

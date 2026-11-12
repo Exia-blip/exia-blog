@@ -27,9 +27,15 @@ export async function edgeGet(url) {
 }
 
 /** 存一份供匿名访客复用的副本：s-maxage 控制边缘，浏览器那边由调用方改头 */
-export async function edgePut(url, res, ttl) {
+/* 写回 caches.default 的副本。
+   注意这里必须把 swr 一起写进去：以前只写 `public, s-maxage=${ttl}`，
+   于是同一个页面有两条口径 —— CF 边缘层（看回给浏览器的响应头）带 86400 的 SWR，
+   Worker 内这层只有硬 TTL。过期后命中 Worker 内缓存的那条路会先卡一次回源，
+   表现出来就是"有时秒开、有时 300ms"，查起来很难。
+   ttl / swr 都跟 pageCacheControl() 用同一组常量，改一处两边同步。 */
+export async function edgePut(url, res, ttl = EDGE_TTL, swr = EDGE_SWR) {
   const headers = new Headers(res.headers);
-  headers.set('cache-control', `public, s-maxage=${ttl}`);
+  headers.set('cache-control', `public, s-maxage=${ttl}, stale-while-revalidate=${swr}`);
   headers.delete('set-cookie');
   const copy = new Response(res.body, { status: res.status, statusText: res.statusText, headers });
   try {
