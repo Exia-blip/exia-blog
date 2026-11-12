@@ -534,6 +534,8 @@ a.cat-chip:hover { filter: brightness(0.96); }
   letter-spacing: -0.02em;
   margin: 0 0 14px;
   font-weight: 600;
+  /* 正文列放宽后标题常在末尾掉下一个孤字，balance 让两行长度对齐 */
+  text-wrap: balance;
 }
 .post-head .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
 
@@ -1225,6 +1227,33 @@ body { transition: background-color .26s ease, color .26s ease; }
 /* 首页放宽，卡片才有安知鱼那种横向大图的余地 */
 :root[data-theme="anzhiyu"] .wrap.home { max-width: 1080px; }
 
+/* 宽屏双列：1080 单列时 1920 屏幕两侧各空 420px，整页像一条窄带。
+   拆成两列后内容铺满 1240，同一屏多看一篇，左右也不再空荡。
+   只放宽首页 —— 归档/分类页是一行一条的时间线，双列会读串行。 */
+@media (min-width: 1180px) {
+  :root[data-theme="anzhiyu"] .wrap.home { max-width: 1240px; }
+  main.wrap.home .post-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+  /* 空态/分页/精选块在 grid 里会被挤成一格，统一横跨整行 */
+  main.wrap.home .post-list > :not(.post-card) { grid-column: 1 / -1; }
+  main.wrap.home .post-card { height: 100%; }
+  main.wrap.home .post-card .body { display: flex; flex-direction: column; }
+  main.wrap.home .post-card .meta { margin-top: auto; }
+  /* 两列后卡片只剩 589 宽，232 的封面会把正文压到 309 —— 标题两行都放不下。
+     缩到 176×132，正文回到 ~370，标题与摘要都能正常舒展。 */
+  main.wrap.home .post-card .thumb { width: 176px; height: 132px; flex: 0 0 176px; }
+  main.wrap.home .post-card:not(:has(.thumb))::before {
+    width: 176px; height: 132px; flex: 0 0 176px;
+  }
+}
+@media (min-width: 1500px) {
+  :root[data-theme="anzhiyu"] .wrap.home { max-width: 1340px; }
+  main.wrap.home .post-list { gap: 22px; }
+}
+
 /* 导航：悬浮胶囊 */
 :root[data-theme="anzhiyu"] header.site {
   background: transparent;
@@ -1677,9 +1706,32 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
 }
 
 @media (min-width: 1080px) {
-  main.wrap-post { max-width: 1120px; }
-  .post-article { grid-template-columns: 200px minmax(0, 760px); gap: 54px; justify-content: center; }
+  main.wrap-post { max-width: 1180px; }
+  .post-article { grid-template-columns: 210px minmax(0, 780px); gap: 76px; justify-content: center; }
   .post-toc { display: block; }
+}
+
+/* 宽屏再放一档：容器跟着屏幕长，目录与正文之间拉开到 110px。
+   1920 视口下正文从 754 变 800、左右留白从 422 降到 ~250，
+   再宽就没意义了 —— 中文正文超过 50 字一行，眼睛回行会丢串。 */
+@media (min-width: 1440px) {
+  main.wrap-post { max-width: 1360px; }
+  .post-article { grid-template-columns: 220px minmax(0, 800px); gap: 110px; }
+}
+
+/* 大屏补上第三列：两列时正文会被目录顶到视口右侧（1920 下偏 165px），
+   加一列同宽的留白，正文才回到正中 —— 目录仍在左边，间距不打折。
+   第三列没有内容，纯占位，所以结构不用改。 */
+@media (min-width: 1600px) {
+  /* 1540 = 正文800 + 两翼220×2 + 间隙90×2 + 卡片内边距68 + 容器内边距44；
+     两翼比目录宽 20px，目录才不会贴死在卡片边缘上 */
+  main.wrap-post { max-width: 1540px; }
+  .post-article {
+    grid-template-columns: 220px minmax(0, 800px) 220px;
+    gap: 90px;
+    justify-content: center;
+  }
+  .post-toc { justify-self: start; width: 200px; }
 }
 
 /* 标题锚点：hover 才出现，平时不占视觉重量；负 margin 让它挂在正文左侧留白里 */
