@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>cors probe</title>
+<body>pending</body>
+<script>
+  const BASE = 'https://exia-bench.meitu.workers.dev';
+  const q = new URLSearchParams(location.search);
+  const ep = q.get('ep') || '/cors/maxage';
+  const n = +(q.get('n') || 3);
+  const gap = +(q.get('gap') || 0);
+
+  (async () => {
+    await fetch(BASE + '/cors-reset');
+    // 带自定义头 → 强制触发预检；同一 URL 同一方法连发 n 次
+    for (let i = 0; i < n; i++) {
+      if (i && gap) await new Promise((r) => setTimeout(r, gap));
+      await fetch(BASE + ep, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'x-bench': '1' },
+        body: JSON.stringify({ i }),
+      });
+    }
+    const c = await (await fetch(BASE + '/cors-count')).json();
+    const payload = JSON.stringify({ ep, n, gap, counters: c.rows });
+    document.body.textContent = 'RESULT:' + payload;
+    // 回传一份到服务端：headless 的 dump 时机不可控，靠这个端点取结果
+    await fetch(BASE + '/cors-result', { method: 'POST', body: payload });
+    document.body.textContent = 'REPORTED:' + payload;
+  })();
+</script>

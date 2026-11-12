@@ -1,0 +1,15 @@
+{
+  "name": "exia-bench",
+  "main": "index.js",
+  "compatibility_date": "2024-11-06",
+  "d1_databases": [
+    { "binding": "DB", "database_name": "blog-db", "database_id": "2568eaf1-80f6-4a40-bc2c-9e361ff32d6b" }
+  ],
+  "r2_buckets": [
+    { "binding": "BUCKET", "bucket_name": "blog-images" }
+  ],
+  "kv_namespaces": [
+    { "binding": "BENCH", "id": "872119b938744c4cb5a1ca570d56349a" }
+  ],
+  "observability": { "enabled": true }
+}
