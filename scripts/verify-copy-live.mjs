@@ -54,12 +54,12 @@ const check = (name, ok, detail) => {
 const body = await copyBy('.post-body p', 0);
 check(
   '正文段落复制后带署名',
-  body.text.includes('作者: Gund Blog') &&
-    body.text.includes('本文来自于: https://blog.126600.xyz/') &&
+  body.text.includes('作者: Exia Blog') &&
+    body.text.includes('本文来自于: https://exia.de5.net/') &&
     body.text.includes('CC BY-NC-SA 4.0'),
   `选中 ${body.picked} 字，尾部：${JSON.stringify(body.text.slice(-140))}`
 );
-check('声明与正文之间有空行分隔', /\n\n作者: Gund Blog/.test(body.text), JSON.stringify(body.text.slice(-200)));
+check('声明与正文之间有空行分隔', /\n\n作者: Exia Blog/.test(body.text), JSON.stringify(body.text.slice(-200)));
 check('正文内容没有被改动', body.picked >= 60 && body.text.length > body.picked, `picked=${body.picked} len=${body.text.length}`);
 
 // 2. 代码块

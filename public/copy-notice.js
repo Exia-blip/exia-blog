@@ -6,11 +6,39 @@
 
    纯函数全部 export，scripts/test-copy-notice.mjs 直接在 node 里跑，不需要 DOM。 */
 
+/* 兜底值：只在拿不到站点配置时用（比如离线打开的单页、单测）。
+   真实站点上作者名和地址都从 Worker 下发，改站名/换域名不需要动这个文件。 */
 export const DEFAULTS = {
-  author: 'Gund Blog',
-  site: 'https://blog.126600.xyz/',
+  author: 'Exia Blog',
+  site: 'https://exia.de5.net/',
   license: '署名-非商业性使用-相同方式共享 4.0 国际 (CC BY-NC-SA 4.0)',
 };
+
+/* 站名读 window.__SITE__.name（= SITE_NAME 环境变量），
+   地址读 canonical 的 origin（= SITE_ORIGIN 环境变量）。
+   两边都在服务端配置里，这里只跟着走 —— 换个域名不会把旧地址留在别人的剪贴板里。 */
+export function resolveConfig(cfg = {}) {
+  const meta = (typeof window !== 'undefined' && window.__SITE__) || {};
+
+  let site = '';
+  if (typeof document !== 'undefined') {
+    const link = document.querySelector('link[rel="canonical"]');
+    const href = link && link.getAttribute('href');
+    try {
+      if (href && typeof location !== 'undefined') site = new URL(href, location.href).origin + '/';
+    } catch {
+      site = '';
+    }
+    // 没有 canonical 的页（草稿预览之类）就用当前来源，总比空着强
+    if (!site && typeof location !== 'undefined') site = location.origin + '/';
+  }
+
+  return {
+    author: cfg.author || meta.name || DEFAULTS.author,
+    site: cfg.site || site || DEFAULTS.site,
+    license: cfg.license || DEFAULTS.license,
+  };
+}
 
 /* 低于这个长度不附加。60 个字符约等于中文两句话，
    比这更短的复制基本都是"取个词去搜"，贴声明纯属添堵。 */
@@ -70,7 +98,7 @@ function inCodeBlock(node) {
 
 export function bindCopyNotice(cfg = {}) {
   const doc = cfg.doc || document;
-  const notice = noticeText(cfg);
+  const notice = noticeText(resolveConfig(cfg));
   const min = cfg.min ?? MIN_CHARS;
 
   doc.addEventListener('copy', (e) => {

@@ -9,7 +9,11 @@ const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Applic
 
 const LONG = '正文第一段，长度足够触发署名声明。这里写了很多字，目的是让选区的字符数跨过门槛。'.repeat(3);
 
-const PAGE = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"></head><body>
+// 复刻线上头部：canonical 决定声明里的站点地址，__SITE__.name 决定作者名
+const PAGE = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="canonical" href="https://exia.de5.net/p/demo">
+<script>window.__SITE__={name:'Exia Blog'}</script>
+</head><body>
 <nav id="nav">导航文字，不该被贴署名，长度也故意写够六十个字符以免被长度门槛挡掉而误判通过。</nav>
 <article class="post-article"><div class="post-body md">
   <p id="p1">${LONG}</p>
@@ -69,8 +73,8 @@ const t = (name, fn) => cases.push([name, fn]);
 t('长正文：附加三行声明，并拦掉浏览器默认写入', async () => {
   const r = await fire('#p1');
   if (!r.prevented) throw new Error('没有 preventDefault，默认行为会把原文再写一遍');
-  if (!r.plain.includes('作者: Gund Blog')) throw new Error('缺作者行：' + r.plain.slice(-120));
-  if (!r.plain.includes('本文来自于: https://blog.126600.xyz/')) throw new Error('缺来源行');
+  if (!r.plain.includes('作者: Exia Blog')) throw new Error('缺作者行：' + r.plain.slice(-120));
+  if (!r.plain.includes('本文来自于: https://exia.de5.net/')) throw new Error('缺来源行');
   if (!r.plain.includes('CC BY-NC-SA 4.0')) throw new Error('缺协议行');
   if (!r.plain.startsWith('正文第一段')) throw new Error('正文被改动：' + r.plain.slice(0, 40));
 });
@@ -78,7 +82,7 @@ t('长正文：附加三行声明，并拦掉浏览器默认写入', async () =>
 t('声明单独成段，与正文之间恰好两个换行', async () => {
   const r = await fire('#p1');
   const tail = r.plain.slice(r.plain.indexOf('正文第一段'));
-  if (!/\n\n作者: Gund Blog/.test(tail)) throw new Error('分隔不对：' + JSON.stringify(r.plain.slice(-200)));
+  if (!/\n\n作者: Exia Blog/.test(tail)) throw new Error('分隔不对：' + JSON.stringify(r.plain.slice(-200)));
 });
 
 t('富文本版一起写进 text/html，粘进 Word 有分隔线', async () => {
@@ -125,7 +129,7 @@ t('真实 Ctrl+C 走完端到端，系统剪贴板里有署名', async () => {
   await page.keyboard.up('Control');
   await new Promise((r) => setTimeout(r, 200));
   const text = await page.evaluate(() => navigator.clipboard.readText());
-  if (!text.includes('Gund Blog')) throw new Error('系统剪贴板里没有署名：' + text.slice(-160));
+  if (!text.includes('Exia Blog')) throw new Error('系统剪贴板里没有署名：' + text.slice(-160));
 });
 
 let pass = 0;
