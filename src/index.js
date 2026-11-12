@@ -473,6 +473,9 @@ async function servePostPage(env, request, slug) {
   /* 侧边目录：只有 h2 够多才出（少于 3 节的文章不需要目录，出了反而是噪音）。
      id 直接从渲染结果里抽，不重算 slug —— 两套规则迟早漂移成"目录点了跳偏"。 */
   const heads = tocOf(bodyHtml);
+  /* 目录自带 01/02 序号，标题里再写「一、二、」就成了「02 一、先量，不猜」。
+     只剥目录这一份文案，正文标题保持作者原样（有人就是喜欢给章节编号）。 */
+  const tocLabel = (t) => String(t).replace(/^[一二三四五六七八九十百]+[、.．]\s*/, '');
   const toc =
     heads.length >= 3
       ? `<aside class="post-toc" aria-label="本文目录"><div class="toc-inner">
@@ -483,7 +486,7 @@ async function servePostPage(env, request, slug) {
               `<li><a href="#${esc(h.id)}" data-toc="${esc(h.id)}"><span class="toc-n">${String(i + 1).padStart(
                 2,
                 '0'
-              )}</span><span class="toc-t">${esc(h.text)}</span></a></li>`
+              )}</span><span class="toc-t">${esc(tocLabel(h.text))}</span></a></li>`
           )
           .join('')}</ol>
       </div></aside>`
