@@ -353,7 +353,205 @@ async function serveFriendsPage(env, request) {
   return html(body, 200, { 'cache-control': pageCacheControl() });
 }
 
-/* ---------- 系列目录 ----------
+/* ---------- 系列页 ----------
+   建它的直接原因：JSON-LD 里 isPartOf 指向 CreativeWorkSeries，得有个真地址接住它；
+   顺带解决另一个问题——系列里的每一篇原本只能链到「同系列另一篇」，
+   没有一个页面能让读者一眼看完整条线，也没有一个入口让爬虫一次抓全。 */
+
+// 主题初始化那一段在 404、系列页都要用，复制三份迟早漂移
+function themeBoot(site) {
+  const cfg = JSON.stringify({ theme: site.theme, mode: site.mode }).replace(/</g, '\\u003c');
+  return `<script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m)})();</script>`;
+}
+
+function seriesShell({ site, origin, title, kicker, desc, canonical, ld, sub, list }) {
+  const siteName = esc(site.name || 'Blog');
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)} · ${siteName}</title>
+<meta name="description" content="${esc(desc)}">
+<meta name="theme-color" content="${THEME_COLOR[site.theme] || '#faf9f7'}">
+<meta name="color-scheme" content="light dark">
+<link rel="canonical" href="${esc(canonical)}">
+<link rel="manifest" href="/manifest.webmanifest">
+${themeBoot(site)}
+<link rel="stylesheet" href="/style.css">
+<style>
+.page-head{padding:42px 0 26px}
+.page-kicker{margin:0 0 8px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.page-head h1{font-family:var(--serif);font-size:30px;line-height:1.25;margin:0 0 10px;letter-spacing:var(--hero-space)}
+.page-sub{margin:0;color:var(--muted);font-size:13.5px}
+.series-page{list-style:none;margin:0;padding:0 0 60px;display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.series-page li:first-child{border-top:none}
+.series-page a{display:flex;gap:14px;align-items:baseline;padding:13px 0;border-top:1px solid var(--line);color:var(--fg);text-decoration:none}
+.series-page a:hover .sp-t{color:var(--accent)}
+.sp-n{flex:0 0 auto;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.sp-t{flex:1 1 auto;font-size:15px;line-height:1.55}
+.sp-d{flex:0 0 auto;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.foot{max-width:760px;margin:0 auto;padding:26px 22px 60px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+.foot a{color:var(--muted);text-decoration:none}
+.foot a:hover{color:var(--accent)}
+@media(max-width:560px){.sp-t{font-size:14px}.sp-d{display:none}}
+</style>
+${ld ? ldJson(ld) : ''}
+</head><body>
+${renderHeader(site, '/series')}
+<main class="wrap">
+  <div class="page-head">
+    <p class="page-kicker">${esc(kicker)}</p>
+    <h1>${esc(title)}</h1>
+    <p class="page-sub">${sub}</p>
+  </div>
+  ${list}
+</main>
+<footer class="foot"><a href="/">← 首页</a> · <a href="/series">全部系列</a></footer>
+</body></html>`;
+}
+
+const fmtDay = (v) => String(v || '').slice(0, 10);
+
+// 序号优先用 series_order；没填过就按列表位置兜底，别让读者看见「00」
+function seriesRows(rows) {
+  if (!rows.length) return '<p class="empty">这个系列还没有公开文章</p>';
+  return `<ol class="series-page">${rows
+    .map((p, i) => {
+      const n = String(p.series_order > 0 ? p.series_order : i + 1).padStart(2, '0');
+      return `<li><a href="/p/${encodeURIComponent(p.slug)}">
+        <span class="sp-n">${n}</span>
+        <span class="sp-t">${esc(p.title)}</span>
+        <span class="sp-d">${esc(fmtDay(p.published_at || p.created_at))}</span></a></li>`;
+    })
+    .join('')}</ol>`;
+}
+
+async function serveSeriesPage(env, request, name) {
+  const site = await getSite(env);
+  const origin = new URL(request.url).origin;
+  const { results } = await env.DB.prepare(
+    `SELECT slug, title, series_order, published_at, created_at FROM posts
+     WHERE series = ? AND is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
+     ORDER BY series_order ASC, created_at ASC`
+  )
+    .bind(name)
+    .all();
+
+  if (!results.length) return await notFoundPage(env, request, '没有这个系列');
+
+  const latest = results.reduce((a, p) => {
+    const t = String(p.published_at || p.created_at || '');
+    return t > a ? t : a;
+  }, '');
+  const canonical = `${origin}/series/${encodeURIComponent(name)}`;
+
+  const ld = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'CreativeWorkSeries',
+        '@id': `${canonical}#series`,
+        name,
+        url: canonical,
+        inLanguage: 'zh-CN',
+        numberOfEpisodes: results.length,
+        hasPart: results.map((p, i) => ({
+          '@type': 'BlogPosting',
+          position: p.series_order > 0 ? p.series_order : i + 1,
+          name: p.title,
+          url: `${origin}/p/${encodeURIComponent(p.slug)}`,
+        })),
+      },
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: '首页', item: `${origin}/` },
+          { '@type': 'ListItem', position: 2, name: '系列', item: `${origin}/series` },
+          { '@type': 'ListItem', position: 3, name, item: canonical },
+        ],
+      },
+    ],
+  };
+
+  return html(
+    seriesShell({
+      site,
+      origin,
+      title: name,
+      kicker: '系列连载',
+      desc: `${name}：共 ${results.length} 篇，最近更新 ${fmtDay(latest)}。`,
+      canonical,
+      ld,
+      sub: `共 ${results.length} 篇 · 最近更新 ${esc(fmtDay(latest))}`,
+      list: seriesRows(results),
+    }),
+    200,
+    { 'cache-control': pageCacheControl() }
+  );
+}
+
+async function serveSeriesIndex(env, request) {
+  const site = await getSite(env);
+  const origin = new URL(request.url).origin;
+  const { results } = await env.DB.prepare(
+    `SELECT series AS name, COUNT(*) AS n, MAX(COALESCE(NULLIF(published_at, ''), created_at)) AS latest
+     FROM posts
+     WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')} AND TRIM(COALESCE(series, '')) != ''
+     GROUP BY series ORDER BY latest DESC`
+  ).all();
+
+  const canonical = `${origin}/series`;
+  const list = results.length
+    ? `<ol class="series-page">${results
+        .map(
+          (s) => `<li><a href="/series/${encodeURIComponent(s.name)}">
+        <span class="sp-t">${esc(s.name)}</span>
+        <span class="sp-d">${s.n} 篇 · ${esc(fmtDay(s.latest))}</span></a></li>`
+        )
+        .join('')}</ol>`
+    : '<p class="empty">还没有成系列的文章</p>';
+
+  const ld = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'CollectionPage',
+        '@id': canonical,
+        url: canonical,
+        name: '系列',
+        inLanguage: 'zh-CN',
+        isPartOf: { '@id': `${origin}/#website` },
+      },
+      results.length
+        ? {
+            '@type': 'ItemList',
+            itemListElement: results.map((s, i) => ({
+              '@type': 'ListItem',
+              position: i + 1,
+              name: s.name,
+              url: `${origin}/series/${encodeURIComponent(s.name)}`,
+            })),
+          }
+        : null,
+    ].filter(Boolean),
+  };
+
+  return html(
+    seriesShell({
+      site,
+      origin,
+      title: '系列',
+      kicker: '连载',
+      desc: results.map((s) => s.name).join('、') || '按系列读',
+      canonical,
+      ld,
+      sub: `${results.length} 个系列 · 按最近更新排`,
+      list,
+    }),
+    200,
+    { 'cache-control': pageCacheControl() }
+  );
+}
+
+/* ---------- 系列目录（文章页顶部那块）
    爬虫发现新文章主要靠 sitemap，但「哪篇该跟着重抓」靠的是站内互链。
    系列文每发一篇，前面所有篇都多一条入链，等于每次发文带动一次全系列回访。 */
 function renderSeries(post, list) {
@@ -381,11 +579,34 @@ function renderSeries(post, list) {
   return `<nav class="series" id="series" aria-label="系列目录">
     <div class="series-top">
       <span class="series-kicker">系列连载</span>
-      <strong class="series-name">${esc(post.series)}</strong>
+      <a class="series-name" href="/series/${encodeURIComponent(post.series)}">${esc(post.series)}</a>
       <span class="series-count">共 ${list.length} 篇 · 第 ${idx + 1} 篇</span>
     </div>
     <ol class="series-list">${items}</ol>
     ${jump}
+  </nav>`;
+}
+
+/* 非系列文的兜底导航：同栏目按时间排，取前后各一篇。
+   注意判断条件不能只看 post.series —— 系列里只有 1 篇公开文章时，
+   renderSeries 因为「不够 2 篇」什么都不渲染，这时候如果这里也跳过，
+   那篇文章就彻底没有出口了（排障记刚上线时就是这个状态）。 */
+function renderAdjacent(post, list, seriesList) {
+  if (post.series && seriesList && seriesList.length > 1) return '';
+  if (!list || list.length < 2) return '';
+  const idx = list.findIndex((p) => p.slug === post.slug);
+  if (idx < 0) return '';
+  const prev = idx > 0 ? list[idx - 1] : null;
+  const next = idx < list.length - 1 ? list[idx + 1] : null;
+  if (!prev && !next) return '';
+  const cell = (p, dir, label) =>
+    p
+      ? `<a class="adj ${dir}" href="/p/${encodeURIComponent(p.slug)}" rel="${dir}"><span class="adj-k">${label}</span><span class="adj-t">${esc(p.title)}</span></a>`
+      : '';
+  const cells = [cell(prev, 'prev', '← 上一篇'), cell(next, 'next', '下一篇 →')].filter(Boolean);
+  // 只有一侧有文章时收成单列：留半个虚线空框看着像加载失败
+  return `<nav class="post-adjacent${cells.length === 1 ? ' single' : ''}" aria-label="同栏目相邻文章">
+    ${cells.join('')}
   </nav>`;
 }
 
@@ -396,8 +617,9 @@ async function servePostPage(env, request, slug) {
      上一版把 [标签, 评论] 并在一起，看着像"已经并发了"，但深度的成因不是查询条数，
      而是"必须先拿到 id 才能查子表"——真正的串行段是 post → 子表这一跳。
      系列目录同理，用子查询按 slug 找同系列名，也进同一批。
-     D1 单库单线程、单次调用最多 6 条连接，这里 4 条查询远没到顶。 */
-  const [post, tagRes, cmtRes, seriesRes, site, tpl] = await Promise.all([
+     D1 单库单线程、单次调用最多 6 条连接，这里 5 条查询刚好卡在线上，
+     再加查询就得换成 batch() —— 别在这条路上继续加。 */
+  const [post, tagRes, cmtRes, seriesRes, catRes, site, tpl] = await Promise.all([
     env.DB.prepare(
       `SELECT p.*, u.name AS author_name, u.login, u.avatar,
               COALESCE(NULLIF(p.published_at, ''), p.created_at) <= datetime('now') AS is_live
@@ -427,6 +649,16 @@ async function servePostPage(env, request, slug) {
          AND series = (SELECT series FROM posts WHERE slug = ?)
          AND is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
        ORDER BY series_order ASC, created_at ASC`
+    )
+      .bind(slug)
+      .all(),
+    // 同栏目整份列表：只取 slug/title，一个栏目最多十来篇，比「查上一篇 + 查下一篇」
+    // 两条 SQL 便宜——D1 的成本主要在往返，不在这十几行数据。
+    env.DB.prepare(
+      `SELECT slug, title FROM posts
+       WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
+         AND category = (SELECT category FROM posts WHERE slug = ?)
+       ORDER BY COALESCE(NULLIF(published_at, ''), created_at) ASC`
     )
       .bind(slug)
       .all(),
@@ -544,6 +776,7 @@ async function servePostPage(env, request, slug) {
       ${renderSeries(post, seriesPosts)}
       <div class="md post-body">${bodyHtml}</div>
       <footer class="post-foot"><div class="tagbar" style="margin:0">${tagbar}</div></footer>
+      ${renderAdjacent(post, catRes.results, seriesPosts)}
       ${renderComments(cmtRows, cmtRows.length)}
       </div>
     </article>`;
@@ -675,14 +908,17 @@ function renderHeader(site, path) {
   const extra = [];
   if (path.startsWith('/tag/')) {
     const t = decodeURIComponent(path.slice(5).split('/')[0] || '');
-    if (t) extra.push(`<a href="${esc(path)}" class="active">#${esc(t)}</a>`);
+    if (t) extra.push(`<a href="${esc(path)}" class="active" aria-current="page">#${esc(t)}</a>`);
   } else if (path.startsWith('/cat/')) {
     const c = catBySlug(decodeURIComponent(path.slice(5).split('/')[0] || ''));
-    if (c) extra.push(`<a href="/cat/${c.slug}" class="active">${esc(c.name)}</a>`);
+    if (c) extra.push(`<a href="/cat/${c.slug}" class="active" aria-current="page">${esc(c.name)}</a>`);
   }
 
+  // aria-current 不是一个装饰：屏幕阅读器靠它回答「我现在在哪一页」，
+  // 光靠视觉上的 .active 底色，读屏用户听不出区别。
   const links = NAV.map(
-    (l) => `<a href="${l.href}"${active === l.key ? ' class="active"' : ''}>${l.label}</a>`
+    (l) =>
+      `<a href="${l.href}"${active === l.key ? ' class="active" aria-current="page"' : ''}>${l.label}</a>`
   ).join('');
 
   return `<header class="site">
@@ -1182,7 +1418,7 @@ async function serveSitemap(env, request) {
   const origin = new URL(request.url).origin;
   const publicOnly = `p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}`;
 
-  const [{ results: posts }, { results: cats }, { results: tags }] = await Promise.all([
+  const [{ results: posts }, { results: cats }, { results: tags }, { results: series }] = await Promise.all([
     env.DB.prepare(
       `SELECT p.slug, p.updated_at FROM posts p WHERE ${publicOnly}
        ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC LIMIT 1000`
@@ -1195,6 +1431,12 @@ async function serveSitemap(env, request) {
        JOIN post_tags pt ON pt.tag_id = t.id
        JOIN posts p ON p.id = pt.post_id AND ${publicOnly}
        GROUP BY t.name ORDER BY c DESC`
+    ).all(),
+    // 系列页是新加的地址，只靠站内链被发现太慢，直接进 sitemap
+    env.DB.prepare(
+      `SELECT p.series AS n, COUNT(*) AS c FROM posts p
+       WHERE ${publicOnly} AND TRIM(COALESCE(p.series, '')) != ''
+       GROUP BY p.series`
     ).all(),
   ]);
 
@@ -1210,13 +1452,19 @@ async function serveSitemap(env, request) {
     .map((slug) => `  <url><loc>${origin}/cat/${slug}</loc></url>`)
     .join('\n');
 
+  const seriesUrls = series.length
+    ? [`  <url><loc>${origin}/series</loc></url>`]
+        .concat(series.map((r) => `  <url><loc>${origin}/series/${encodeURIComponent(r.n)}</loc></url>`))
+        .join('\n')
+    : `  <url><loc>${origin}/series</loc></url>`;
+
   const tagUrls = tags
     .filter((t) => t.c > 0)
     .map((t) => `  <url><loc>${origin}/tag/${encodeURIComponent(t.n)}</loc></url>`)
     .join('\n');
 
   return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${origin}/</loc></url>\n  <url><loc>${origin}/archive</loc></url>\n  <url><loc>${origin}/categories</loc></url>\n  <url><loc>${origin}/friends</loc></url>\n${catUrls}\n${tagUrls}\n${urls}\n</urlset>`,
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${origin}/</loc></url>\n  <url><loc>${origin}/archive</loc></url>\n  <url><loc>${origin}/categories</loc></url>\n  <url><loc>${origin}/friends</loc></url>\n${catUrls}\n${tagUrls}\n${seriesUrls}\n${urls}\n</urlset>`,
     { headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=600' } }
   );
 }
@@ -1313,6 +1561,8 @@ const isPagePath = (p) =>
   p === '/archive' ||
   p === '/categories' ||
   p === '/friends' ||
+  p === '/series' ||
+  p.startsWith('/series/') ||
   p.startsWith('/tag/') ||
   p.startsWith('/cat/') ||
   p.startsWith('/p/');
@@ -1389,6 +1639,16 @@ async function route(request, env, ctx) {
   // 友链（服务端直出，爬虫能看到真实外链）
   if (path === '/friends' || path === '/friends/') {
     return await serveFriendsPage(env, request);
+  }
+
+  // 系列页：/series 总览 + /series/<名称> 单系列
+  if (path === '/series' || path === '/series/') {
+    return await serveSeriesIndex(env, request);
+  }
+  if (path.startsWith('/series/')) {
+    const name = decodeURIComponent(path.slice(8).split('/')[0] || '').trim();
+    if (!name) return await notFoundPage(env, request, '没有这个系列');
+    return await serveSeriesPage(env, request, name);
   }
 
   // /p/:slug 与 /:slug 都指向文章

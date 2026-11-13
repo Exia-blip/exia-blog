@@ -163,9 +163,11 @@ export async function mountHeader(active = '') {
       ${siteDesc ? `<span class="brand-desc" title="${esc(siteDesc)}">${esc(siteDesc)}</span>` : ''}
       <nav class="top" id="site-nav">
         ${links
-          .map((l) => `<a href="${l.href}" class="${active === l.key ? 'active' : ''}">${l.label}</a>`)
+          .map((l) =>
+            `<a href="${l.href}"${active === l.key ? ' class="active" aria-current="page"' : ''}>${l.label}</a>`
+          )
           .join('')}
-        ${active === 'tag' ? `<a href="javascript:;" class="active">#${esc(new URLSearchParams(location.search).get('t') || '')}</a>` : ''}
+        ${active === 'tag' ? `<a href="javascript:;" class="active" aria-current="page">#${esc(new URLSearchParams(location.search).get('t') || '')}</a>` : ''}
         <span id="nav-user">${user ? userNav(user, active) : '<a href="/login">登录</a>'}</span>
         ${buttonHTML}
       </nav>

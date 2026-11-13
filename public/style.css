@@ -36,11 +36,11 @@
 :root[data-mode="dark"] {
   --bg: #141518;
   --bg-soft: #1b1d21;
-  --card: #1b1d21;
+  --card: #212429;
   --fg: #e9e6e1;
   --fg-soft: #c3bfb8;
   --muted: #8b857c;
-  --line: #2a2c31;
+  --line: #343841;
   --accent: #e08a54;
   --accent-soft: #2a1f16;
   --green: #4fc47f;
@@ -57,11 +57,11 @@
   :root:not([data-mode]) {
     --bg: #141518;
     --bg-soft: #1b1d21;
-    --card: #1b1d21;
+    --card: #212429;
     --fg: #e9e6e1;
     --fg-soft: #c3bfb8;
     --muted: #8b857c;
-    --line: #2a2c31;
+    --line: #343841;
     --accent: #e08a54;
     --accent-soft: #2a1f16;
     --green: #4fc47f;
@@ -96,11 +96,11 @@
 :root[data-theme="ink"][data-mode="dark"] {
   --bg: #0e0e10;
   --bg-soft: #17171a;
-  --card: #17171a;
+  --card: #1d1d21;
   --fg: #efeee9;
   --fg-soft: #c9c5bc;
   --muted: #8a877f;
-  --line: #26262a;
+  --line: #303036;
   --accent: #e6e2d8;
   --accent-soft: #26262a;
   --green: #6cbb8c;
@@ -140,11 +140,11 @@
 :root[data-theme="forest"][data-mode="dark"] {
   --bg: #0e1411;
   --bg-soft: #151d17;
-  --card: #151d17;
+  --card: #1b261e;
   --fg: #e5ede4;
   --fg-soft: #bbc7b8;
   --muted: #7c8878;
-  --line: #222c26;
+  --line: #2c3a31;
   --accent: #6cc088;
   --accent-soft: #16281b;
   --green: #57c47f;
@@ -181,11 +181,11 @@
 :root[data-theme="ocean"][data-mode="dark"] {
   --bg: #0a1017;
   --bg-soft: #111a24;
-  --card: #111a24;
+  --card: #16222e;
   --fg: #e2eaf4;
   --fg-soft: #b4c2d4;
   --muted: #76859a;
-  --line: #1c2735;
+  --line: #263444;
   --accent: #71a7f2;
   --accent-soft: #0f1d2d;
   --green: #4dc095;
@@ -223,11 +223,11 @@
 :root[data-theme="plum"][data-mode="dark"] {
   --bg: #130f16;
   --bg-soft: #1b1520;
-  --card: #1b1520;
+  --card: #221a29;
   --fg: #eee7f1;
   --fg-soft: #c7bad0;
   --muted: #8a7d90;
-  --line: #29212f;
+  --line: #342a3b;
   --accent: #cd93e2;
   --accent-soft: #241a29;
   --green: #55c08c;
@@ -266,11 +266,11 @@
 :root[data-theme="mono"][data-mode="dark"] {
   --bg: #0b0b0c;
   --bg-soft: #141416;
-  --card: #131316;
+  --card: #1a1a1e;
   --fg: #dcdce0;
   --fg-soft: #a8a8b0;
   --muted: #81818a;
-  --line: #232327;
+  --line: #2e2e33;
   --accent: #4ade80;
   --accent-soft: #12251a;
   --green: #4ade80;
@@ -393,7 +393,7 @@ nav.top a, nav.top button {
   cursor: pointer;
 }
 nav.top a:hover, nav.top button:hover { color: var(--fg); background: var(--bg-soft); }
-nav.top a.active { color: var(--fg); background: var(--bg-soft); }
+nav.top a.active, nav.top a[aria-current="page"] { color: var(--fg); background: var(--bg-soft); }
 
 /* 窄屏汉堡：桌面不出现，640 以下顶掉整条导航（见文件末尾的移动端规则） */
 .nav-toggle {
@@ -457,8 +457,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
   color: var(--muted);
   font-size: 12px;
   line-height: 1.7;
+  transition: transform 0.16s, background 0.16s, color 0.16s;
 }
-.tag:hover { background: var(--accent-soft); color: var(--accent); }
+.tag:hover { background: var(--accent-soft); color: var(--accent); transform: translateY(-1px); }
 
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
@@ -1234,11 +1235,11 @@ body { transition: background-color .26s ease, color .26s ease; }
 :root[data-theme="anzhiyu"][data-mode="dark"] {
   --bg: #18171d;
   --bg-soft: #201f27;
-  --card: #1f1e26;
+  --card: #262530;
   --fg: #eaeaf0;
   --fg-soft: #c2c2cc;
   --muted: #8b8b98;
-  --line: #2c2b35;
+  --line: #34333f;
   --accent: #7b8df8;
   --accent-soft: #242539;
   --green: #4ecb9b;
@@ -1665,7 +1666,8 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
   color: var(--accent); background: var(--accent-soft);
   padding: 2px 8px; border-radius: 999px; font-weight: 600;
 }
-.series-name { font-size: 14.5px; color: var(--fg); }
+.series-name { font-size: 14.5px; color: var(--fg); text-decoration: none; border-bottom: 1px solid transparent; }
+.series-name:hover { color: var(--accent); border-bottom-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .series-count { margin-left: auto; font-size: 12px; color: var(--muted); }
 .series-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .series-list li > a,
@@ -1685,6 +1687,35 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .series-jump a:hover { color: var(--accent); }
+
+/* 非系列文的上下篇。系列文顶部已有目录 + 上下篇，这里只在没系列时出现，
+   所以两者不会同时挤在页面上。
+   用 grid 而不是 flex：只有一侧有文时，卡片不会撑成半个页面的空白。 */
+.post-adjacent {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  margin: 26px 0 8px;
+}
+.post-adjacent .adj {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--card); text-decoration: none; color: var(--fg);
+  transition: 0.18s;
+}
+.post-adjacent .adj:hover {
+  transform: translateY(-2px); box-shadow: var(--shadow);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+.post-adjacent.single { grid-template-columns: 1fr; }
+.post-adjacent.single .adj.next { text-align: left; align-items: flex-start; }
+.post-adjacent .adj.next { text-align: right; align-items: flex-end; }
+.post-adjacent .adj-k { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.post-adjacent .adj-t { font-size: 14px; line-height: 1.5; }
+.post-adjacent .adj:hover .adj-t { color: var(--accent); }
+@media (max-width: 560px) {
+  .post-adjacent { grid-template-columns: 1fr; }
+  .post-adjacent .adj.next { text-align: left; align-items: flex-start; }
+
+}
 @media (max-width: 560px) {
   .series { padding: 14px 14px 12px; }
   .series-count { margin-left: 0; flex: 1 1 100%; }
@@ -1849,9 +1880,11 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
 .pick {
   display: flex; align-items: baseline; gap: 10px; padding: 9px 0;
   border-top: 1px dashed var(--line); text-decoration: none; color: var(--fg);
+  transition: transform 0.16s, color 0.16s;
 }
 .pick-n { font-family: var(--mono); font-size: 11px; color: var(--accent); flex: 0 0 auto; }
 .pick-t { flex: 1; min-width: 0; font-size: 14.5px; line-height: 1.5; }
+.pick:hover { transform: translateY(-1px); }
 .pick:hover .pick-t { color: var(--accent); }
 .pick-m { font-size: 11.5px; color: var(--muted); white-space: nowrap; flex: 0 0 auto; }
 
@@ -1938,3 +1971,10 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
 .fc-btn:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
 .fc-btn svg { width: 13px; height: 13px; }
 @media (hover: none) { .fc-act { opacity: 1; } }
+
+/* 暗色卡片的上沿高光：提亮之后的 card 已经能和背景分开了，
+   但纯色块还是容易看成"一片灰"。加一条 1px 的内高光，卡片有了厚度。 */
+:root[data-mode="dark"] .post-card { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035); }
+:root[data-mode="dark"] .post-card:hover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--shadow);
+}

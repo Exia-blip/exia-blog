@@ -101,9 +101,18 @@ export function postLd({ post, site, origin, url, image, words }) {
     timeRequired: post.reading ? `PT${post.reading}M` : undefined,
     isAccessibleForFree: true,
     commentCount: post.comments || undefined,
-    // 系列文声明所属系列，搜索引擎能把同系列的几篇串成一组
+    // 系列内序号。schema.org 的 position 定义就是「在系列/序列中的位置」，
+    // 挂在文章节点上比塞进 isPartOf 里更贴规范（后者没有 position 这个属性位）。
+    position: post.series && post.series_order > 0 ? post.series_order : undefined,
+    // 系列文声明所属系列，搜索引擎能把同系列的几篇串成一组。
+    // url 必须指向系列页本身：以前这里填的是当前文章地址，等于声明
+    // 「这个系列就长在这篇文章上」，系列页建起来之前是个自指的假地址。
     isPartOf: post.series
-      ? { '@type': 'CreativeWorkSeries', name: post.series, url: `${origin}/p/${encodeURIComponent(post.slug)}` }
+      ? {
+          '@type': 'CreativeWorkSeries',
+          name: post.series,
+          url: `${origin}/series/${encodeURIComponent(post.series)}`,
+        }
       : `${origin}/#website`,
   };
 
