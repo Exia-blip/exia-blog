@@ -161,6 +161,20 @@ npx wrangler secret put R2_BUCKET_NAME
 npx wrangler secret put WEBHOOK_URL
 ```
 
+`secret put` 默认是交互式的：敲回车后等你粘贴值，再回车结束。在脚本、CI 或 AI 助手里跑会一直卡在等待输入。把值接到标准输入就不会卡：
+
+```bash
+printf '%s' 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' | npx wrangler secret put WEBHOOK_URL
+```
+
+写完跑一次体检，它会列出每一项是「已配」「仅本地」还是「未配」，并拦下有问题的组合：
+
+```bash
+npm run preflight
+```
+
+`npm run deploy` 也会先跑这一步。挡的不是「还没配完」，而是「半配」—— 只填 `TURNSTILE_SITE_KEY` 不填 `TURNSTILE_SECRET` 时，评论会被全量拒收，而页面看起来一切正常。
+
 R2 的 Access Key 在 Cloudflare 控制台 → R2 → Manage R2 API Tokens → Create API token（权限选 Object Read & Write），拿到 Access Key ID 和 Secret Access Key。
 
 ### 7. 配置 R2 CORS（仅启用直传时需要）

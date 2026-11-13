@@ -15,7 +15,8 @@
     "check:ld": "node scripts/check-ld.mjs",
     "verify:a11y": "node scripts/verify-a11y-perf.mjs",
     "exp:css": "node scripts/exp-css-split.mjs",
-    "make:variants": "node scripts/make-variants.mjs"
+    "make:variants": "node scripts/make-variants.mjs",
+    "preflight": "node scripts/check-env.mjs"
   },
   "devDependencies": {
     "puppeteer-core": "^23.11.1",
