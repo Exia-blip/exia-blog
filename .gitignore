@@ -10,3 +10,10 @@ node_modules/
 # 视觉回归截图（本地产物，不入库）
 shots/
 scripts/.cards-input.json
+
+# 工具链工作目录（本地笔记、自动化记忆），属于本机状态，不该进仓库
+.workbuddy/
+
+# 临时导出：调试时把模板吐成 *.tmp.out.mjs 看过，别跟着提交
+*.tmp.out.mjs
+*.tmp
