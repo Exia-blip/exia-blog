@@ -1351,29 +1351,45 @@ async function injectTheme(env, res, url) {
 /* 统一加安全头：HTML 顺带给内联脚本发 nonce（缓存里存的也是配对好的头，回放不会错位） */
 /* 外部统计服务（可选）。
    默认走自己记的 /api/pv，一个第三方脚本都不引；
-   只有显式配了 UMAMI_SCRIPT 才换成 umami，并顺手关掉自建上报 ——
-   两套同时开着，两边数字会互相矛盾，没人能判断哪个是真的。 */
-function analyticsTag(env) {
+   只有显式配了 UMAMI_SCRIPT + UMAMI_SITE_ID 才换成 umami，并顺手关掉自建上报 ——
+   两套同时开着，两边数字会互相矛盾，没人能判断哪个是真的。
+
+   两个值必须成对：只填 script 不填 site id 时，脚本会正常下载、正常执行，
+   但一句上报都发不出去（没有 website id 就不知道该记到哪个站点）。
+   那种半配状态比完全不配更糟 —— 自建上报已经被 __PV_OFF__ 关掉了，
+   两边都没有数据。所以缺一个就整体退回自建。 */
+function analyticsCfg(env) {
   const src = String((env && env.UMAMI_SCRIPT) || '').trim();
-  if (!/^https:\/\//.test(src)) return '';
   const id = String((env && env.UMAMI_SITE_ID) || '').trim();
-  const attr = id ? ` data-website-id="${esc(id)}"` : '';
-  return `<script>window.__PV_OFF__=1</script><script defer src="${esc(src)}"${attr}></script>`;
+  if (!/^https:\/\//.test(src) || !id) return null;
+  let u;
+  try {
+    u = new URL(src);
+  } catch {
+    return null;
+  }
+  /* 采集端不一定和脚本同域。Umami Cloud 的脚本在 cloud.umami.is，
+     上报实际打到 gateway.umami.is（从 script.js 里读出来的，不是猜的）。
+     只放行脚本源的话，脚本正常加载、页面不报错、script-src 也没被拦，
+     但每条上报都在 connect-src 被静默挡掉 —— 后台一条数据都没有，
+     而控制台里那句 CSP 拒绝很容易被当成噪声略过。 */
+  const collect = /(^|\.)umami\.is$/.test(u.hostname) ? ['https://gateway.umami.is'] : [];
+  return { src: src, id: id, script: u.origin, collect: collect };
 }
 
-function analyticsOrigin(env) {
-  const src = String((env && env.UMAMI_SCRIPT) || '').trim();
-  try {
-    return src ? new URL(src).origin : '';
-  } catch {
-    return '';
-  }
+function analyticsTag(cfg) {
+  if (!cfg) return '';
+  return (
+    `<script>window.__PV_OFF__=1</script>` +
+    `<script defer src="${esc(cfg.src)}" data-website-id="${esc(cfg.id)}"></script>`
+  );
 }
 
 async function harden(res, env) {
   // 配了 Turnstile 才在 CSP 里放行它的域名；没配就保持零第三方
   const tsOn = !!(env && env.TURNSTILE_SITE_KEY);
-  const anOn = analyticsOrigin(env);
+  const anCfg = analyticsCfg(env);
+  const anOn = anCfg ? { script: anCfg.script, collect: anCfg.collect } : null;
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('text/html')) {
     return new Response(res.body, {
@@ -1384,7 +1400,7 @@ async function harden(res, env) {
   }
   const nonce = makeNonce();
   let raw = await res.text();
-  const ana = analyticsTag(env);
+  const ana = analyticsTag(anCfg);
   // 放在补 nonce 之前：这段 script 自己也是内联的，得跟别的一起拿到 nonce
   if (ana) raw = raw.replace('</head>', ana + '</head>');
   // 先混淆邮箱再补 nonce：解码脚本是内联的，得跟着一起拿到 nonce

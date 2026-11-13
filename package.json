@@ -19,7 +19,8 @@
     "variants:check": "node scripts/make-variants.mjs --check",
     "preflight": "node scripts/check-env.mjs",
     "setup:webhook": "node scripts/setup.mjs webhook",
-    "setup:turnstile": "node scripts/setup.mjs turnstile"
+    "setup:turnstile": "node scripts/setup.mjs turnstile",
+    "setup:umami": "node scripts/setup.mjs umami"
   },
   "devDependencies": {
     "puppeteer-core": "^23.11.1",

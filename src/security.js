@@ -68,19 +68,29 @@ export function obfuscateEmail(html) {
   return out.includes('</body>') ? out.replace('</body>', EMAIL_DECODER + '</body>') : out + EMAIL_DECODER;
 }
 
-function csp(n, { turnstile = false, analytics = '' } = {}) {
+function csp(n, { turnstile = false, analytics = null } = {}) {
   // Turnstile 没配的时候一个字节都不放：默认状态仍然是"零第三方脚本 + 严格 CSP"
   const ts = turnstile ? ' https://challenges.cloudflare.com' : '';
-  // 只有显式配了统计服务端（UMAMI_SCRIPT）才放行那一个源
-  const an = analytics ? ' ' + analytics : '';
+  /* analytics 形如 { script, collect[] }：
+     script 是放行外部脚本的源，collect 是上报地址。
+     两者不一定同域 —— Umami Cloud 的 script 在 cloud.umami.is，
+     上报却打到 gateway.umami.is。只放行脚本源的话，脚本能加载、
+     页面不报错、CSP 也不拦 script-src，但每一条上报都被 connect-src 挡掉，
+     表现就是「统计接上了，可后台一条数据都没有」。 */
+  const anScript = analytics && analytics.script ? ' ' + analytics.script : '';
+  const anConnect = analytics
+    ? [...new Set([analytics.script, ...(analytics.collect || [])].filter(Boolean))]
+        .map((o) => ' ' + o)
+        .join('')
+    : '';
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${n}'${ts}${an}`,
+    `script-src 'self' 'nonce-${n}'${ts}${anScript}`,
     // 主题与 Markdown 大量用 style 属性，样式源只能放开内联
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    `connect-src 'self'${ts}${an}`,
+    `connect-src 'self'${ts}${anConnect}`,
     "media-src 'self' https:",
     `frame-src 'self' https://www.youtube.com https://player.bilibili.com${ts}`,
     "object-src 'none'",

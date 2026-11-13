@@ -565,6 +565,23 @@ node scripts/gen-cards.mjs --apply    # 出图并写回 posts.cover
 
 **剩下一个**：Cloudflare 的 Web Analytics（`static.cloudflareinsights.com/beacon.min.js`，约 20KB）。它不属于站点代码，是边缘在 Worker 之后注入 HTML 的，`no-transform` 能挡住但会连带关掉 Brotli（HTML 从 8KB 涨回 25KB，亏），改 CSP 也没用（Cloudflare 会给注入的脚本套上页面 nonce）。要彻底去掉只能在面板关：**Speed → Optimization → Web Analytics**。它本身是 `defer`，不阻塞渲染，留着不影响 LCP。
 
+### 访问统计
+
+默认**零第三方脚本**：`boot.js` 在 `load` 之后用 `sendBeacon` 打一条 `/api/pv`，落 D1 的 `pv` 表，后台 `/admin/stats` 看。IP 做加盐摘要（`sha256(ip|salt)` 前 8 字节）够去重、反查不出人；按北京时间切日；同人同日同页只记一次；爬虫和 `/editor` 不记。
+
+想换成 Umami（或任何 umami 兼容实例）：
+
+```bash
+npm run setup:umami -- https://cloud.umami.is/script.js <website-id>
+npm run deploy
+```
+
+脚本会先拉一次 `script.js` 确认地址真的是 umami，再发一条假事件去问实例「这个 id 存在吗」——id 不存在时 umami 回 `Invalid website ID`，据此在写入前拦掉。`--dry` 只验不写，`--no-probe` 跳过那条会写数据的事件。
+
+两个值必须**成对**：只填 `UMAMI_SCRIPT` 不填 `UMAMI_SITE_ID` 时，脚本会正常下载、正常执行，但一句上报都发不出去（没有 id 就不知道记到哪个站点），而自建上报已经被关掉了。所以缺一个就整体退回自建，`npm run preflight` 会把这种半配单独列出来。
+
+**CSP 要按两个域名放行。** Umami Cloud 的脚本在 `cloud.umami.is`，上报实际打到 `gateway.umami.is`（从 `script.js` 里读出来的）。只放行脚本源的话，脚本能加载、`script-src` 不报错，但每条上报都在 `connect-src` 被静默挡掉 —— 后台一条数据没有，控制台只有一句容易被当成噪声的 CSP 拒绝。`src/security.js` 的 `csp()` 因此把 `script` 和 `collect` 分开处理。
+
 ## 友链存活检测
 
 `src/cron.js` 一个文件，`*/20 * * * *` 触发，`ctx.waitUntil()` 托管。规则和坑都写在文件头注释里，这里只记结论：

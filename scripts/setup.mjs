@@ -18,7 +18,9 @@ const argv = process.argv.slice(2);
 // --dry：只验值、不落盘。密钥不会写进 Worker，wrangler.jsonc 也不会改。
 // 想先确认「这把 secret 到底对不对」而不想动线上时用它。
 const dry = argv.includes('--dry');
-const [cmd, ...args] = argv.filter((a) => a !== '--dry');
+// --no-probe：跳过会写数据的探测（umami 用）。内网实例、或不想在统计里留一条假 PV 时用。
+const noProbe = argv.includes('--no-probe');
+const [cmd, ...args] = argv.filter((a) => !a.startsWith('--'));
 const die = (msg) => {
   console.error(`\n✗ ${msg}\n`);
   process.exit(1);
@@ -207,11 +209,157 @@ async function setupTurnstile() {
   console.log('如果验证框一直转圈或报错，先去 CF 面板确认 widget 的 Hostname 包含 exia.de5.net。');
 }
 
+/* ---------------- umami ---------------- */
+/* 两个值都是公开信息（会出现在每一份 HTML 里），所以走 vars 不走 secret。
+   判错的方式和 turnstile 同源：拿一个必然失败的请求换错误码。
+   Umami 的 /api/send 对「id 不存在」和「id 存在但域名不对」回的是不同的错，
+   所以假 id 会得到 Invalid website ID，真 id 至少不会得到这一句。 */
+async function setupUmami() {
+  const [scriptUrl, siteId] = args.map((s) => (s || '').trim());
+  if (!scriptUrl || !siteId) {
+    die('用法：npm run setup:umami -- <script 地址> <website-id>\n  例：npm run setup:umami -- https://cloud.umami.is/script.js 1f2e3d4c-...');
+  }
+
+  let u;
+  try {
+    u = new URL(scriptUrl);
+  } catch {
+    die(`script 地址不完整：${scriptUrl.slice(0, 60)}（要带 https://，且指向 script.js）`);
+  }
+  if (u.protocol !== 'https:') die(`script 必须是 https，当前是 ${u.protocol}`);
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(siteId)) {
+    die(`website-id 形状不对：${siteId.slice(0, 20)}…（应该是 UUID，五段、带连字符）`);
+  }
+  console.log('  website-id 形状正常（UUID）');
+
+  console.log('\n—— 拉一次脚本，确认地址真的指向 umami ——');
+  let js = '';
+  try {
+    const r = await fetch(scriptUrl, { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) die(`脚本地址返回 HTTP ${r.status}，不是 200。检查是不是把控制台地址当成了 script 地址。`);
+    js = await r.text();
+  } catch (e) {
+    die(`脚本拉不下来：${e.message}\n  常见原因：地址拼错、实例还没起来、本机网络不通。`);
+  }
+  if (!/data-website-id|umami/i.test(js.slice(0, 4000))) {
+    die('这个地址返回的内容不像 umami 的 script.js。\n  Cloud 的地址是 https://cloud.umami.is/script.js；自托管是 <你的域名>/script.js。');
+  }
+  console.log(`  ok  脚本可用（${(js.length / 1024).toFixed(1)}KB）`);
+
+  /* 采集端未必和脚本同域：Cloud 的脚本在 cloud.umami.is，上报打到 gateway.umami.is。
+     这个不一致如果只改 vars 不管 CSP，表现是「脚本加载了、控制台没报错、后台没数据」。 */
+  const isCloud = /(^|\.)umami\.is$/.test(u.hostname);
+  const collect = isCloud ? 'https://gateway.umami.is/api/send' : u.origin + '/api/send';
+  console.log(`  采集端：${collect}${isCloud ? '（Cloud 的脚本与采集不同域，CSP 会一起放行）' : ''}`);
+
+  if (noProbe) {
+    console.log('\n—— 跳过 website-id 探测（--no-probe）——');
+    console.log('  id 只做了形状检查，没有向实例确认它存在。上线后看后台有没有数据。');
+  } else {
+  console.log('\n—— 用一条假事件验 website-id ——');
+  /* hostname 必须写站点的真域名。用 probe.invalid 这种假域名的话，
+     实例若配了域名白名单会直接拒收，而它拒收时回的错误和「id 不存在」是同一句
+     Invalid website ID —— 那样会把一个正确的配置判成错的。
+     代价是这次探测会记一条 PV，所以路径标成 /__setup_probe__，后台一眼能认出来。 */
+  const siteHost = (() => {
+    try {
+      const m = readFileSync('wrangler.jsonc', 'utf8').match(/"SITE_ORIGIN"\s*:\s*"https:\/\/([^"/]+)"/);
+      return m ? m[1] : '';
+    } catch {
+      return '';
+    }
+  })();
+  const probeHost = siteHost || u.hostname;
+  let sent = false;
+  try {
+    const r = await fetch(collect, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'event',
+        payload: { website: siteId, hostname: probeHost, url: '/__setup_probe__', referrer: '' },
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const text = (await r.text()).slice(0, 200);
+    if (r.ok) {
+      sent = true;
+      console.log(`  ok  website-id 被接受（HTTP ${r.status}）`);
+    } else if (/invalid website id/i.test(text)) {
+      die(
+        `website-id 不被认可：${text}\n` +
+          '  这个 id 不属于该实例，或者已被删除。去 Umami 后台 → 设置 → 网站 → 复制 Website ID。'
+      );
+    } else {
+      /* 错误不是「id 无效」就说明 id 这一步过了，卡在后面（域名白名单、限流之类）。
+         那不是本脚本能替对方改的配置，但也不该拦着部署。 */
+      console.log(`  ok  website-id 被认可（后续一步被拒，属正常：${text.slice(0, 80)}）`);
+    }
+  } catch (e) {
+    die(`连不上采集端：${e.message}`);
+  }
+  if (sent) {
+    console.log(`     注意：刚才那条事件会记进统计（hostname ${probeHost}、路径 /__setup_probe__），`);
+    console.log('     在后台按路径过滤一下就能排除，不影响真实数字。');
+  }
+  }
+
+  console.log('\n—— 写进 wrangler.jsonc 的 vars ——');
+  const path = 'wrangler.jsonc';
+  const src = readFileSync(path, 'utf8');
+  // 注释行不能进 join：那边会给每一项补逗号，`... /api/pv,` 这种注释看着像写错了
+  const note = '// 外部统计：两个都填才生效，缺一个整体退回自建 /api/pv';
+  const lines = [`"UMAMI_SCRIPT": "${scriptUrl}"`, `"UMAMI_SITE_ID": "${siteId}"`];
+  let out = src;
+  const hasScript = /"UMAMI_SCRIPT"\s*:\s*"[^"]*"/.test(out);
+  const hasId = /"UMAMI_SITE_ID"\s*:\s*"[^"]*"/.test(out);
+
+  if (hasScript && hasId) {
+    out = out.replace(/"UMAMI_SCRIPT"\s*:\s*"[^"]*"/, lines[0]).replace(/"UMAMI_SITE_ID"\s*:\s*"[^"]*"/, lines[1]);
+    console.log('  ok  两个键都已存在，替换为新值');
+  } else if (hasScript || hasId) {
+    die('wrangler.jsonc 里只有其中一个键，配置处于半写状态，不敢自动改。手动补齐或先删掉再跑。');
+  } else {
+    const anchor = /(\n(\s*)"R2_PUBLIC_BASE":\s*"[^"]*")(,?)/;
+    if (!anchor.test(src)) die('wrangler.jsonc 里找不到 "R2_PUBLIC_BASE"，不敢乱插，停手。');
+    out = src.replace(
+      anchor,
+      (m, keep, indent, comma) =>
+        `${keep}${comma || ','}\n${indent}${note}\n${indent}${lines.join(',\n' + indent)}`
+    );
+    console.log('  ok  已插入 vars');
+  }
+
+  const stripped = out.replace(/^\s*\/\/.*$/gm, '');
+  try {
+    JSON.parse(stripped);
+  } catch (e) {
+    die(`改完之后 wrangler.jsonc 不是合法 JSON（${e.message}）。文件没有保存，原样未动。`);
+  }
+  if (dry) {
+    console.log('  --  不落盘（--dry），改完会是这几行：');
+    for (const l of out.split('\n').filter((l) => /UMAMI_|R2_PUBLIC_BASE/.test(l))) console.log(`      ${l.trim()}`);
+  } else {
+    writeFileSync(path, out);
+  }
+
+  console.log('\n—— 部署 ——');
+  console.log('  npm run deploy');
+  console.log('\n部署后：');
+  console.log('  1. 打开站点，Console 里应有 1 条到 ' + new URL(collect).origin + ' 的 POST，状态 200；');
+  console.log('  2. 看那份响应有没有 CSP 字样 —— 有就是被 connect-src 拦了（本项目的 CSP 已按端口分别放行）；');
+  console.log('  3. Umami 后台实时面板应在 10 秒内出现这次访问。');
+  console.log('\n注意：启用 umami 后自建上报会停（__PV_OFF__），/admin/stats 不再增长，历史数据还在。');
+}
+
 if (cmd === 'webhook') await setupWebhook();
 else if (cmd === 'turnstile') await setupTurnstile();
+else if (cmd === 'umami') await setupUmami();
 else {
   console.log('用法：');
   console.log('  npm run setup:webhook   -- <webhook 地址>');
   console.log('  npm run setup:turnstile -- <SITE_KEY> <SECRET>');
+  console.log('  npm run setup:umami     -- <script 地址> <website-id>');
   process.exitCode = 1;
 }

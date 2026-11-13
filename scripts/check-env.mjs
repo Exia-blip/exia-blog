@@ -68,6 +68,8 @@ add('GITHUB_CLIENT_SECRET', { secret: true, note: 'GitHub OAuth' });
 add('TURNSTILE_SITE_KEY', { note: '人机验证（公开值）' });
 add('TURNSTILE_SECRET', { secret: true, note: '人机验证（服务端校验）' });
 add('WEBHOOK_URL', { secret: true, note: '新评论通知' });
+add('UMAMI_SCRIPT', { note: '外部统计脚本（可选）' });
+add('UMAMI_SITE_ID', { note: '外部统计站点 id（可选）' });
 
 const site = !!varOf('TURNSTILE_SITE_KEY') || !!devVarOf('TURNSTILE_SITE_KEY');
 const secret = hasSecret('TURNSTILE_SECRET') || !!devVarOf('TURNSTILE_SECRET');
@@ -97,3 +99,16 @@ if (site && !secret) {
 
 const hook = hasSecret('WEBHOOK_URL') ? '已配' : '未配';
 console.log(`  · WEBHOOK_URL ${hook} —— 未配时新评论不通知任何人，评论本身照收。`);
+
+/* 外部统计：两个值必须成对。只填其中一个时站点会用自建 /api/pv，
+   不会静默丢数据 —— 但也不再是「以为在跑 umami」的状态，得让人看见。 */
+const umScript = !!varOf('UMAMI_SCRIPT') || !!devVarOf('UMAMI_SCRIPT');
+const umId = !!varOf('UMAMI_SITE_ID') || !!devVarOf('UMAMI_SITE_ID');
+if (umScript && umId) {
+  console.log(`  ✓ 外部统计已启用 —— 自建 /api/pv 停止上报，/admin/stats 不再增长（历史数据仍在）。`);
+} else if (umScript || umId) {
+  console.log('  · 外部统计半配（只填了其中一个）—— 站点会自动退回自建 /api/pv，不会丢数据。');
+  console.log(`    缺的是 ${umScript ? 'UMAMI_SITE_ID' : 'UMAMI_SCRIPT'}，补齐后 npm run deploy 才生效。`);
+} else {
+  console.log('  · 外部统计未启用 —— 走自建 /api/pv → D1，/admin/stats 可看。');
+}
