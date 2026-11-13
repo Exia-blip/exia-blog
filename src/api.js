@@ -1,7 +1,7 @@
 import { json, err, pageParams, slugify, uniqueSlug, nowISO, setCookie } from './utils.js';
 import { currentUser, requireUser, requireAdmin } from './auth.js';
 import { guard, record, banIp, verifyTurnstile, DID_MAX_AGE } from './antispam.js';
-import { renderBody, extractTags, extractCover, extractExcerpt, readingTime } from '../public/md.js';
+import { renderBody, extractTags, extractCover, extractExcerpt, readingTime, searchSnippet } from '../public/md.js';
 import { sanitizeHtml, cleanMarkdown } from './clean.js';
 import { coverOf, thumbOf } from './cover.js';
 import { bustPaths } from './cache.js';
@@ -291,7 +291,16 @@ export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q
     size,
     total,
     pages: Math.max(1, Math.ceil(total / size)),
-    posts: results.map((p) => shapePost(p)),
+    // 搜索时把摘要换成「关键词所在的那一段」：命中在正文深处时，
+    // 开头 140 字里根本没有这个词，前端高亮就成了摆设
+    posts: results.map((p) => {
+      const s = shapePost(p);
+      if (q) {
+        const snip = searchSnippet(p.content, q);
+        if (snip) s.excerpt = snip;
+      }
+      return s;
+    }),
   };
 }
 

@@ -170,7 +170,7 @@ async function load() {
     const { posts, total, pages } = await api('/api/posts?' + params, { signal: mine.signal });
     if (mine !== ctrl) return;
     if (!posts.length) {
-      listEl.innerHTML = `<div class="empty">${currentQ ? '没有找到匹配的文章' : '还没有文章，去写第一篇吧'}</div>`;
+      listEl.innerHTML = currentQ ? emptySearch() : `<div class="empty">还没有文章，去写第一篇吧</div>`;
       pagerEl.innerHTML = '';
       return;
     }
@@ -194,13 +194,50 @@ function skeleton(n = 3) {
     .join('');
 }
 
+/* 关键词高亮：先按原文切段、再逐段转义。
+   反过来做（先 esc 再匹配）的话，query 里带 & < 这类字符就永远匹配不到自己转义后的形式，
+   而带正则元字符的 query（`c++`、`a.b`）又会直接抛错。 */
+function hl(text, q) {
+  const s = String(text ?? '');
+  const needle = String(q || '').trim();
+  if (!needle) return esc(s);
+  let re;
+  try {
+    re = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  } catch {
+    return esc(s);
+  }
+  let out = '';
+  let last = 0;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    if (!m[0]) { re.lastIndex++; continue; }
+    out += esc(s.slice(last, m.index)) + '<mark>' + esc(m[0]) + '</mark>';
+    last = m.index + m[0].length;
+  }
+  return out + esc(s.slice(last));
+}
+
+/* 空结果页。原来只有一句「没有找到匹配的文章」——用户既不知道搜的是什么，
+   也不知道下一步能干什么。这里把关键词回显出来，再给两条明确的出口。 */
+function emptySearch() {
+  return `<div class="empty empty-search">
+    <p class="es-t">没有找到与「${esc(currentQ)}」相关的文章</p>
+    <p class="es-h">试着换个更短的关键词，或者从栏目、标签翻进去。</p>
+    <div class="es-acts">
+      <a class="btn sm" href="/">看全部文章</a>
+      <a class="btn sm" href="/archive">按时间归档</a>
+    </div>
+  </div>`;
+}
+
 function card(p) {
   return `
   <a class="post-card" href="/p/${encodeURIComponent(p.slug)}">
     <img class="thumb" src="${esc(p.cover || autoThumb(p))}" alt="" loading="lazy" decoding="async" width="208" height="136">
     <div class="body">
-      <h2>${esc(p.title)}${p.is_private ? ' <span class="tiny muted">私密</span>' : ''}</h2>
-      ${p.excerpt ? `<p class="excerpt">${esc(p.excerpt)}</p>` : ''}
+      <h2>${hl(p.title, currentQ)}${p.is_private ? ' <span class="tiny muted">私密</span>' : ''}</h2>
+      ${p.excerpt ? `<p class="excerpt">${hl(p.excerpt, currentQ)}</p>` : ''}
       <div class="meta">
         <span>${fmtDate(p.published_at || p.created_at)}</span>
         <span class="sep-dot">${p.reading} 分钟</span>

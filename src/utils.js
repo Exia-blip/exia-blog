@@ -114,6 +114,33 @@ export function nowISO() {
   return new Date().toISOString().replace('T', ' ').slice(0, 19);
 }
 
+/* D1 存的是 'YYYY-MM-DD HH:MM:SS'（UTC，无时区）。直接塞进 datetime="" 是非法值，
+   浏览器解析成 Invalid Date，微数据与屏幕阅读器都读不出时间。补成 ISO。 */
+export function sqlIso(v) {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) return s.replace(' ', 'T');
+  return s.replace(' ', 'T') + 'Z';
+}
+
+/* meta description 的唯一出处。
+   之前是 `post.summary || extractExcerpt(content, 150)` 直接拼进去，三个问题：
+   · 后台手填的摘要里换行原样带出，HTML 里折叠成空格，长度却按换行后的算；
+   · 超长摘要不截断，Google 摘要栏里被拦腰切在半个词上；
+   · 正文只有图片/代码时 extractExcerpt 返回空串，description="" 等于没写。
+   现在统一在这里归一化 + 截断 + 兜底，调用方只负责给「首选文本」和「兜底文本」。 */
+export function metaDesc(primary, fallback = '', len = 155) {
+  const clean = (s) => String(s || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+  let t = clean(primary);
+  if (!t) t = clean(fallback);
+  if (t.length <= len) return t;
+  let cut = t.slice(0, len);
+  // 只在后半段找空格：前半段就退的话会剩一句残句，不如硬截
+  const sp = cut.lastIndexOf(' ');
+  if (sp > len * 0.7) cut = cut.slice(0, sp);
+  return cut.replace(/[，、,;；:：\s]+$/, '') + '…';
+}
+
 /* 外部统计（umami）是否已配齐。
    这个判断用在三处，所以只留一份实现：
      · index.js 决定要不要注入那段 <script> 和 __PV_OFF__；

@@ -20,7 +20,7 @@
 </main>
 
 <script type="module">
-import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons, bindReadingProgress } from '/app.js';
+import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons, bindReadingProgress, bindCodeScroll, refreshRelTimes, enhanceComments } from '/app.js';
 import { bindCopyNotice } from '/copy-notice.js';
 
 bindCopyButtons(document);
@@ -47,6 +47,11 @@ function hydrate() {
   bindForm();
   mountTurnstile();
   bindReadingProgress(document.querySelector('.post-body'));
+  // 代码块横滚提示、评论时间自愈、长评论折叠：三件事都只依赖已有 DOM，
+  // 放在 hydrate 里跑一次就够了 —— SSR 的评论本来就在页面上，不必等接口
+  bindCodeScroll(document);
+  refreshRelTimes();
+  enhanceComments();
 }
 
 /* 正文模板只在 Worker 里有一份（src/index.js servePostPage）。
@@ -72,9 +77,22 @@ function commentsNeedFetch() {
   return !!(hasRows && USER && USER.is_admin && !document.querySelector('#cmt-list [data-del]'));
 }
 
+/* 评论骨架：只在真的要等接口时才画（首屏 SSR 有内容、或者刚发完评论）。
+   三个空行的高度加起来和真实评论差不多，替换时下面的表单不会往上顶。 */
+function cmtSkeleton(n = 3) {
+  return Array.from({ length: n })
+    .map(
+      () =>
+        '<div class="cmt-sk"><div class="sk sk-ava"></div><div class="sk-lines"><span class="sk" style="width:38%"></span><span class="sk"></span><span class="sk"></span></div></div>'
+    )
+    .join('');
+}
+
 async function loadComments() {
   const box = document.getElementById('cmt-list');
   if (!box) return;
+  // 已有内容时不清空：发完评论重拉属于「刷新」，清成骨架反而闪一下
+  if (!box.querySelector('.cmt')) box.innerHTML = cmtSkeleton();
   try {
     const { comments, total } = await api('/api/comments?slug=' + encodeURIComponent(slug));
     document.getElementById('cmt-count').textContent = total ? `(${total})` : '';
@@ -83,6 +101,8 @@ async function loadComments() {
       return;
     }
     box.innerHTML = comments.map(renderCmt).join('');
+    refreshRelTimes(box);
+    enhanceComments(box);
   } catch (e) {
     box.innerHTML = `<div class="muted small">评论加载失败</div>`;
   }
@@ -93,7 +113,15 @@ function avatarText(name) {
 }
 
 /* 与服务端 renderComment 保持同一份结构：增删评论后重渲染的 DOM
-   必须和首屏 SSR 出来的一模一样，否则按钮位置会跳一下。 */
+   必须和首屏 SSR 出来的一模一样，否则按钮位置会跳一下。
+   when 节点用 <time data-t>：data-t 是原始 UTC 时间，客户端据此重算「多久前」，
+   datetime 给机器读（微数据 / 屏幕阅读器 / 日历订阅）。 */
+function isoOf(s) {
+  const v = String(s || '').trim();
+  if (!v) return '';
+  return /[zZ]$|[+-]\d{2}:?\d{2}$/.test(v) ? v.replace(' ', 'T') : v.replace(' ', 'T') + 'Z';
+}
+
 function renderCmt(c, isChild = false) {
   const admin = USER && USER.is_admin;
   const acts =
@@ -116,7 +144,7 @@ function renderCmt(c, isChild = false) {
       <div class="head">
         <b>${homepage}</b>
         ${c.is_admin ? '<span class="badge-owner">博主</span>' : ''}
-        <span class="when">${fmtRelative(c.created_at)}</span>
+        <time class="when" datetime="${esc(isoOf(c.created_at))}" data-t="${esc(String(c.created_at || ''))}" title="${esc(fmtDate(c.created_at, true))}">${fmtRelative(c.created_at)}</time>
         ${mail}
       </div>
       <div class="text">${esc(c.content)}</div>

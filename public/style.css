@@ -1655,6 +1655,10 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
      少掉的 20px 间距挪给目录，正文列一个字都没少。 */
   .post-article { grid-template-columns: 232px minmax(0, 780px); gap: 56px; justify-content: center; }
   .post-toc { display: block; }
+  /* 列位置写死，不靠源码顺序。没小标题的文章不出目录，如果哪天 aside 又被省掉，
+     正文会掉进 232px 那一列 —— 整页压成一条竖排，页面上却什么都不报错。 */
+  .post-article > .post-toc { grid-column: 1; }
+  .post-article > .post-main { grid-column: 2; min-width: 0; }
 }
 
 /* 宽屏再放一档：容器跟着屏幕长，目录与正文之间拉开到 110px。
@@ -1871,4 +1875,105 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   .pick:hover { transform: none; }
   :root[data-theme="anzhiyu"] .post-card:hover .thumb { transform: none; }
   .tl-item:hover::before { transform: none; }
+}
+
+/* ============ 搜索高亮 ============
+   用 mark 而不是给 span 挂类：mark 自带「这就是命中」的语义，屏幕阅读器会念，
+   浏览器默认样式也不会把文字压暗。颜色跟着 accent 走，两套主题不用各写一遍。 */
+mark {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: inherit; padding: 0 1px; border-radius: 3px;
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
+}
+
+/* ============ 侧边阅读百分比 ============
+   只在宽屏出现：1280 以下正文几乎占满视口，角标会压字。
+   pointer-events 关掉 —— 它盖在正文右边缘，不该拦住选中和点击。 */
+.read-pct {
+  position: fixed; right: 14px; top: 50%; transform: translateY(-50%);
+  display: none; align-items: baseline; justify-content: center; gap: 1px;
+  min-width: 46px; padding: 4px 7px;
+  font-family: var(--mono); font-size: 11px; line-height: 1;
+  color: var(--muted); background: color-mix(in srgb, var(--card) 84%, transparent);
+  border: 1px solid var(--line); border-radius: 999px;
+  opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60;
+}
+.read-pct b { font-weight: 600; font-size: 12.5px; color: var(--fg); font-variant-numeric: tabular-nums; }
+.read-pct i { font-style: normal; }
+@media (min-width: 1280px) { .read-pct { display: flex; } }
+.read-pct.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .read-pct { transition: none; } }
+
+/* ============ 长评论折叠 ============ */
+.cmt .text.clipped {
+  max-height: 220px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 82%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 82%, transparent 100%);
+}
+.cmt-more {
+  display: inline-block; margin-top: 2px; padding: 0; background: none; border: 0;
+  font-size: 12.5px; color: var(--accent); cursor: pointer;
+}
+.cmt-more:hover { text-decoration: underline; }
+
+/* 评论加载骨架：高度与真实评论接近，替换时不会把下面的表单顶下去 */
+.cmt-sk { display: flex; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); }
+.cmt-sk:first-of-type { border-top: 0; }
+.cmt-sk .sk-ava { width: 34px; height: 34px; border-radius: 50%; flex: none; }
+.cmt-sk .sk-lines { flex: 1; display: grid; gap: 8px; align-content: start; }
+.cmt-sk .sk-lines .sk:last-child { width: 62%; }
+
+/* ============ 代码块横向滚动 ============
+   长代码必然要横滚，但原生滚动条在 macOS 上默认不显示、在 Windows 上又粗又突兀，
+   读者常常以为「这行就是被截断了」。三件事：细滚动条常显、滚到头时右侧渐隐消失、
+   横向滚动不把整页带着一起滚（overscroll-behavior）。 */
+.md .code-wrap { position: relative; }
+.md pre.code-block {
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 42%, transparent) transparent;
+}
+.md pre.code-block::-webkit-scrollbar { height: 8px; }
+.md pre.code-block::-webkit-scrollbar-track { background: transparent; }
+.md pre.code-block::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 38%, transparent);
+  border-radius: 4px;
+}
+.md pre.code-block::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+/* 右侧渐隐：只在「确实还能往右滚」时出现，滚到头自动撤掉，
+   免得到一个永远存在的阴影让人误以为还有内容。 */
+.md .code-wrap.overflowing:not(.at-end)::after {
+  content: ''; position: absolute; top: 31px; right: 1px; bottom: 1px; width: 26px;
+  background: linear-gradient(90deg, transparent, var(--bg-soft));
+  pointer-events: none;
+}
+
+/* ============ 搜索空结果 ============
+   一句话提示撑满一整块空白，太浪费了：把关键词回显、给两条出口，
+   用户至少知道「我搜的是什么、还能去哪」。 */
+.empty-search { padding: 44px 20px; text-align: center; }
+.empty-search .es-t { margin: 0 0 6px; font-size: 16px; color: var(--fg); }
+.empty-search .es-h { margin: 0 0 16px; font-size: 13.5px; color: var(--muted); }
+.empty-search .es-acts { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+/* ============ 上下篇卡片 ============
+   原来只有「← 上一篇 / 标题」两行，两张卡除了字几乎没差别。补三件事：
+   箭头跟着方向走、右侧那篇整体右对齐（视觉上就是「往后翻」）、
+   再压一行「日期 · 栏目」当上下文。 */
+.post-adjacent .adj { padding: 14px 16px; gap: 5px; }
+.post-adjacent .adj-k { display: inline-flex; align-items: center; gap: 5px; letter-spacing: .02em; }
+.post-adjacent .adj-k i {
+  font-style: normal; display: inline-block;
+  transition: transform .18s ease-out;
+}
+.post-adjacent .adj.prev:hover .adj-k i { transform: translateX(-3px); }
+.post-adjacent .adj.next:hover .adj-k i { transform: translateX(3px); }
+.post-adjacent .adj.next .adj-k { flex-direction: row-reverse; }
+.post-adjacent .adj-m { font-size: 12px; color: var(--muted); font-family: var(--mono); opacity: .85; }
+.post-adjacent .adj-t { transition: color .18s; }
+/* 只有一侧有文章时，卡片别撑成整行的高度，靠左放 */
+.post-adjacent.single .adj { max-width: 420px; }
+@media (prefers-reduced-motion: reduce) {
+  .post-adjacent .adj-k i { transition: none; }
+  .post-adjacent .adj-k i { transform: none !important; }
 }

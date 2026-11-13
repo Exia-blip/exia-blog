@@ -1,6 +1,6 @@
 import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
-import { html, json, umamiOn, collectOrigins } from './utils.js';
+import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso } from './utils.js';
 import { checkFriends } from './cron.js';
 import { getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
@@ -130,12 +130,15 @@ async function assetText(env, request, path) {
 function relTime(sqlDate) {
   const d = new Date(String(sqlDate || '').replace(' ', 'T') + 'Z');
   if (isNaN(d)) return '';
-  const diff = (Date.now() - d.getTime()) / 1000;
+  // 与 public/app.js 的 fmtRelative 保持同一套刻度：客户端会用 data-t 再算一遍，
+  // 两边口径不一致的话，页面一加载时间就会「跳」一下
+  const diff = Math.max(0, (Date.now() - d.getTime()) / 1000);
   if (diff < 60) return '刚刚';
   if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
   if (diff < 86400 * 30) return `${Math.floor(diff / 86400)} 天前`;
-  return String(sqlDate).slice(0, 10);
+  if (diff < 86400 * 365) return `${Math.floor(diff / (86400 * 30))} 个月前`;
+  return `${Math.floor(diff / (86400 * 365))} 年前`;
 }
 
 const avaText = (name) => esc(String(name || '?').slice(0, 1).toUpperCase());
@@ -164,7 +167,9 @@ export function renderComment(c, isChild = false, viewer = null) {
     : '';
   return `<div class="cmt" data-cid="${c.id}"><div class="ava">${avaText(c.name)}</div><div class="main"><div class="head"><b>${homepage}</b>${
     c.is_admin ? '<span class="badge-owner">博主</span>' : ''
-  }<span class="when">${esc(relTime(c.created_at))}</span>${mail}</div><div class="text">${esc(c.content)}</div><div class="acts">${commentActs(
+  }<time class="when" datetime="${esc(sqlIso(c.created_at))}" data-t="${esc(String(c.created_at || ''))}">${esc(
+    relTime(c.created_at)
+  )}</time>${mail}</div><div class="text">${esc(c.content)}</div><div class="acts">${commentActs(
     c,
     viewer
   )}</div>${
@@ -655,11 +660,20 @@ function renderAdjacent(post, list, seriesList) {
   const prev = idx > 0 ? list[idx - 1] : null;
   const next = idx < list.length - 1 ? list[idx + 1] : null;
   if (!prev && !next) return '';
-  const cell = (p, dir, label) =>
-    p
-      ? `<a class="adj ${dir}" href="/p/${encodeURIComponent(p.slug)}" rel="${dir}"><span class="adj-k">${label}</span><span class="adj-t">${esc(p.title)}</span></a>`
-      : '';
-  const cells = [cell(prev, 'prev', '← 上一篇'), cell(next, 'next', '下一篇 →')].filter(Boolean);
+  /* 卡片里除了标题，再给一行「日期 · 栏目」：只有标题时两张卡长得一样，
+     读者得先读字才知道哪边是更早的一篇。箭头用 CSS 位移，不放 emoji 。*/
+  const cell = (p, dir, label) => {
+    if (!p) return '';
+    const cname = p.category ? catName(p.category) : '';
+    const day = String(p.published_at || p.created_at || '').slice(0, 10);
+    const meta = [day, cname].filter(Boolean).join(' · ');
+    return `<a class="adj ${dir}" href="/p/${encodeURIComponent(p.slug)}" rel="${dir}">
+      <span class="adj-k"><i aria-hidden="true">${dir === 'prev' ? '←' : '→'}</i>${label}</span>
+      <span class="adj-t">${esc(p.title)}</span>
+      ${meta ? `<span class="adj-m">${esc(meta)}</span>` : ''}
+    </a>`;
+  };
+  const cells = [cell(prev, 'prev', '上一篇'), cell(next, 'next', '下一篇')].filter(Boolean);
   // 只有一侧有文章时收成单列：留半个虚线空框看着像加载失败
   return `<nav class="post-adjacent${cells.length === 1 ? ' single' : ''}" aria-label="同栏目相邻文章">
     ${cells.join('')}
@@ -710,10 +724,12 @@ async function servePostPage(env, request, slug) {
     )
       .bind(slug)
       .all(),
-    // 同栏目整份列表：只取 slug/title，一个栏目最多十来篇，比「查上一篇 + 查下一篇」
+    // 同栏目整份列表：一个栏目最多十来篇，比「查上一篇 + 查下一篇」
     // 两条 SQL 便宜——D1 的成本主要在往返，不在这十几行数据。
+    // 顺带取 published_at / category：上下篇卡片要显示「日期 · 栏目」，
+    // 只查 slug/title 的话那行永远是空的。
     env.DB.prepare(
-      `SELECT slug, title FROM posts
+      `SELECT slug, title, published_at, created_at, category FROM posts
        WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
          AND category = (SELECT category FROM posts WHERE slug = ?)
        ORDER BY COALESCE(NULLIF(published_at, ''), created_at) ASC`
@@ -749,7 +765,7 @@ async function servePostPage(env, request, slug) {
   // canonical 必须和 sitemap / RSS 里给的地址一致，否则同一篇文章被收录两份
   const canonical = new URL(`/p/${encodeURIComponent(post.slug)}`, request.url).toString();
 
-  const desc = post.summary || extractExcerpt(post.content, 150);
+  const desc = metaDesc(post.summary || extractExcerpt(post.content, 260), site.desc || site.name);
   // 手填封面 → 正文首图 → 预设自动图，永远有值
   const cover = coverOf(post);
   // 封面 → 本站分享图。站点头像不参与：GitHub 头像只有 460px，社交卡片会糊成一团，
@@ -800,7 +816,12 @@ async function servePostPage(env, request, slug) {
           )
           .join('')}</ol>
       </div></aside>`
-      : '';
+      /* 标题少于 3 个时不出目录，但**不能连容器一起省掉**：
+         .post-article 是两列 grid，第一个子元素落在 232px 那一列。
+         少了 <aside>，正文就成了第一个子元素，被挤进目录列 —— 整篇文章压成
+         180px 宽，右边一片空白。短文章（没有小标题的那种）全中，页面上不报错，
+         只是「看着很窄」。留一个空 aside 占住位置。 */
+      : '<aside class="post-toc" aria-hidden="true"></aside>';
 
   // 系列徽章：四个系列是站里最大的资产，得让人一眼看出"这是连载，可以追"
   const seriesIdx = post.series ? seriesPosts.findIndex((p) => p.slug === post.slug) : -1;
@@ -1239,8 +1260,11 @@ function fillSeo(body, site, url) {
   }
   const home = !label || label === '首页';
   const title = home ? site.name : `${label} · ${site.name}`;
-  // 栏目页用自己的栏目说明当描述，比全站一句通用话更贴页面主题
-  const desc = cat ? cat.desc : site.desc || `${site.name} · 记录思考、代码与生活`;
+  /* 描述按页面类型分三种，都比全站一句通用话贴主题：
+     栏目页用栏目自己的说明，标签页说明「这一页是什么」，其它退回站点描述。
+     统一过 metaDesc：换行压平、超长截断、空值兜底。 */
+  const isTag = !!(url && url.pathname.startsWith('/tag/'));
+  const desc = metaDesc(cat ? cat.desc : isTag ? `${label} 标签下的全部文章` : '', site.desc || `${site.name} · 记录思考、代码与生活`);
   const canonical = url ? new URL(url.pathname, url.origin).toString() : '';
   const origin = url ? url.origin : '';
   // 分享图固定用本站那张 1200×630：尺寸、域名、可用性都在自己手里
@@ -1614,12 +1638,17 @@ async function serveSitemap(env, request) {
     .map((t) => `  <url><loc>${origin}/tag/${encodeURIComponent(t.n)}</loc>${lm(t.last)}</url>`)
     .join('\n');
 
+  /* 友链页的 lastmod 取「最近加过谁」。一条友链都没有时 MAX() 是 NULL，
+     页面上就漏掉 lastmod —— 对爬虫等于「这页从不更新」。
+     空表时退回全站最后更新时间：那一页确实只会跟着站点一起变。 */
+  const friendLast = (friendRow[0] && friendRow[0].last) || siteLast;
+
   return new Response(
     `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${origin}/</loc>${lm(
       siteLast
     )}</url>\n  <url><loc>${origin}/archive</loc>${lm(siteLast)}</url>\n  <url><loc>${origin}/categories</loc>${lm(
       siteLast
-    )}</url>\n  <url><loc>${origin}/friends</loc>${lm(friendRow[0] && friendRow[0].last)}</url>\n${catUrls}\n${tagUrls}\n${seriesUrls}\n${urls}\n</urlset>`,
+    )}</url>\n  <url><loc>${origin}/friends</loc>${lm(friendLast)}</url>\n${catUrls}\n${tagUrls}\n${seriesUrls}\n${urls}\n</urlset>`,
     { headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=600' } }
   );
 }

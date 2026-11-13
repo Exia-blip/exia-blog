@@ -424,15 +424,35 @@ export function extractCover(content = '') {
   return m ? m[1] : null;
 }
 
-export function extractExcerpt(content = '', len = 120) {
-  const s = stripCode(content)
+/* 把 Markdown 抹平成可读纯文本。搜索摘要和 og:description 都靠它，
+   两处口径必须一致，所以只留一份。 */
+function plainText(content = '') {
+  return stripCode(content)
     .replace(/!\[[^\]]*\]\((?:[^()]|\([^()]*\))*\)/g, ' ')
     .replace(/\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, '$1')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/[*_~>#|-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  return s.slice(0, len);
+}
+
+export function extractExcerpt(content = '', len = 120) {
+  return plainText(content).slice(0, len);
+}
+
+/* 搜索结果里的摘要：给关键词前后那几十个字，而不是正文开头那 140 字。
+   搜到的词如果落在第 800 字，开头那段里根本没有它 —— 高亮再准也标不出东西，
+   用户看到的就是「搜了但结果里找不到这个词」。 */
+export function searchSnippet(content = '', q = '', len = 130) {
+  const needle = String(q || '').trim();
+  if (!needle) return '';
+  const text = plainText(content);
+  const i = text.toLowerCase().indexOf(needle.toLowerCase());
+  if (i < 0) return '';
+  const start = Math.max(0, i - Math.round(len * 0.28));
+  const seg = text.slice(start, start + len).trim();
+  if (!seg) return '';
+  return `${start > 0 ? '…' : ''}${seg}${start + len < text.length ? '…' : ''}`;
 }
 
 export function readingTime(content = '') {

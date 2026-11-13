@@ -47,12 +47,58 @@ export function fmtRelative(s) {
   if (!s) return '';
   const d = new Date(String(s).replace(' ', 'T') + (String(s).includes('Z') ? '' : 'Z'));
   if (isNaN(d)) return s;
-  const diff = (Date.now() - d.getTime()) / 1000;
+  // 未来时间（时钟偏差、预排评论）一律说「刚刚」，别出现「-3 分钟前」
+  const diff = Math.max(0, (Date.now() - d.getTime()) / 1000);
   if (diff < 60) return '刚刚';
   if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
   if (diff < 86400 * 30) return `${Math.floor(diff / 86400)} 天前`;
-  return fmtDate(s);
+  // 超过一个月还不给「多久前」的话，就只剩一个日期 —— 三年后跟三个月后看着一样
+  if (diff < 86400 * 365) return `${Math.floor(diff / (86400 * 30))} 个月前`;
+  return `${Math.floor(diff / (86400 * 365))} 年前`;
+}
+
+/* 评论时间自愈。
+   SSR 画的是「渲染那一刻」的多久前，而这份 HTML 会在边缘缓存最多 5 分钟，
+   浏览器还可能再用自己那份 —— 页面开着不动时，「刚刚」可以一直是「刚刚」。
+   加载时按 data-t 重算一遍，顺便把绝对时间塞进 title，悬停能看到准点。
+   不设置定时器：评论区不常驻屏，每分钟重排一次 DOM 换不来什么。 */
+export function refreshRelTimes(root = document) {
+  const nodes = root.querySelectorAll('time.when[data-t]');
+  for (const el of nodes) {
+    const raw = el.getAttribute('data-t');
+    const text = fmtRelative(raw);
+    if (text && el.textContent.trim() !== text) el.textContent = text;
+    el.title = fmtDate(raw, true);
+  }
+  return nodes.length;
+}
+
+/* 长评论折叠。
+   阈值按「渲染后的高度」判，不按字数：同样 400 字，中文十二行、英文混排能到三十行，
+   再夹一个代码块就更没准。量 scrollHeight 才是用户实际看到的东西。 */
+const CMT_CLIP = 220;
+export function enhanceComments(root = document) {
+  let n = 0;
+  for (const el of root.querySelectorAll('.cmt .text')) {
+    if (el.dataset.enh === '1') continue;
+    el.dataset.enh = '1';
+    if (el.scrollHeight <= CMT_CLIP + 24) continue;
+    el.classList.add('clipped');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cmt-more';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.textContent = '展开全文';
+    btn.addEventListener('click', () => {
+      const clipped = el.classList.toggle('clipped');
+      btn.textContent = clipped ? '展开全文' : '收起';
+      btn.setAttribute('aria-expanded', String(!clipped));
+    });
+    el.after(btn);
+    n++;
+  }
+  return n;
 }
 
 export const esc = (s = '') =>
@@ -244,7 +290,42 @@ export function bindCopyButtons(root = document) {
   });
 }
 
-/* 阅读进度条：文章页顶部一条细线，滚到文末刚好走满 */
+/* 代码块横向滚动标记。
+   渐隐阴影不能常驻：短代码块根本没有可滚动的量，常驻阴影会让它看起来"右边还有内容"。
+   所以按 scrollWidth 判一次，滚到右端再把阴影撤掉。scroll 事件不冒泡，只能捕获。 */
+export function bindCodeScroll(root = document) {
+  const marks = () => {
+    for (const wrap of root.querySelectorAll('.code-wrap')) {
+      const pre = wrap.querySelector('pre.code-block');
+      if (!pre) continue;
+      wrap.classList.toggle('overflowing', pre.scrollWidth - pre.clientWidth > 4);
+    }
+  };
+  root.addEventListener(
+    'scroll',
+    (e) => {
+      const pre = e.target;
+      if (!pre || pre.tagName !== 'PRE') return;
+      const wrap = pre.closest('.code-wrap');
+      if (wrap) wrap.classList.toggle('at-end', pre.scrollLeft + pre.clientWidth >= pre.scrollWidth - 4);
+    },
+    true
+  );
+  let t = 0;
+  addEventListener(
+    'resize',
+    () => {
+      clearTimeout(t);
+      t = setTimeout(marks, 180);
+    },
+    { passive: true }
+  );
+  marks();
+  return marks;
+}
+
+/* 阅读进度：顶部一条细线 + 右侧一颗百分比。两者共用同一份几何计算，
+   同一次 rAF 里更新 —— 分别挂 scroll 监听会让一条 3000px 的长文每帧算两遍 rect。 */
 export function bindReadingProgress(root = document.querySelector('.post-body')) {
   if (!root) return;
   let bar = document.querySelector('.read-bar');
@@ -254,6 +335,17 @@ export function bindReadingProgress(root = document.querySelector('.post-body'))
     bar.setAttribute('aria-hidden', 'true');
     document.body.appendChild(bar);
   }
+  /* 百分比数字给的是「精确一点的进度感」，纯装饰：不参与 Tab 序、不念给屏幕阅读器，
+     窄屏直接不显示（正文本来就一屏宽，浮个角标只会挡字）。 */
+  let pct = document.querySelector('.read-pct');
+  if (!pct) {
+    pct = document.createElement('div');
+    pct.className = 'read-pct';
+    pct.setAttribute('aria-hidden', 'true');
+    pct.innerHTML = '<b>0</b><i>%</i>';
+    document.body.appendChild(pct);
+  }
+  const num = pct.querySelector('b');
   let raf = 0;
   const sync = () => {
     raf = 0;
@@ -263,11 +355,17 @@ export function bindReadingProgress(root = document.querySelector('.post-body'))
     if (span <= 20) {
       bar.style.opacity = '0';
       bar.style.transform = 'scaleX(0)';
+      pct.classList.remove('on');
       return;
     }
     const done = Math.min(1, Math.max(0, -r.top / span));
     bar.style.opacity = '1';
     bar.style.transform = `scaleX(${done.toFixed(4)})`;
+    const n = Math.round(done * 100);
+    if (num.textContent !== String(n)) num.textContent = String(n);
+    // 两头都不显示：开头蹦个「1%」比没有更吵；读完了还挂个「100%」也是噪音，
+    // 那条顶部进度条留在满格就够了
+    pct.classList.toggle('on', done > 0.02 && done < 0.995);
   };
   const onScroll = () => {
     if (raf) return;

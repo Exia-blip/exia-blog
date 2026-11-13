@@ -473,6 +473,10 @@ npx wrangler dev --port 8788 --local
 
 `og:image` 与列表缩略图同源（见下一节）。另外补齐了 `og:url`、`og:locale`、`og:image:alt`、`article:published_time` / `modified_time` / `section` / `tag` 和 `twitter:image`。
 
+`sitemap.xml` 里**每条 URL 都带 `<lastmod>`**，不只文章页：首页 / 归档 / 栏目总览取全站最新 `updated_at`，栏目页与标签页取组内 `MAX()`，友链页取最近新增的友链。没有 `lastmod` 的 URL 会被爬虫当作「从不更新」，只登记不重抓。友链表为空时 `MAX()` 是 NULL，会漏掉 lastmod，所以空表退回站点最后更新时间。
+
+description 统一走 `metaDesc()`（`src/utils.js`）：换行压平、超 155 字截断（英文回退到空格处，不留半个词）、首选为空时退到站点描述。以前是直接拼 `summary || extractExcerpt()`，正文只有图片时输出空串，等于没写。
+
 ## 缩略图与自动头图
 
 列表卡片、`og:image`、`BlogPosting.image` 用的是同一个值，取值顺序写在 `src/cover.js` 的 `coverOf()` 里：
@@ -572,7 +576,26 @@ npm run assets:check    # 比对体积预算，超了 exit 1
 | 标题锚点 | 每个 h2/h3 前挂 `.h-anchor` | hover 才显形，负 margin 挂在正文留白里；同名标题自动加 `-2`、`-3` |
 | 代码块 | 语言徽章 + 超长块（≥20 行）行号 + 复制按钮「已复制」态 | 行号是独立一列，不往高亮后的 HTML 里插标记：多行字符串的 span 会跨行，切了就把标签劈开 |
 | 系列徽章 | 文章头部 `series-chip`：`OAuth 授权流程拆解 · 第 3/4 篇` | 点进去跳到系列目录 |
+| 阅读进度 | 顶部细线 `.read-bar` + 右侧百分比 `.read-pct` | 两者共用一次 rAF 与同一份 rect；百分比 ≥1280px 才出现，2%–99% 之间显示，读完自动撤掉，`pointer-events: none` 不挡选中 |
+| 上下篇 | `.post-adjacent`，同栏目前后各一篇；系列文不显示（顶部已有跳转） | 卡片带「日期 · 栏目」，箭头随方向位移（`prefers-reduced-motion` 下不动） |
 | 打印 | `@media print`：隐藏导航/目录/评论框，正文全宽，代码块保留底色，外链后缀显示 URL | 二三十行的量，存 PDF 时不至于把导航栏也印上去 |
+
+> 没有小标题（不足 3 个 h2）的文章不出目录，但**空 `<aside class="post-toc">` 必须留**：`.post-article` 是两列 grid，第一个子元素落在 232px 那一列，少了 aside，正文就被挤进目录列——整篇压成 180px 宽，页面上什么都不报错，只是「看着很窄」。CSS 里另外用 `grid-column` 写死列位置兜第二层。
+
+评论与搜索的几处细节：
+
+| 能力 | 行为 |
+|---|---|
+| 搜索高亮 | 命中词包在 `<mark>` 里（语义元素，屏幕阅读器会念），英文大小写不敏感，`c++`、`a.b` 这类含正则元字符的关键词不会抛错 |
+| 搜索摘要 | 命中落在正文深处时，摘要改成「关键词前后那一段」而不是开头 140 字，否则高亮标不出东西 |
+| 空结果 | 回显关键词 + 两条出口（全部文章 / 按时间归档），不再是一句「没有找到」 |
+| 评论时间 | `刚刚 / N 分钟前 / N 小时前 / N 天前 / N 个月前 / N 年前`，SSR 与客户端同一套刻度；`<time data-t>` 在页面加载后重算一次（边缘缓存最多 5 分钟，不重算就会一直显示「刚刚」），`title` 给准确到分钟的绝对时间 |
+| 长评论折叠 | 按渲染高度（>220px）判，不按字数；展开/收起按钮同步 `aria-expanded`，遮罩用 `mask-image` 渐隐 |
+
+```bash
+npm run check:ux -- http://127.0.0.1:8788 --q 缓存   # 高亮 / 空结果 / 折叠 / 百分比 / 代码横滚 / 正文宽度
+npm run check:sitemap -- https://exia.de5.net        # 每条 URL 都有 lastmod、无未来日期、无重复
+```
 
 配色上 `--muted` 全部提到 4.5:1 以上（`#6f6a63` 在 paper 主题下是 5.36:1；暗色主题值在 4.6–5.0 之间），meta 文字只有 12.5px，原来 3.7:1 是这套界面里唯一真正不合格的可访问性项。
 
