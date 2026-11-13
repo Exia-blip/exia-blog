@@ -12,6 +12,7 @@
 // 两个都能靠一次真实请求在写进去之前判掉，那就别把它留到线上试。
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
 import { webhookPlatform, webhookPayload } from '../src/webhook.js';
 
 const argv = process.argv.slice(2);
@@ -24,6 +25,73 @@ const [cmd, ...args] = argv.filter((a) => !a.startsWith('--'));
 const die = (msg) => {
   console.error(`\n✗ ${msg}\n`);
   process.exit(1);
+};
+
+/* 占位符必须在脚本里拦，不能指望「用户会自己替换」。
+   文档里写的是 `npm run setup:umami -- <script> <你的-website-id>`，原样粘进 bash 时
+   `<你的-website-id` 不是参数而是重定向：shell 去找这个文件、找不到、命令在 npm
+   启动之前就断了，报的是 "No such file or directory" —— 看上去像文件缺失，
+   实际是参数写错了，而且这种情况下什么都不会发生，也没有任何提示。
+   形状上能认出来的占位符，在这里一次说清。 */
+const looksPlaceholder = (v) => {
+  const s = String(v).trim();
+  if (!s) return false;
+  if (s.startsWith('<') || s.endsWith('>')) return true;
+  return /(你的|xxxx|XXXX|\.\.\.|…)/.test(s);
+};
+
+for (const a of args) {
+  if (looksPlaceholder(a)) {
+    die(
+      `「${a}」是占位符，不是真实值。\n` +
+        '  另外提醒：`<...>` 在 bash 里是重定向，照原样粘进去命令会直接报\n' +
+        '  "No such file or directory" 而不是进入脚本 —— 加引号或不带尖括号才是参数。\n\n' +
+        '  不想手动替换的话，直接跑不带参数的 npm run setup:<子命令>，\n' +
+        '  它会逐项问你，把值粘在提示符后面即可。'
+    );
+  }
+}
+
+/* 交互式补值：参数缺了但人在终端前，就问。
+   这条路的意义是彻底绕开「复制命令 → 找占位符 → 替换」这个动作，
+   而占位符没被替换正是最容易出错的一步。 */
+const canAsk = () => process.stdin.isTTY && process.stdout.isTTY;
+/* 一个进程只开一个 readline，并且自己管行缓冲。
+   两个坑都是实测踩出来的：
+   1. 每问一次新建一个接口再 close，第二问会永远卡住 —— 关闭时把 stdin 一起 pause 了。
+   2. 直接 rl.question()，如果数据比提问先到（`printf 'a\nb\n' | npm run ...`、
+      或用 heredoc 喂值），先到的那一行会被 readline 丢掉：那一刻还没有等待者。
+      人肉输入碰不到，但任何脚本化调用都会，而这种失败表现为「卡住」，最难查。
+   所以行先进队列，问的时候先看队列；terminal: false 也是故意的，
+   默认值会调 stdin.setRawMode，管道场景下没有这个方法。 */
+let rl = null;
+let waiter = null;
+const pending = [];
+const ensureRl = () => {
+  if (rl) return rl;
+  rl = createInterface({ input: process.stdin, terminal: false });
+  rl.on('line', (l) => {
+    if (waiter) {
+      const w = waiter;
+      waiter = null;
+      w(l);
+    } else pending.push(l);
+  });
+  rl.on('close', () => {
+    if (waiter) {
+      const w = waiter;
+      waiter = null;
+      w(''); // EOF：当成按了回车，让后续校验去判够不够
+    }
+  });
+  return rl;
+};
+const ask = async (q, fallback = '') => {
+  ensureRl();
+  process.stdout.write(q);
+  const raw = pending.length ? pending.shift() : await new Promise((res) => (waiter = res));
+  const v = String(raw || '').trim();
+  return v || fallback;
 };
 
 /* 一切 wrangler 调用都直接跑 node_modules 里的入口：
@@ -215,9 +283,31 @@ async function setupTurnstile() {
    Umami 的 /api/send 对「id 不存在」和「id 存在但域名不对」回的是不同的错，
    所以假 id 会得到 Invalid website ID，真 id 至少不会得到这一句。 */
 async function setupUmami() {
-  const [scriptUrl, siteId] = args.map((s) => (s || '').trim());
+  const [a1, a2] = args.map((s) => (s || '').trim());
+  let scriptUrl = a1;
+  let siteId = a2;
+
+  if ((!scriptUrl || !siteId) && canAsk()) {
+    console.log('\n—— 没给全参数，逐项问一下（直接回车用方括号里的值）——');
+    if (!scriptUrl) {
+      scriptUrl = await ask('script 地址 [https://cloud.umami.is/script.js]：', 'https://cloud.umami.is/script.js');
+    }
+    if (!siteId) {
+      siteId = await ask('website-id（Umami 后台 → 设置 → 网站 → Website ID，UUID 形状）：');
+    }
+    console.log('');
+  }
+
   if (!scriptUrl || !siteId) {
-    die('用法：npm run setup:umami -- <script 地址> <website-id>\n  例：npm run setup:umami -- https://cloud.umami.is/script.js 1f2e3d4c-...');
+    die(
+      '用法：npm run setup:umami -- <script 地址> <website-id>\n' +
+        '  例：npm run setup:umami -- https://cloud.umami.is/script.js 1f2e3d4c-5b6a-...\n' +
+        '  不带参数跑，会逐项问你。'
+    );
+  }
+  // 交互输入同样可能是粘错的占位符，形状检查之前统一再认一次
+  for (const v of [scriptUrl, siteId]) {
+    if (looksPlaceholder(v)) die(`「${v}」是占位符，不是真实值。`);
   }
 
   let u;
@@ -361,5 +451,8 @@ else {
   console.log('  npm run setup:webhook   -- <webhook 地址>');
   console.log('  npm run setup:turnstile -- <SITE_KEY> <SECRET>');
   console.log('  npm run setup:umami     -- <script 地址> <website-id>');
+  console.log('  不带值的项会交互式问你（直接在终端里跑时）。');
   process.exitCode = 1;
 }
+// 共享的那个 readline 不关，进程会挂着不退
+if (rl) rl.close();

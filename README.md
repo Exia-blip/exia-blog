@@ -569,12 +569,20 @@ node scripts/gen-cards.mjs --apply    # 出图并写回 posts.cover
 
 默认**零第三方脚本**：`boot.js` 在 `load` 之后用 `sendBeacon` 打一条 `/api/pv`，落 D1 的 `pv` 表，后台 `/admin/stats` 看。IP 做加盐摘要（`sha256(ip|salt)` 前 8 字节）够去重、反查不出人；按北京时间切日；同人同日同页只记一次；爬虫和 `/editor` 不记。
 
-想换成 Umami（或任何 umami 兼容实例）：
+想换成 Umami（或任何 umami 兼容实例），直接在终端里跑不带参数的版本，它会逐项问你：
 
 ```bash
-npm run setup:umami -- https://cloud.umami.is/script.js <website-id>
+npm run setup:umami          # 第一项回车用默认的 cloud.umami.is/script.js，第二项粘 website-id
 npm run deploy
 ```
+
+也可以一次给全：
+
+```bash
+npm run setup:umami -- https://cloud.umami.is/script.js 1f2e3d4c-5b6a-4978-8c9d-0e1f2a3b4c5d
+```
+
+**别把 `<website-id>` 这种尖括号占位符原样粘进 shell**：`<` 在 bash 里是重定向而不是参数，命令会去找一个同名文件、找不到、在脚本启动之前就断掉，报的是 `No such file or directory` —— 看起来像文件缺失，实际是参数写错了，而且这个形态下什么都不会发生。脚本里做了占位符识别（尖括号、`你的`、`xxxx`、`...`），认出来会直接拒绝并说明原因。
 
 脚本会先拉一次 `script.js` 确认地址真的是 umami，再发一条假事件去问实例「这个 id 存在吗」——id 不存在时 umami 回 `Invalid website ID`，据此在写入前拦掉。`--dry` 只验不写，`--no-probe` 跳过那条会写数据的事件。
 
