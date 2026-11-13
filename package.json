@@ -11,7 +11,8 @@
     "tail": "wrangler tail",
     "test": "node scripts/test-md.mjs && node scripts/test-security.mjs && node scripts/test-antispam.mjs && node scripts/test-routes.mjs && node scripts/test-copy-notice.mjs && node scripts/verify-copy.mjs && node scripts/test-seo-series.mjs",
     "cards": "node scripts/gen-cards.mjs",
-    "shots": "node scripts/shot.mjs"
+    "shots": "node scripts/shot.mjs",
+    "check:ld": "node scripts/check-ld.mjs"
   },
   "devDependencies": {
     "puppeteer-core": "^23.11.1",
