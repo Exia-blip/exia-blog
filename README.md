@@ -536,6 +536,30 @@ node scripts/gen-cards.mjs --apply    # 出图并写回 posts.cover
 - 输出 `public/cards/<slug>.png`；`/cards/*` 缓存一天
 - 只给「还没有手填封面」的文章挂卡，`posts.cover` 一旦非空就尊重作者的选择
 
+#### 图标与默认分享图的体积
+
+这一组是设计出来的图形（渐变 + 文字），**PNG24 里全是熵**：zlib level 9 无损重压一张都省不到 1%，所以「优化 PNG」这类说法在它们身上是空的。
+
+真正有效的是降到 256 色索引图，但抖动强度必须压小：`dither: 1` 会在平缓渐变上堆出可见的颗粒斑（512 图标右侧那块），`quality: 100` + `dither: 0.5` 反而又小又干净，PSNR 55、肉眼看不出、体积 -33%~-42%。OG 图是 1200×630 的 JPEG，原文件只有 0.039 B/px，已经贴着 JPEG 地板，能动的只剩色度抽样 4:4:4 → 4:2:0（-15%）。
+
+```bash
+npm run assets          # 原地重压（只写变小的，带 PSNR 闸门）
+npm run assets -- --dry # 只看结果不落盘
+npm run assets:check    # 比对体积预算，超了 exit 1
+```
+
+| 目标 | 前 | 后 |
+|---|---|---|
+| `favicon.ico`（4 帧 PNG 重压后重拼容器） | 5.9K | 3.0K |
+| `icon-192.png` / `apple-touch-icon.png` | 8.9K / 8.3K | 6.0K / 5.5K |
+| `icon-512.png` | 28.5K | 16.6K |
+| `og-default.jpg` | 29.1K | 24.7K |
+| `cards/*.png`（14 张，同时是各篇 `og:image`） | 947K | 363K |
+
+脚本**幂等**：PNG 头里已是索引色（color type 3）、JPEG 已是渐进 4:2:0 的直接跳过，收益不足 5% 的也不写 —— 二次量化是累计有损的，跑两遍不会把图越压越糊。`sharp` 的 `effort` 参数在这条路上是陷阱：它是给索引色量化用的，配在无损档上会悄悄改像素（实测最大偏差 16）。
+
+`/cards/*` 缓存一天、图标走一年 immutable，所以换图后老访客手里那份会留着，压缩收益主要落在新访客和爬虫上；视觉上两份内容一致，不需要清缓存。
+
 ## 阅读体验
 
 > 目录的 sticky 有个隐蔽前提：`.post-article` 是 grid，`align-items: start` 会让 `.post-toc` 的高度等于内容高度，sticky 元素没有可滚余量，滚两屏目录就跟着文章跑出视口 —— 表现是"高亮在变，但目录看不见了"。改成 `stretch` 才真正固定。
