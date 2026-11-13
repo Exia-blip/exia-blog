@@ -167,7 +167,7 @@ export async function mountHeader(active = '') {
             `<a href="${l.href}"${active === l.key ? ' class="active" aria-current="page"' : ''}>${l.label}</a>`
           )
           .join('')}
-        ${active === 'tag' ? `<a href="javascript:;" class="active" aria-current="page">#${esc(new URLSearchParams(location.search).get('t') || '')}</a>` : ''}
+        ${active === 'tag' ? `<span class="active" aria-current="page">#${esc(new URLSearchParams(location.search).get('t') || '')}</span>` : ''}
         <span id="nav-user">${user ? userNav(user, active) : '<a href="/login">登录</a>'}</span>
         ${buttonHTML}
       </nav>

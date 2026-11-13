@@ -10,9 +10,11 @@
 </head>
 <body>
 
+<a class="skip-link" href="#page">跳到正文</a>
+
 <div id="site-header" data-site="Exia Blog"></div>
 
-<main class="wrap" id="page">
+<main class="wrap" id="page" tabindex="-1">
   <div class="empty">加载中…</div>
 </main>
 
@@ -48,12 +50,27 @@ function hydrate() {
 
 /* 正文模板只在 Worker 里有一份（src/index.js servePostPage）。
    这里以前还留着一套前端模板兜底，改一处忘一处就对不上，SSR 稳定后删掉了。 */
+/* 正文取不到时的兜底。按钮而不是 `<a href="javascript:...">`：
+   后者在键盘里能 Tab 到，但回车只是执行脚本、地址栏不动，屏幕阅读器还会念成链接。 */
 function fallbackNotice() {
   page.innerHTML =
-    '<div class="empty">正文没取到，可能是页面缓存过期了。<a href="javascript:location.reload()">刷新一下</a></div>';
+    '<div class="empty">正文没取到，可能是页面缓存过期了。<button type="button" class="btn sm" data-reload style="margin-left:8px">刷新一下</button></div>';
+  page.querySelector('[data-reload]').addEventListener('click', () => location.reload());
 }
 
 /* ---------- 评论 ---------- */
+/* SSR 已经把评论连「回复 / 删除 / 封 IP」一起写进 HTML（src/index.js renderComments）。
+   首屏再拉一次 /api/comments 拿同样的数据是白花一次 Worker 请求 + 一次 D1 查询。
+   只有这两种情况需要补拉：
+   1) 页面是旧版本缓存，评论区块没有 data-ssr（部署后最长 5 分钟）；
+   2) 当前是管理员，但这份 HTML 画的是匿名视图。 */
+function commentsNeedFetch() {
+  const sec = document.querySelector('.comments');
+  if (!sec || !sec.dataset.ssr) return true;
+  const hasRows = !!document.querySelector('#cmt-list .cmt');
+  return !!(hasRows && USER && USER.is_admin && !document.querySelector('#cmt-list [data-del]'));
+}
+
 async function loadComments() {
   const box = document.getElementById('cmt-list');
   if (!box) return;
@@ -74,14 +91,22 @@ function avatarText(name) {
   return esc(String(name || '?').slice(0, 1).toUpperCase());
 }
 
+/* 与服务端 renderComment 保持同一份结构：增删评论后重渲染的 DOM
+   必须和首屏 SSR 出来的一模一样，否则按钮位置会跳一下。 */
 function renderCmt(c, isChild = false) {
-  const del = USER && USER.is_admin
-    ? `<button data-del="${c.id}">删除</button><button data-ban="${c.id}" class="cmt-ban" title="删掉这个来源的全部访客评论，并拉黑该 IP">封 IP</button>`
-    : '';
-  const reply = !isChild ? `<button data-reply="${c.id}" data-name="${esc(c.name)}">回复</button>` : '';
+  const admin = USER && USER.is_admin;
+  const acts =
+    (isChild ? '' : `<button type="button" data-reply="${c.id}" data-name="${esc(c.name)}">回复</button>`) +
+    (admin
+      ? `<button type="button" data-del="${c.id}">删除</button>` +
+        `<button type="button" data-ban="${c.id}" class="cmt-ban" title="删掉这个来源的全部访客评论，并拉黑该 IP">封 IP</button>`
+      : '');
   const homepage = c.website
-    ? `<a href="${esc(c.website)}" target="_blank" rel="noopener nofollow" class="muted">${esc(c.name)}</a>`
+    ? `<a href="${esc(c.website)}" target="_blank" rel="noopener nofollow noUGc" class="muted">${esc(c.name)}</a>`
     : esc(c.name);
+  const mail = admin && c.email
+    ? `<a class="cmt-mail" href="mailto:${esc(c.email)}" title="联系邮箱，仅管理员可见">${esc(c.email)}</a>`
+    : '';
 
   return `
   <div class="cmt" data-cid="${c.id}">
@@ -91,12 +116,10 @@ function renderCmt(c, isChild = false) {
         <b>${homepage}</b>
         ${c.is_admin ? '<span class="badge-owner">博主</span>' : ''}
         <span class="when">${fmtRelative(c.created_at)}</span>
-        ${USER && USER.is_admin && c.email
-          ? `<a class="cmt-mail" href="mailto:${esc(c.email)}" title="联系邮箱，仅管理员可见">${esc(c.email)}</a>`
-          : ''}
+        ${mail}
       </div>
       <div class="text">${esc(c.content)}</div>
-      <div class="acts">${reply}${del}</div>
+      <div class="acts">${acts}</div>
       ${c.replies && c.replies.length ? `<div class="replies">${c.replies.map((r) => renderCmt(r, true)).join('')}</div>` : ''}
     </div>
   </div>`;
@@ -111,7 +134,7 @@ function bindReply() {
       replyTo = { id: +r.dataset.reply, name: r.dataset.name };
       const hint = document.getElementById('reply-hint');
       hint.style.display = 'block';
-      hint.innerHTML = `回复 <b>${esc(replyTo.name)}</b> · <a href="javascript:;" id="cancel-reply">取消</a>`;
+      hint.innerHTML = `回复 <b>${esc(replyTo.name)}</b> · <button type="button" class="lnk" id="cancel-reply">取消</button>`;
       document.getElementById('cancel-reply').onclick = () => {
         replyTo = null;
         hint.style.display = 'none';
@@ -396,7 +419,7 @@ if (POST) {
   hydrate();
   mountMobileToc();
   bindTocSpy();
-  loadComments();
+  if (commentsNeedFetch()) loadComments();
 } else {
   fallbackNotice();
 }

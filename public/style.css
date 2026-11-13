@@ -383,7 +383,7 @@ nav.top { display: flex; gap: 4px; margin-left: auto; align-items: center; flex-
 /* 登录态是 Worker 先留空、JS 再填：空的时候整块不占位，避免「已登录却闪一下登录」 */
 #nav-user { display: contents; }
 #nav-user:empty { display: none; }
-nav.top a, nav.top button {
+nav.top a, nav.top button, nav.top .active {
   padding: 6px 11px;
   border-radius: 8px;
   font-size: 13.5px;
@@ -393,7 +393,7 @@ nav.top a, nav.top button {
   cursor: pointer;
 }
 nav.top a:hover, nav.top button:hover { color: var(--fg); background: var(--bg-soft); }
-nav.top a.active, nav.top a[aria-current="page"] { color: var(--fg); background: var(--bg-soft); }
+nav.top .active, nav.top [aria-current="page"] { color: var(--fg); background: var(--bg-soft); }
 
 /* 窄屏汉堡：桌面不出现，640 以下顶掉整条导航（见文件末尾的移动端规则） */
 .nav-toggle {
@@ -448,6 +448,42 @@ input[type="text"], input[type="url"], input[type="email"], textarea, select {
   transition: 0.16s;
 }
 input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* 键盘焦点环：表单控件本来就有 accent 光晕，这里只管链接和按钮。
+   用 :focus-visible 而不是 :focus —— 鼠标点完不留框，Tab 走位才有。
+   outline 不用 box-shadow，避免被 overflow:hidden 的容器裁掉一半。 */
+:where(a, button, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* 屏幕阅读器专用文本：占位符在输入后消失，读屏也读不到它当字段名，
+   所以每个输入都得配一个真 label，只是不占版面。 */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+/* 跳到正文：默认在视口外，Tab 第一下才滑进来 */
+.skip-link {
+  position: fixed;
+  top: 8px; left: 8px;
+  z-index: 300;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  text-decoration: none;
+  transform: translateY(-160%);
+  transition: transform .14s ease;
+}
+.skip-link:focus-visible { transform: translateY(0); }
+main:focus { outline: none; }
 
 .tag {
   display: inline-block;
@@ -990,6 +1026,9 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .tag-n { margin-left: 5px; font-size: 10.5px; opacity: .6; }
 .lnk { color: var(--accent); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 32%, transparent); }
 .lnk:hover { border-bottom-color: var(--accent); }
+/* 同一个视觉，换成 <button>：点完只是执行动作、不跳地址的东西就不该是链接 */
+button.lnk { background: none; padding: 0; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--accent) 32%, transparent); font: inherit; cursor: pointer; }
+button.lnk:hover { border-bottom-color: var(--accent); }
 .hero-sub b, #hero-sub b { color: var(--fg); font-weight: 600; }
 
 /* 公共小 chip */

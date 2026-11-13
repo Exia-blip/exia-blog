@@ -113,38 +113,65 @@ function relTime(sqlDate) {
 
 const avaText = (name) => esc(String(name || '?').slice(0, 1).toUpperCase());
 
-function renderComment(c, isChild = false) {
+/* 评论区的操作按钮服务端就画好，前端只挂事件。
+   以前 acts 是空的，前端进来必拉一次 /api/comments 重新渲染整块 ——
+   同样的数据拉两遍（一次 SSR、一次接口），多一次 Worker 请求 + 一次 D1 查询。
+   现在 SSR 直接输出按钮：回复按钮给所有人，删除/封 IP 与联系邮箱只给管理员。
+   登录态请求本来就绕过边缘缓存（见 fetch handler 里的 loggedIn 判断），
+   所以管理员看到的 HTML 不会被缓存给匿名访客。 */
+export function commentActs(c, viewer) {
+  const reply = c.parent_id ? '' : `<button type="button" data-reply="${c.id}" data-name="${esc(c.name)}">回复</button>`;
+  const admin = viewer && viewer.is_admin
+    ? `<button type="button" data-del="${c.id}">删除</button>` +
+      `<button type="button" data-ban="${c.id}" class="cmt-ban" title="删掉这个来源的全部访客评论，并拉黑该 IP">封 IP</button>`
+    : '';
+  return reply + admin;
+}
+
+export function renderComment(c, isChild = false, viewer = null) {
   const homepage = c.website
     ? `<a href="${esc(c.website)}" target="_blank" rel="noopener nofollow noUGc" class="muted">${esc(c.name)}</a>`
     : esc(c.name);
+  const mail = viewer && viewer.is_admin && c.email
+    ? `<a class="cmt-mail" href="mailto:${esc(c.email)}" title="联系邮箱，仅管理员可见">${esc(c.email)}</a>`
+    : '';
   return `<div class="cmt" data-cid="${c.id}"><div class="ava">${avaText(c.name)}</div><div class="main"><div class="head"><b>${homepage}</b>${
     c.is_admin ? '<span class="badge-owner">博主</span>' : ''
-  }<span class="when">${esc(relTime(c.created_at))}</span></div><div class="text">${esc(c.content)}</div><div class="acts"></div>${
+  }<span class="when">${esc(relTime(c.created_at))}</span>${mail}</div><div class="text">${esc(c.content)}</div><div class="acts">${commentActs(
+    c,
+    viewer
+  )}</div>${
     !isChild && c.replies && c.replies.length
-      ? `<div class="replies">${c.replies.map((r) => renderComment(r, true)).join('')}</div>`
+      ? `<div class="replies">${c.replies.map((r) => renderComment(r, true, viewer)).join('')}</div>`
       : ''
   }</div></div>`;
 }
 
-function renderComments(rows, total) {
+/* 表单字段挂真 <label>：占位符在输入后消失，读屏也读不到它当字段名。
+   用 sr-only 而不是可见标签，是为了不动现有三列排布。 */
+export function renderComments(rows, total, viewer = null) {
   const roots = rows.filter((c) => !c.parent_id);
   const kids = rows.filter((c) => c.parent_id);
   const tree = roots.map((r) => ({ ...r, replies: kids.filter((c) => c.parent_id === r.id) }));
   const list = tree.length
-    ? tree.map((c) => renderComment(c)).join('')
+    ? tree.map((c) => renderComment(c, false, viewer)).join('')
     : '<div class="muted small" style="padding:14px 0">还没有评论，来抢沙发。</div>';
-  return `<section class="comments" id="comments">
+  return `<section class="comments" id="comments" data-ssr="1">
       <h3>评论 <span class="muted" id="cmt-count">${total ? `(${total})` : ''}</span></h3>
       <div id="cmt-list">${list}</div>
       <form class="cmt-form" id="cmt-form" novalidate>
         <div id="reply-hint" class="tiny muted" style="display:none"></div>
         <input type="text" name="hp" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true" placeholder="留空">
+        <label class="sr-only" for="cmt-name">昵称（必填）</label>
+        <label class="sr-only" for="cmt-email">联系邮箱（必填，不公开，仅博主可见）</label>
+        <label class="sr-only" for="cmt-website">网站（可选）</label>
         <div class="row" id="guest-fields">
-          <input type="text" name="name" placeholder="昵称 *" maxlength="40" autocomplete="nickname">
-          <input type="email" name="email" placeholder="联系邮箱 *（不公开，仅博主可见）" maxlength="120" autocomplete="email">
-          <input type="url" name="website" placeholder="网站（可选）" maxlength="200">
+          <input id="cmt-name" type="text" name="name" placeholder="昵称 *" maxlength="40" autocomplete="nickname" required>
+          <input id="cmt-email" type="email" name="email" placeholder="联系邮箱 *（不公开，仅博主可见）" maxlength="120" autocomplete="email" required>
+          <input id="cmt-website" type="url" name="website" placeholder="网站（可选）" maxlength="200">
         </div>
-        <textarea name="content" placeholder="说点什么…" maxlength="2000"></textarea>
+        <label class="sr-only" for="cmt-content">评论内容（必填）</label>
+        <textarea id="cmt-content" name="content" placeholder="说点什么…" maxlength="2000" required></textarea>
         <div class="ts-wrap" id="ts-wrap" hidden></div>
         <div class="foot">
           <span class="tiny muted" id="cmt-hint"></span>
@@ -395,8 +422,9 @@ ${themeBoot(site)}
 </style>
 ${ld ? ldJson(ld) : ''}
 </head><body>
+<a class="skip-link" href="#main">跳到正文</a>
 ${renderHeader(site, '/series')}
-<main class="wrap">
+<main class="wrap" id="main" tabindex="-1">
   <div class="page-head">
     <p class="page-kicker">${esc(kicker)}</p>
     <h1>${esc(title)}</h1>
@@ -637,7 +665,9 @@ async function servePostPage(env, request, slug) {
       .bind(slug)
       .all(),
     env.DB.prepare(
-      `SELECT c.id, c.parent_id, c.name, c.website, c.content, c.is_admin, c.created_at
+      // email 只有管理员会在页面上看到（见 commentActs 的 viewer 判断），
+      // 匿名访客的 HTML 里不会出现这个字段
+      `SELECT c.id, c.parent_id, c.name, c.email, c.website, c.content, c.is_admin, c.created_at
        FROM comments c JOIN posts p ON p.id = c.post_id
        WHERE p.slug = ? ORDER BY c.created_at ASC`
     )
@@ -777,7 +807,7 @@ async function servePostPage(env, request, slug) {
       <div class="md post-body">${bodyHtml}</div>
       <footer class="post-foot"><div class="tagbar" style="margin:0">${tagbar}</div></footer>
       ${renderAdjacent(post, catRes.results, seriesPosts)}
-      ${renderComments(cmtRows, cmtRows.length)}
+      ${renderComments(cmtRows, cmtRows.length, user)}
       </div>
     </article>`;
 
@@ -850,7 +880,7 @@ async function servePostPage(env, request, slug) {
       '</head>',
       `<script>window.__POST__=${JSON.stringify(boot).replace(/</g, '\\u003c')};</script></head>`
     )
-    .replace(/<main class="wrap" id="page">[\s\S]*?<\/main>/, `<main class="wrap wrap-post" id="page">${article}</main>`);
+    .replace(/<main class="wrap" id="page"[^>]*>[\s\S]*?<\/main>/, `<main class="wrap wrap-post" id="page" tabindex="-1">${article}</main>`);
 
   return html(stampAssets(injected, env), 200, {
     // 私密文章不进缓存；公开文章统一走 pageCacheControl（浏览器不缓存、边缘 300s + SWR 86400）
@@ -1417,28 +1447,36 @@ ${items}
 async function serveSitemap(env, request) {
   const origin = new URL(request.url).origin;
   const publicOnly = `p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}`;
+  // 列表页也要 lastmod：一个栏目页的内容变了，是因为它下面某篇文章变了，
+  // 所以取组内 MAX(updated_at)。以前只有文章页带，列表页对爬虫等于"从不更新"。
+  const lastUpd = (a) => `MAX(COALESCE(p.updated_at, p.created_at))`;
 
-  const [{ results: posts }, { results: cats }, { results: tags }, { results: series }] = await Promise.all([
-    env.DB.prepare(
-      `SELECT p.slug, p.updated_at FROM posts p WHERE ${publicOnly}
-       ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC LIMIT 1000`
-    ).all(),
-    env.DB.prepare(
-      `SELECT p.category AS c, COUNT(*) AS n FROM posts p WHERE ${publicOnly} AND TRIM(COALESCE(p.category,'')) != '' GROUP BY p.category`
-    ).all(),
-    env.DB.prepare(
-      `SELECT t.name AS n, COUNT(*) AS c FROM tags t
-       JOIN post_tags pt ON pt.tag_id = t.id
-       JOIN posts p ON p.id = pt.post_id AND ${publicOnly}
-       GROUP BY t.name ORDER BY c DESC`
-    ).all(),
-    // 系列页是新加的地址，只靠站内链被发现太慢，直接进 sitemap
-    env.DB.prepare(
-      `SELECT p.series AS n, COUNT(*) AS c FROM posts p
-       WHERE ${publicOnly} AND TRIM(COALESCE(p.series, '')) != ''
-       GROUP BY p.series`
-    ).all(),
-  ]);
+  const [{ results: posts }, { results: cats }, { results: tags }, { results: series }, { results: friendRow }] =
+    await Promise.all([
+      env.DB.prepare(
+        `SELECT p.slug, p.updated_at FROM posts p WHERE ${publicOnly}
+         ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC LIMIT 1000`
+      ).all(),
+      env.DB.prepare(
+        `SELECT p.category AS c, COUNT(*) AS n, ${lastUpd()} AS last FROM posts p
+         WHERE ${publicOnly} AND TRIM(COALESCE(p.category,'')) != '' GROUP BY p.category`
+      ).all(),
+      env.DB.prepare(
+        `SELECT t.name AS n, COUNT(*) AS c, ${lastUpd()} AS last FROM tags t
+         JOIN post_tags pt ON pt.tag_id = t.id
+         JOIN posts p ON p.id = pt.post_id AND ${publicOnly}
+         GROUP BY t.name ORDER BY c DESC`
+      ).all(),
+      // 系列页是新加的地址，只靠站内链被发现太慢，直接进 sitemap
+      env.DB.prepare(
+        `SELECT p.series AS n, COUNT(*) AS c, ${lastUpd()} AS last FROM posts p
+         WHERE ${publicOnly} AND TRIM(COALESCE(p.series, '')) != ''
+         GROUP BY p.series`
+      ).all(),
+      // 友链页没有文章可依，只能看"最近加过谁"——status 每 20 分钟变一次，
+      // 那是探测结果不是内容变化，拿它当 lastmod 会天天报假更新
+      env.DB.prepare(`SELECT MAX(COALESCE(created_at, '')) AS last FROM friends`).all(),
+    ]);
 
   const urls = posts
     .map(
@@ -1447,24 +1485,40 @@ async function serveSitemap(env, request) {
     )
     .join('\n');
 
-  // 栏目页只在真有文章时进 sitemap；空栏目页对爬虫是薄内容
-  const catUrls = [...new Set(cats.map((r) => normalizeCat(r.c)).filter(Boolean))]
-    .map((slug) => `  <url><loc>${origin}/cat/${slug}</loc></url>`)
+  const lm = (v) => (v ? `<lastmod>${String(v).slice(0, 10)}</lastmod>` : '');
+  // 首页 / 归档 / 栏目总览都是"全站文章"的另一种切法，用同一份最大值
+  const siteLast = posts.reduce((m, p) => ((p.updated_at || '') > m ? p.updated_at : m), '');
+
+  // 栏目页只在真有文章时进 sitemap；空栏目页对爬虫是薄内容。
+  // 多个原始栏目名可能归一成同一个 slug，所以取归一后的最大值，不是逐行取。
+  const catLast = new Map();
+  for (const r of cats) {
+    const slug = normalizeCat(r.c);
+    if (!slug) continue;
+    if ((r.last || '') > (catLast.get(slug) || '')) catLast.set(slug, r.last || '');
+  }
+  const catUrls = [...catLast]
+    .map(([slug, last]) => `  <url><loc>${origin}/cat/${slug}</loc>${lm(last)}</url>`)
     .join('\n');
 
+  const seriesLast = series.reduce((m, r) => ((r.last || '') > m ? r.last : m), '');
   const seriesUrls = series.length
-    ? [`  <url><loc>${origin}/series</loc></url>`]
-        .concat(series.map((r) => `  <url><loc>${origin}/series/${encodeURIComponent(r.n)}</loc></url>`))
+    ? [`  <url><loc>${origin}/series</loc>${lm(seriesLast)}</url>`]
+        .concat(series.map((r) => `  <url><loc>${origin}/series/${encodeURIComponent(r.n)}</loc>${lm(r.last)}</url>`))
         .join('\n')
     : `  <url><loc>${origin}/series</loc></url>`;
 
   const tagUrls = tags
     .filter((t) => t.c > 0)
-    .map((t) => `  <url><loc>${origin}/tag/${encodeURIComponent(t.n)}</loc></url>`)
+    .map((t) => `  <url><loc>${origin}/tag/${encodeURIComponent(t.n)}</loc>${lm(t.last)}</url>`)
     .join('\n');
 
   return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${origin}/</loc></url>\n  <url><loc>${origin}/archive</loc></url>\n  <url><loc>${origin}/categories</loc></url>\n  <url><loc>${origin}/friends</loc></url>\n${catUrls}\n${tagUrls}\n${seriesUrls}\n${urls}\n</urlset>`,
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${origin}/</loc>${lm(
+      siteLast
+    )}</url>\n  <url><loc>${origin}/archive</loc>${lm(siteLast)}</url>\n  <url><loc>${origin}/categories</loc>${lm(
+      siteLast
+    )}</url>\n  <url><loc>${origin}/friends</loc>${lm(friendRow[0] && friendRow[0].last)}</url>\n${catUrls}\n${tagUrls}\n${seriesUrls}\n${urls}\n</urlset>`,
     { headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=600' } }
   );
 }
