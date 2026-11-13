@@ -133,8 +133,10 @@ function bars(rows) {
 
 function table(head, rows) {
   if (!rows.length) return '<p class="empty">还没有数据</p>';
+  // rows 里每一格已经是完整的 <td>…</td>，这里只负责拼行 ——
+  // 再包一层 <td> 会被浏览器拆成两列，表格看着错位却很难一眼看出原因
   return `<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows
-    .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`)
+    .map((r) => `<tr>${r.join('')}</tr>`)
     .join('')}</tbody></table>`;
 }
 
@@ -193,7 +195,9 @@ h1{font-family:var(--serif);font-size:24px;margin:0 0 4px}
 .kpi-v{font-family:var(--mono);font-size:26px;font-weight:600;margin:6px 0 2px;letter-spacing:-.02em}
 .kpi-s{font-size:12px;color:var(--muted)}
 .chart{display:flex;align-items:flex-end;gap:6px;height:130px;border-bottom:1px solid var(--line);padding-bottom:0;margin-bottom:6px}
-.bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%}
+/* 只有一两天数据时，flex:1 会把那根柱拉成一整块色块。
+   给每根一个上限，柱子少的时候就是几根细柱，靠左排。 */
+.bar{flex:0 1 62px;min-width:8px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%}
 .bar-f{width:100%;border-radius:4px 4px 0 0;background:color-mix(in srgb,var(--accent) 55%,transparent);min-height:2px;transition:background .16s}
 .bar:hover .bar-f{background:var(--accent)}
 .bar-d{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:5px;white-space:nowrap}

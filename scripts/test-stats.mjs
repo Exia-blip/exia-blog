@@ -167,4 +167,21 @@ t('柱状图高度封顶 100%，不会把最高那根撑出容器', () => {
   }
 });
 
+t('表格里不会出现 td 套 td（那会被浏览器拆成多余列）', () => {
+  const h = renderStats({
+    user: { login: 'exia' },
+    t1: { pv: 1, uv: 1 },
+    t7: { pv: 1, uv: 1 },
+    t30: { pv: 1, uv: 1 },
+    dailyRows: [day('2026-11-14', 1, 1)],
+    top: { results: [{ path: '/p/a', c: 3 }] },
+    refs: { results: [{ ref: 'a.com', c: 2 }] },
+    kinds: { results: [{ kind: 'pc', c: 1 }] },
+    total: { c: 1, first: '2026-11-14' },
+  });
+  assert.ok(!/<td[^>]*>\s*<td/.test(h), '出现了嵌套的 td');
+  // 三张表 × (1 行 × 2 列)；嵌套会让这个数字翻倍
+  assert.equal((h.match(/<td/g) || []).length, 6);
+});
+
 console.log(`\n${pass} 条通过`);
