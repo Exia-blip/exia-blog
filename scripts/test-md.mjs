@@ -113,6 +113,31 @@ t('上传时已转 webp 的图只挂 avif 候选', () => {
   assert.ok(out.includes('src="/img/u/202611/a.webp"'), out);
 });
 
+/* 强调规则跑在图片/链接之后，面对的是拼好的 HTML。它原来用 [^*\n]+ 这种
+   任意的中间段，会跨过属性值去凑对：两个 srcset 里的 __probe 被当成一对，
+   名字被啃成 <strong>，整个 srcset 报废 —— 页面还能显示，只是永远拿不到 avif。 */
+t('图片路径里的双下划线不被当成粗体', () => {
+  const out = renderBody('![图](/img/u/__probe/photo.jpg)');
+  assert.ok(!out.includes('<strong>'), out);
+  assert.ok(out.includes('srcset="/img/u/__probe/photo.jpg.webp"'), out);
+});
+
+t('链接 URL 里的双下划线也不被啃', () => {
+  const out = renderBody('[看](/p/__a__b)');
+  assert.ok(!out.includes('<strong>'), out);
+  assert.ok(out.includes('href="/p/__a__b"'), out);
+});
+
+t('正文里正常的 __粗体__ 照旧生效', () => {
+  const out = renderBody('这里是 __重点__ 内容');
+  assert.ok(out.includes('<strong>重点</strong>'), out);
+});
+
+t('链接文字里的粗体仍生效（没被整段占位吞掉）', () => {
+  const out = renderBody('[**粗**链接](/p/x)');
+  assert.ok(out.includes('<strong>粗</strong>'), out);
+});
+
 let pass = 0;
 for (const [name, fn] of cases) {
   try {

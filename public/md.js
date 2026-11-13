@@ -121,10 +121,22 @@ function inline(line) {
     return `${p}<a href="${href}" target="_blank" rel="noopener nofollow">${href}</a>${trail}`;
   });
 
+  /* 强调必须在图片/链接之后跑（链接文字里的 **粗体** 得保留），但那时 s 里
+     已经混进了我们自己拼的标签。`[^*\n]+` 会跨过属性值去凑对：两个 srcset 里的
+     __probe 被当成一对，路径被啃成 <strong>，整段 srcset 报废；/p/__a__b 这种
+     URL 也一样。之所以只用排除 < > " 还不够 —— 属性值里可以干净地出现 __a__。
+     所以把标签整体换成占位符，规则只面对纯文本，跑完再放回去。 */
+  const tags = [];
+  s = s.replace(/<[^>]+>/g, (m) => {
+    tags.push(m);
+    return `\u0001T${tags.length - 1}\u0001`;
+  });
   s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>');
   s = s.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
+  s = s.replace(/\u0001T(\d+)\u0001/g, (_, i) => tags[+i]);
+
   s = s.replace(/\u0000IC(\d+)\u0000/g, (_, i) => `<code>${esc(codes[+i])}</code>`);
   return s;
 }

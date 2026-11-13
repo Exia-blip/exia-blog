@@ -333,14 +333,15 @@ function bindTocSpy() {
       }
     }
 
-    // 进度条：端点落在当前项的中点，transitions 让它是滑过去的
+    // 进度条：端点落在当前项的中点。给的是 0–1 的比例，CSS 那边用 scaleY 吃掉，
+    // 写百分比会让它退回 height 动画 —— 那是要重排的
     if (ol) {
       const li = activeLink.closest('li');
       if (li) {
         const oR = ol.getBoundingClientRect();
         const lR = li.getBoundingClientRect();
-        const p = oR.height ? ((lR.top + lR.height / 2 - oR.top) / oR.height) * 100 : 0;
-        ol.style.setProperty('--toc-p', Math.max(0, Math.min(100, p)).toFixed(1) + '%');
+        const p = oR.height ? (lR.top + lR.height / 2 - oR.top) / oR.height : 0;
+        ol.style.setProperty('--toc-p', Math.max(0, Math.min(1, p)).toFixed(3));
       }
     }
 
@@ -405,13 +406,25 @@ function mountMobileToc() {
   });
   addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 
-  // 滚过文章头部才露出按钮：一进来就浮着太吵
-  const btnSpy = () => {
+  // 滚过文章头部才露出按钮：一进来就浮着太吵。
+  // 两个细节：edge 提前量好存着 —— 每次 scroll 读 offsetTop 会强制同步布局，
+  // 而这个值只在换宽度时才变；露出的判据留 80px 滞回 —— 停在边界上微滚时
+  // 单阈值会让按钮一直闪，就是「动画重复触发」那种观感。
+  let edge = 300;
+  let visible = false;
+  const measure = () => {
     const head = document.querySelector('.post-head');
-    const past = head ? scrollY > head.offsetTop + head.offsetHeight - 120 : scrollY > 300;
-    btn.classList.toggle('on', past);
+    edge = head ? head.offsetTop + head.offsetHeight - 120 : 300;
+  };
+  const btnSpy = () => {
+    const y = scrollY;
+    if (!visible && y > edge) visible = true;
+    else if (visible && y < edge - 80) visible = false;
+    btn.classList.toggle('on', visible);
   };
   addEventListener('scroll', btnSpy, { passive: true });
+  addEventListener('resize', () => { measure(); btnSpy(); });
+  measure();
   btnSpy();
 }
 

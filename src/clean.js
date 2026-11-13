@@ -9,17 +9,19 @@ const VOID = new Set(['br', 'hr', 'img', 'input', 'source', 'wbr', 'col']);
 const TAG_OK = new Set([
   'a', 'abbr', 'aside', 'b', 'blockquote', 'br', 'button', 'cite', 'code', 'del', 'details', 'div',
   'em', 'figcaption', 'figure', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img', 'input',
-  'kbd', 'li', 'mark', 'ol', 'p', 'pre', 'q', 's', 'section', 'small', 'source', 'span', 'strong',
-  'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'u', 'ul', 'video',
+  'kbd', 'li', 'mark', 'ol', 'p', 'picture', 'pre', 'q', 's', 'section', 'small', 'source', 'span',
+  'strong', 'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'u', 'ul', 'video',
 ]);
 
 const ATTR_COMMON = ['class', 'id', 'title', 'lang', 'dir'];
 const ATTR_BY_TAG = {
   a: ['href', 'target', 'rel', 'name', 'download'],
-  img: ['src', 'alt', 'width', 'height', 'loading', 'decoding'],
+  img: ['src', 'alt', 'width', 'height', 'loading', 'decoding', 'srcset', 'sizes'],
   input: ['type', 'checked', 'disabled', 'name'],
   video: ['src', 'poster', 'controls', 'loop', 'muted', 'playsinline', 'width', 'height', 'preload'],
-  source: ['src', 'type'],
+  // srcset 是 <picture> 的命脉：少了它，source 标签留下也是个空壳，
+  // 浏览器照样回落到 img 里的原图 —— 页面看不出来，只是永远拿不到 avif
+  source: ['src', 'type', 'srcset', 'media', 'sizes'],
   td: ['colspan', 'rowspan', 'style'],
   th: ['colspan', 'rowspan', 'style', 'scope'],
   button: ['type', 'disabled', 'data-copy', 'aria-label'],
@@ -40,6 +42,17 @@ function attrFilter(tag, name, value) {
   if (lower.startsWith('data-')) return lower === 'data-copy' ? value : null;
   const ok = ATTR_COMMON.includes(lower) || (ATTR_BY_TAG[tag] || []).includes(lower);
   if (!ok) return null;
+  /* srcset 是「URL 描述符, URL 描述符」的列表，逐个 URL 都得过 SAFE_URL。
+     只校验第一个是不够的：`/a.jpg 1x, javascript:alert(1) 2x` 里坏的那个在后面。 */
+  if (lower === 'srcset') {
+    const parts = String(value || '')
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (!parts.length) return null;
+    const allSafe = parts.every((p) => SAFE_URL.test(p.split(/\s+/)[0]));
+    return allSafe ? value : null;
+  }
   if ((lower === 'href' || lower === 'src' || lower === 'poster') && !SAFE_URL.test(String(value || '').trim())) {
     return null;
   }

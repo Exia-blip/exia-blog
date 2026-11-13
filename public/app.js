@@ -289,7 +289,15 @@ export function bindReadingProgress(root = document.querySelector('.post-body'))
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>';
   document.body.appendChild(btn);
 
-  const sync = () => btn.classList.toggle('on', (window.scrollY || window.pageYOffset || 0) > 360);
+  // 滞回：往下过 400 才露出，回到 320 才收起。
+  // 单阈值（>360）在边界上微滚会让按钮一直淡入淡出，看着像动画没完没了地重播
+  let shown = false;
+  const sync = () => {
+    const y = window.scrollY || window.pageYOffset || 0;
+    if (!shown && y > 400) shown = true;
+    else if (shown && y < 320) shown = false;
+    btn.classList.toggle('on', shown);
+  };
   window.addEventListener('scroll', sync, { passive: true });
   btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
   sync();

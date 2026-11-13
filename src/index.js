@@ -42,13 +42,21 @@ async function serveImage(env, key) {
   /* /img/a.png.webp、/img/a.png.avif：转码后的变体。
      不按 Accept 协商，是因为 HTML 和图片都在边缘缓存，接受头分支会让同一份缓存
      发给不支持的浏览器；变体做成了独立 URL，让 <picture> 在浏览器端挑。
-     变体还没转出来（新上传的图、批量脚本没跑过）时回退原图 ——
-     白跑一次查询，好过让访客看到一张裂开的图。
+     变体还没转出来（新上传的图、批量脚本没跑过）时按 avif → webp → 原图逐级退。
+
+     为什么要退到 webp 而不是直接给原图：<picture> 只按 source 的 type 挑，
+     浏览器支持 avif 就一定选 avif 那条，之后资源成不成立它不管 —— 实测删掉
+     .avif 变体后，Chrome 依然死认 .avif 这个地址，收到 JPEG 也照渲染，
+     那个 webp 候选从头到尾没被请求过一次。不在这层补一刀，webp 等于白转。
 
      原图本身是 .webp 的也要认：编辑器上传前就把 jpg/png 转成 webp 了，
      那些图只缺一档 avif（a.webp.avif），漏掉的话新图永远拿不到 avif。 */
-  const m = path.match(/^(.*\.(?:png|jpe?g|webp))\.(?:avif|webp)$/i);
+  const m = path.match(/^(.*\.(?:png|jpe?g|webp))\.(avif|webp)$/i);
   if (m) {
+    if (m[2].toLowerCase() === 'avif') {
+      const wp = await env.BUCKET.get(`${m[1]}.webp`);
+      if (wp) return imageResponse(wp);
+    }
     const orig = await env.BUCKET.get(m[1]);
     if (orig) return imageResponse(orig);
   }

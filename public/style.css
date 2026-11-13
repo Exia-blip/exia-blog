@@ -1623,12 +1623,16 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   color: var(--muted); margin: 0 0 10px 13px;
 }
 .post-toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); position: relative; }
-/* 阅读进度：一条跟着当前小节走的色条，末端停在高亮项中间 */
+/* 阅读进度：一条跟着当前小节走的色条，末端停在高亮项中间。
+   用 scaleY 而不是 height —— height 过渡每帧都要重排，滚动时切换小节（一篇长文十几节）
+   就会连着排十几次，这是滚动发涩的主因；transform 只走合成，不动布局。 */
 .post-toc ol::before {
   content: ''; position: absolute; left: -1px; top: 0; width: 2px;
-  height: var(--toc-p, 0%); border-radius: 2px;
+  height: 100%; transform: scaleY(var(--toc-p, 0)); transform-origin: 50% 0;
+  border-radius: 2px;
   background: color-mix(in srgb, var(--accent) 55%, transparent);
-  transition: height .18s ease-out;
+  transition: transform .18s ease-out;
+  will-change: transform;
 }
 .post-toc li { margin: 0; }
 .post-toc a {
@@ -1853,4 +1857,18 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 :root[data-mode="dark"] .post-card { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035); }
 :root[data-mode="dark"] .post-card:hover {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--shadow);
+}
+
+/* 触屏上的 :hover 会「粘住」：手指划过或点一下，样式会一直停在 hover 态，
+   下一次滚动经过时再抖一下 —— 看着就像动画自己又放了一遍。
+   所有靠 hover 做的位移/缩放都收在这里关掉，颜色变化保留（那个粘住不碍事）。
+   用 (hover: none) 反向覆盖而不是给六处规则各包一层，是因为这些规则散在全文件，
+   挪动位置比多一段覆盖更容易改出问题。 */
+@media (hover: none) {
+  .tag:hover,
+  .post-card:hover,
+  .friend-card:hover,
+  .pick:hover { transform: none; }
+  :root[data-theme="anzhiyu"] .post-card:hover .thumb { transform: none; }
+  .tl-item:hover::before { transform: none; }
 }
