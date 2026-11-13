@@ -8,7 +8,7 @@
 // 想换成 umami / 其他服务也行：把 UMAMI_SCRIPT、UMAMI_SITE_ID 两个变量写上，
 // 页面会注入那段 script，同时不再往这里记 —— 两套同时开着只会让数字互相矛盾。
 
-import { html } from './utils.js';
+import { html, umamiOn } from './utils.js';
 import { requireAdmin } from './auth.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -58,6 +58,14 @@ export function refHost(raw, origin) {
 export async function recordPv(env, request, ctx) {
   const ua = request.headers.get('user-agent') || '';
   const noContent = new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+
+  /* 切到 umami 之后，服务端这一侧也要停。
+     只在页面里写 __PV_OFF__ 是不够的：boot.js 是长缓存资源，已经加载过它的浏览器
+     在缓存过期前还会继续往这里打；改回自建、或有人手工 POST，同样会写进去。
+     结果就是「你以为已经切走了，D1 里却每天都在涨」——两份数据都不可信。
+     所以在这里挡一道：配齐了外部统计，这条路直接 204，连库都不碰。 */
+  if (umamiOn(env)) return noContent;
+
   if (!ua || BOT_RE.test(ua)) return noContent;
 
   let body;

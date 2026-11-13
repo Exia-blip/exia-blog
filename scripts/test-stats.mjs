@@ -1,7 +1,8 @@
 // 访问统计：好数字来自几条容易被忽略的规则，逐条钉住。
 // 这些规则不会被页面渲染暴露出来 —— UV 多算一个少算一个，页面上看不出对错。
 import assert from 'node:assert/strict';
-import { dayCN, deviceOf, refHost, BOT_RE, renderStats } from '../src/stats.js';
+import { dayCN, deviceOf, refHost, BOT_RE, renderStats, recordPv } from '../src/stats.js';
+import { umamiOn } from '../src/utils.js';
 
 let pass = 0;
 const t = (name, fn) => {
@@ -183,5 +184,71 @@ t('表格里不会出现 td 套 td（那会被浏览器拆成多余列）', () =
   // 三张表 × (1 行 × 2 列)；嵌套会让这个数字翻倍
   assert.equal((h.match(/<td/g) || []).length, 6);
 });
+
+/* ---------- 切到外部统计后，服务端必须同步停手 ---------- */
+// 只关客户端是不够的：boot.js 是长缓存，已加载过的浏览器在过期前会继续上报；
+// 结果就是「以为切走了，D1 里却一直在涨」。这里钉住「配齐 → 一条都不写」。
+
+t('umamiOn：两个都在且 script 是 https 才算开', () => {
+  const on = { UMAMI_SCRIPT: 'https://cloud.umami.is/script.js', UMAMI_SITE_ID: 'a'.repeat(8) };
+  assert.equal(umamiOn(on), true);
+  assert.equal(umamiOn({ ...on, UMAMI_SITE_ID: '' }), false, '只填 script 不算开');
+  assert.equal(umamiOn({ ...on, UMAMI_SCRIPT: '' }), false, '只填 id 不算开');
+  assert.equal(umamiOn({ ...on, UMAMI_SCRIPT: 'http://cloud.umami.is/script.js' }), false, 'http 不算');
+  assert.equal(umamiOn({ ...on, UMAMI_SCRIPT: 'not-a-url' }), false, '不是 URL 不算');
+  assert.equal(umamiOn({}), false);
+  assert.equal(umamiOn(undefined), false);
+});
+
+const pvReq = () =>
+  new Request('https://exia.de5.net/api/pv', {
+    method: 'POST',
+    headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0) Chrome/120', 'content-type': 'application/json' },
+    body: JSON.stringify({ p: '/', r: '' }),
+  });
+
+// 一碰库就记一笔：这条路径必须连 prepare 都不调。
+// 注意 recordPv 内部会吞掉异常（统计失败不能影响访客），所以「抛了但被吞」
+// 也会得到 204 —— 光看状态码证明不了没碰库，必须看这个标志位。
+let dbTouched = false;
+const explodingDb = {
+  prepare() {
+    dbTouched = true;
+    throw new Error('切到 umami 后不应该再读 D1');
+  },
+};
+
+const umamiEnv = {
+  UMAMI_SCRIPT: 'https://cloud.umami.is/script.js',
+  UMAMI_SITE_ID: '1f2e3d4c-5b6a-4978-8c9d-0e1f2a3b4c5d',
+  DB: explodingDb,
+};
+
+await (async () => {
+  const r = await recordPv(umamiEnv, pvReq(), {});
+  assert.equal(r.status, 204);
+  assert.equal(dbTouched, false, '启用 umami 后不该再碰 D1');
+  pass++;
+  console.log('  ok  启用 umami 后 /api/pv 直接 204，且不碰 D1');
+})();
+
+await (async () => {
+  // 半配（只有 script）不能挡：挡了就是两边都没数据。
+  // 用一个「一被用就抛」的 DB 证明它确实往下走到了自建路径 ——
+  // 抛出来的异常会被 recordPv 内部吞掉（统计失败不能影响访客），所以这里看的是 touched。
+  let touched = false;
+  const db = {
+    prepare() {
+      touched = true;
+      throw new Error('stop here');
+    },
+  };
+  const env = { UMAMI_SCRIPT: 'https://cloud.umami.is/script.js', UMAMI_SITE_ID: '', DB: db };
+  const r = await recordPv(env, pvReq(), {});
+  assert.equal(r.status, 204);
+  assert.equal(touched, true, '半配时必须继续走自建路径');
+  pass++;
+  console.log('  ok  半配（缺 site id）不挡，仍走自建路径');
+})();
 
 console.log(`\n${pass} 条通过`);

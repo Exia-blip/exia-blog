@@ -1,6 +1,6 @@
 import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
-import { html, json } from './utils.js';
+import { html, json, umamiOn, collectOrigins } from './utils.js';
 import { checkFriends } from './cron.js';
 import { getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
@@ -1359,22 +1359,18 @@ async function injectTheme(env, res, url) {
    那种半配状态比完全不配更糟 —— 自建上报已经被 __PV_OFF__ 关掉了，
    两边都没有数据。所以缺一个就整体退回自建。 */
 function analyticsCfg(env) {
-  const src = String((env && env.UMAMI_SCRIPT) || '').trim();
-  const id = String((env && env.UMAMI_SITE_ID) || '').trim();
-  if (!/^https:\/\//.test(src) || !id) return null;
+  // 成对判断统一走 utils 里那一份，避免「页面关了、服务端还在收」
+  if (!umamiOn(env)) return null;
+  const src = String(env.UMAMI_SCRIPT).trim();
+  const id = String(env.UMAMI_SITE_ID).trim();
   let u;
   try {
     u = new URL(src);
   } catch {
     return null;
   }
-  /* 采集端不一定和脚本同域。Umami Cloud 的脚本在 cloud.umami.is，
-     上报实际打到 gateway.umami.is（从 script.js 里读出来的，不是猜的）。
-     只放行脚本源的话，脚本正常加载、页面不报错、script-src 也没被拦，
-     但每条上报都在 connect-src 被静默挡掉 —— 后台一条数据都没有，
-     而控制台里那句 CSP 拒绝很容易被当成噪声略过。 */
-  const collect = /(^|\.)umami\.is$/.test(u.hostname) ? ['https://gateway.umami.is'] : [];
-  return { src: src, id: id, script: u.origin, collect: collect };
+  /* 采集端不一定和脚本同域，映射放在 utils 里一份，验收脚本也用同一份 */
+  return { src: src, id: id, script: u.origin, collect: collectOrigins(src) };
 }
 
 function analyticsTag(cfg) {

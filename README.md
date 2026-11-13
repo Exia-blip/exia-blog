@@ -574,7 +574,10 @@ node scripts/gen-cards.mjs --apply    # 出图并写回 posts.cover
 ```bash
 npm run setup:umami          # 第一项回车用默认的 cloud.umami.is/script.js，第二项粘 website-id
 npm run deploy
+npm run verify:umami         # 部署后验收：HTML / CSP / 上报三项一次比完
 ```
+
+`verify:umami` 读本地 `wrangler.jsonc` 算「应该是什么样」，再去线上比对，两边不一致就 exit 1。它盖住的正是手工检查最容易看错的两处：CSP 只放行脚本源没放行采集端（页面不报错、后台没数据）、以及部署后第一次拉到旧副本（看起来像没生效，脚本自带 cache-buster 和一次重试）。
 
 也可以一次给全：
 
@@ -587,6 +590,8 @@ npm run setup:umami -- https://cloud.umami.is/script.js 1f2e3d4c-5b6a-4978-8c9d-
 脚本会先拉一次 `script.js` 确认地址真的是 umami，再发一条假事件去问实例「这个 id 存在吗」——id 不存在时 umami 回 `Invalid website ID`，据此在写入前拦掉。`--dry` 只验不写，`--no-probe` 跳过那条会写数据的事件。
 
 两个值必须**成对**：只填 `UMAMI_SCRIPT` 不填 `UMAMI_SITE_ID` 时，脚本会正常下载、正常执行，但一句上报都发不出去（没有 id 就不知道记到哪个站点），而自建上报已经被关掉了。所以缺一个就整体退回自建，`npm run preflight` 会把这种半配单独列出来。
+
+配齐之后**服务端也会停**：`/api/pv` 直接返回 204，不再写 D1。只在页面里写 `__PV_OFF__` 是不够的 —— `boot.js` 是长缓存资源，已经加载过它的浏览器在缓存过期前还会继续上报，加一个人手工 POST 同样能写进去，最后就是你以为切走了、`pv` 表却每天在涨。判断逻辑只留一份（`src/utils.js` 的 `umamiOn`），注入脚本、CSP 放行、服务端停写三处共用，免得各写一遍之后漂掉。
 
 **CSP 要按两个域名放行。** Umami Cloud 的脚本在 `cloud.umami.is`，上报实际打到 `gateway.umami.is`（从 `script.js` 里读出来的）。只放行脚本源的话，脚本能加载、`script-src` 不报错，但每条上报都在 `connect-src` 被静默挡掉 —— 后台一条数据没有，控制台只有一句容易被当成噪声的 CSP 拒绝。`src/security.js` 的 `csp()` 因此把 `script` 和 `collect` 分开处理。
 

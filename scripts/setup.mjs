@@ -436,11 +436,13 @@ async function setupUmami() {
 
   console.log('\n—— 部署 ——');
   console.log('  npm run deploy');
-  console.log('\n部署后：');
-  console.log('  1. 打开站点，Console 里应有 1 条到 ' + new URL(collect).origin + ' 的 POST，状态 200；');
-  console.log('  2. 看那份响应有没有 CSP 字样 —— 有就是被 connect-src 拦了（本项目的 CSP 已按端口分别放行）；');
-  console.log('  3. Umami 后台实时面板应在 10 秒内出现这次访问。');
-  console.log('\n注意：启用 umami 后自建上报会停（__PV_OFF__），/admin/stats 不再增长，历史数据还在。');
+  console.log('  npm run verify:umami        # 部署后一条命令验收下面这几项');
+  console.log('\n部署后应当看到：');
+  console.log('  1. 页面 HTML 里有 <script defer src="…" data-website-id="…"> 和 __PV_OFF__=1；');
+  console.log(`  2. CSP 的 script-src 放行脚本源、connect-src 放行 ${new URL(collect).origin}；`);
+  console.log('  3. Console 里那条上报返回 200，Umami 后台实时面板 10 秒内出现这次访问。');
+  console.log('\n注意：启用后自建统计两侧都停 —— 页面里 __PV_OFF__ 关掉客户端上报，');
+  console.log('/api/pv 也在服务端直接返回 204 不再写 D1。历史数据还在 /admin/stats。');
 }
 
 if (cmd === 'webhook') await setupWebhook();
