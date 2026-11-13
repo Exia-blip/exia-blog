@@ -1,0 +1,43 @@
+/* 纸白墨黑 · 全衬线 · 锐角
+   只在 data-theme="ink" 时由 <head> 的引导脚本引入。纸韵是默认值，留在 style.css 的 :root 里。 */
+/* ---- 水墨：纸白墨黑，全衬线，锐角 ---- */
+:root[data-theme="ink"] {
+  --bg: #fdfcfa;
+  --bg-soft: #f2f0eb;
+  --card: #ffffff;
+  --fg: #14120f;
+  --fg-soft: #3a3630;
+  --muted: #746e65;
+  --line: #e3ded4;
+  --accent: #1c1917;
+  --accent-soft: #ece8e0;
+  --green: #3d7a52;
+  --red: #b23b32;
+  --radius: 5px;
+  --shadow: 0 1px 0 rgba(20, 18, 15, 0.04), 0 10px 26px -20px rgba(20, 18, 15, 0.3);
+  --tok-k: #7a4b8f;
+  --tok-s: #2f6b45;
+  --tok-n: #8a5a20;
+  --tok-f: #2b4f74;
+  --sans: "Iowan Old Style", "Palatino Linotype", Georgia, "Songti SC", "Noto Serif SC", serif;
+  color-scheme: light;
+}
+:root[data-theme="ink"][data-mode="dark"] {
+  --bg: #0e0e10;
+  --bg-soft: #17171a;
+  --card: #1d1d21;
+  --fg: #efeee9;
+  --fg-soft: #c9c5bc;
+  --muted: #8a877f;
+  --line: #303036;
+  --accent: #e6e2d8;
+  --accent-soft: #26262a;
+  --green: #6cbb8c;
+  --red: #e07068;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 26px -20px rgba(0, 0, 0, 0.8);
+  --tok-k: #c9a0d8;
+  --tok-s: #93cf9f;
+  --tok-n: #d9b483;
+  --tok-f: #9dbde0;
+  color-scheme: dark;
+}

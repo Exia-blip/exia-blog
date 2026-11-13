@@ -1,0 +1,43 @@
+/* 淡紫纸面 · 梅色 · 大圆角
+   只在 data-theme="plum" 时由 <head> 的引导脚本引入。纸韵是默认值，留在 style.css 的 :root 里。 */
+/* ---- 暮紫：淡紫纸面，梅色强调，大圆角 ---- */
+:root[data-theme="plum"] {
+  --bg: #faf7fc;
+  --bg-soft: #f2ecf7;
+  --card: #ffffff;
+  --fg: #1e1822;
+  --fg-soft: #493d51;
+  --muted: #776b80;
+  --line: #e9e0ef;
+  --accent: #7d3f91;
+  --accent-soft: #f7ebfa;
+  --green: #388a63;
+  --red: #c4495a;
+  --radius: 18px;
+  --shadow: 0 1px 2px rgba(30, 24, 34, 0.04), 0 12px 30px -20px rgba(125, 63, 145, 0.3);
+  --tok-k: #9b3fa8;
+  --tok-s: #2f7f5c;
+  --tok-n: #a86a18;
+  --tok-f: #3a6aab;
+  --serif: "Iowan Old Style", "Palatino Linotype", Georgia, "Songti SC", "Noto Serif SC", serif;
+  color-scheme: light;
+}
+:root[data-theme="plum"][data-mode="dark"] {
+  --bg: #130f16;
+  --bg-soft: #1b1520;
+  --card: #221a29;
+  --fg: #eee7f1;
+  --fg-soft: #c7bad0;
+  --muted: #8a7d90;
+  --line: #342a3b;
+  --accent: #cd93e2;
+  --accent-soft: #241a29;
+  --green: #55c08c;
+  --red: #e3778a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 30px -20px rgba(0, 0, 0, 0.8);
+  --tok-k: #dda8ec;
+  --tok-s: #93d8b0;
+  --tok-n: #e5c08d;
+  --tok-f: #9fbdf0;
+  color-scheme: dark;
+}

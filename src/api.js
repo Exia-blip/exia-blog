@@ -10,6 +10,7 @@ import { notifyComment } from './webhook.js';
 import { checkFriends } from './cron.js';
 import { getSite, setSite, THEME_IDS, MODE_IDS } from './settings.js';
 import { refreshSummary, generateSummary, contentHash, hasAI } from './ai.js';
+import { recordPv } from './stats.js';
 import {
   CATS,
   TAG_SEED,
@@ -301,6 +302,9 @@ export async function handleApi(env, request, url, ctx) {
   const path = url.pathname.replace(/^\/api/, '') || '/';
   const method = request.method;
   const user = await currentUser(env, request);
+
+  /* ---- 访问统计上报（匿名，不走鉴权） ---- */
+  if (path === '/pv' && method === 'POST') return await recordPv(env, request, ctx);
 
   /* ---- 站点信息 ---- */
   if (path === '/site' && method === 'GET') {

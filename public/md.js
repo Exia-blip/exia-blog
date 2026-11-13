@@ -90,7 +90,19 @@ function inline(line) {
 
   // 图片
   s = s.replace(IMG_RE, (_, alt, src, title) => {
-    return `<img src="${safeUrl(src, 'img')}" alt="${alt}"${title ? ` title="${title}"` : ''} loading="lazy" decoding="async">`;
+    const url = safeUrl(src, 'img');
+    const img = `<img src="${url}" alt="${alt}"${
+      title ? ` title="${title}"` : ''
+    } loading="lazy" decoding="async">`;
+    /* 站内上传的 png/jpg 额外给一份 avif / webp 候选。
+       为什么用 <picture> 而不是在服务端按 Accept 协商：HTML 是边缘缓存的，
+       同一份缓存要发给所有浏览器，按 Accept 分支会让缓存串味；
+       URL 不同就没这个问题，由浏览器自己挑。
+       变体没转的图也不会裂 —— /img/ 那边有回退（见 serveImage）。 */
+    if (/^\/img\/[^?#]+\.(png|jpe?g)$/i.test(url)) {
+      return `<picture><source type="image/avif" srcset="${url}.avif"><source type="image/webp" srcset="${url}.webp">${img}</picture>`;
+    }
+    return img;
   });
   // 链接
   s = s.replace(LINK_RE, (_, text, href, title) => {

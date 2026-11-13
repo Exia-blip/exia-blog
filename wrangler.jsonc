@@ -61,6 +61,12 @@
     "GITHUB_CLIENT_ID": "Ov23liBYcJtW33DLooEd",
     // R2 公开访问域名，留空则走 /img/ 代理
     "R2_PUBLIC_BASE": ""
+    // 访问统计默认自己记（/api/pv → D1，后台 /admin/stats 看）。
+    // 想换成 umami 之类的外部服务，把下面两个值写上再部署：
+    //   UMAMI_SCRIPT    = "https://analytics.example.com/script.js"
+    //   UMAMI_SITE_ID   = "xxxxxxxx-xxxx-xxxx"
+    // 填了以后会自动注入那段 script，并停掉自建上报（不会两边重复计）。
+    // 注意 CSP 只放行这一个域名，别指望它能加载别的第三方脚本。
     // 以下 secrets 用 wrangler secret put 写入：
     // SESSION_SECRET / GITHUB_CLIENT_SECRET
     // R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME

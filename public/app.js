@@ -113,7 +113,11 @@ export async function site() {
    首屏不会先空一块再长出来；万一没注入（旧缓存 / 直连静态资源）再整块兜底渲染。 */
 function userNav(user, active) {
   const isEditor = active === 'editor' || active === 'mine';
-  return `<a href="/editor"${isEditor ? ' class="active"' : ''}>${user.is_admin ? '后台' : '写作'}</a>
+  // 统计只有管理员看得到，普通用户连入口都不该出现
+  const stats = user.is_admin
+    ? `<a href="/admin/stats"${active === 'stats' ? ' class="active"' : ''}>统计</a>`
+    : '';
+  return `<a href="/editor"${isEditor ? ' class="active"' : ''}>${user.is_admin ? '后台' : '写作'}</a>${stats}
     <a href="/auth/logout" title="退出">${user.avatar ? `<img class="avatar-xs" src="${esc(avatarSrc(user.avatar, 40))}" alt="" loading="lazy" decoding="async">` : '退出'}</a>`;
 }
 

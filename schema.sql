@@ -90,3 +90,18 @@ CREATE TABLE IF NOT EXISTS friends (
   checked_at  TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- 访问统计（自建，不引第三方）
+-- ip 存的是 sha256(ip + 盐) 的前 8 字节，用于「同一人同一天同一页只算一次」，
+-- 反查不出是谁；day 按北京时间切，与 D1 的 UTC 日期不是一回事。
+CREATE TABLE IF NOT EXISTS pv (
+  id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  day   TEXT NOT NULL,
+  path  TEXT NOT NULL,
+  ref   TEXT NOT NULL DEFAULT '',
+  ip    TEXT NOT NULL,
+  kind  TEXT NOT NULL DEFAULT 'pc',
+  ts    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pv_day  ON pv(day);
+CREATE INDEX IF NOT EXISTS idx_pv_path ON pv(day, path);

@@ -1,0 +1,44 @@
+/* 灰阶 · 等宽字 · 硬边
+   只在 data-theme="mono" 时由 <head> 的引导脚本引入。纸韵是默认值，留在 style.css 的 :root 里。 */
+/* ---- 终端：灰阶 + 等宽字，硬边 ---- */
+:root[data-theme="mono"] {
+  --bg: #f4f4f5;
+  --bg-soft: #e7e7ea;
+  --card: #ffffff;
+  --fg: #18181b;
+  --fg-soft: #3f3f46;
+  --muted: #6d6d74;
+  --line: #d9d9de;
+  --accent: #0a7d4b;
+  --accent-soft: #e3f5ec;
+  --green: #0a7d4b;
+  --red: #c02b2b;
+  --radius: 6px;
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.05), 0 8px 20px -16px rgba(0, 0, 0, 0.3);
+  --tok-k: #8a5fa8;
+  --tok-s: #0a7d4b;
+  --tok-n: #9a6212;
+  --tok-f: #1f6ab0;
+  --sans: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --serif: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+:root[data-theme="mono"][data-mode="dark"] {
+  --bg: #0b0b0c;
+  --bg-soft: #141416;
+  --card: #1a1a1e;
+  --fg: #dcdce0;
+  --fg-soft: #a8a8b0;
+  --muted: #81818a;
+  --line: #2e2e33;
+  --accent: #4ade80;
+  --accent-soft: #12251a;
+  --green: #4ade80;
+  --red: #f87171;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 20px -16px rgba(0, 0, 0, 0.9);
+  --tok-k: #c9a0e0;
+  --tok-s: #4ade80;
+  --tok-n: #e0bb7a;
+  --tok-f: #7cc4f0;
+  color-scheme: dark;
+}

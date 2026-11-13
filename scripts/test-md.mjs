@@ -80,6 +80,27 @@ t('裸链接不吃句末标点', () => {
   assert.ok(!out.includes('href="https://example.com/a."'), out);
 });
 
+/* 站内图片额外给 avif / webp 候选：变体是独立 URL，
+   所以浏览器的选择不会污染边缘缓存（按 Accept 协商才会）。 */
+t('站内上传的 png 会包一层 picture，avif 优先、webp 次之', () => {
+  const out = renderBody('![图](/img/u/202611/a.png)');
+  assert.ok(out.includes('<picture>'), out);
+  const avif = out.indexOf('type="image/avif"');
+  const webp = out.indexOf('type="image/webp"');
+  assert.ok(avif > 0 && webp > avif, out);
+  assert.ok(out.includes('src="/img/u/202611/a.png"'), out);
+});
+
+t('外链图片不加变体（我们没法给别人的服务器生成 webp）', () => {
+  const out = renderBody('![图](https://cdn.example.com/a.png)');
+  assert.ok(!out.includes('<picture>'), out);
+});
+
+t('svg 不加变体：位图转码对矢量图没意义', () => {
+  const out = renderBody('![图](/img/u/a.svg)');
+  assert.ok(!out.includes('<picture>'), out);
+});
+
 let pass = 0;
 for (const [name, fn] of cases) {
   try {

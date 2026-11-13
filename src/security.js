@@ -68,17 +68,19 @@ export function obfuscateEmail(html) {
   return out.includes('</body>') ? out.replace('</body>', EMAIL_DECODER + '</body>') : out + EMAIL_DECODER;
 }
 
-function csp(n, { turnstile = false } = {}) {
+function csp(n, { turnstile = false, analytics = '' } = {}) {
   // Turnstile 没配的时候一个字节都不放：默认状态仍然是"零第三方脚本 + 严格 CSP"
   const ts = turnstile ? ' https://challenges.cloudflare.com' : '';
+  // 只有显式配了统计服务端（UMAMI_SCRIPT）才放行那一个源
+  const an = analytics ? ' ' + analytics : '';
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${n}'${ts}`,
+    `script-src 'self' 'nonce-${n}'${ts}${an}`,
     // 主题与 Markdown 大量用 style 属性，样式源只能放开内联
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    `connect-src 'self'${ts}`,
+    `connect-src 'self'${ts}${an}`,
     "media-src 'self' https:",
     `frame-src 'self' https://www.youtube.com https://player.bilibili.com${ts}`,
     "object-src 'none'",

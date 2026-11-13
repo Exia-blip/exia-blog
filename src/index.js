@@ -12,15 +12,13 @@ import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
 import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.js';
 import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
 import { normalizePagePath } from './routes.js';
+import { statsPage, prunePv } from './stats.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ESC[c]);
 
 /* ---------- 图片代理 ---------- */
-async function serveImage(env, key) {
-  const obj = await env.BUCKET.get(decodeURIComponent(key));
-  if (!obj) return new Response('404 Not Found', { status: 404 });
-
+function imageResponse(obj) {
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
   headers.set('etag', obj.httpEtag);
@@ -34,6 +32,24 @@ async function serveImage(env, key) {
     headers.set('content-disposition', 'inline');
   }
   return new Response(obj.body, { headers });
+}
+
+async function serveImage(env, key) {
+  const path = decodeURIComponent(key);
+  const obj = await env.BUCKET.get(path);
+  if (obj) return imageResponse(obj);
+
+  /* /img/a.png.webp、/img/a.png.avif：转码后的变体。
+     不按 Accept 协商，是因为 HTML 和图片都在边缘缓存，接受头分支会让同一份缓存
+     发给不支持的浏览器；变体做成了独立 URL，让 <picture> 在浏览器端挑。
+     变体还没转出来（新上传的图、批量脚本没跑过）时回退原图 ——
+     白跑一次查询，好过让访客看到一张裂开的图。 */
+  const m = path.match(/^(.*\.(?:png|jpe?g))\.(?:avif|webp)$/i);
+  if (m) {
+    const orig = await env.BUCKET.get(m[1]);
+    if (orig) return imageResponse(orig);
+  }
+  return new Response('404 Not Found', { status: 404 });
 }
 
 /* ---------- 头像代理 ----------
@@ -388,7 +404,7 @@ async function serveFriendsPage(env, request) {
 // 主题初始化那一段在 404、系列页都要用，复制三份迟早漂移
 function themeBoot(site) {
   const cfg = JSON.stringify({ theme: site.theme, mode: site.mode }).replace(/</g, '\\u003c');
-  return `<script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m)})();</script>`;
+  return `<script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);if(t!=='paper'&&t!=='anzhiyu')document.write('<link rel="stylesheet" href="/theme/'+t+'.css">')})();</script>`;
 }
 
 function seriesShell({ site, origin, title, kicker, desc, canonical, ld, sub, list }) {
@@ -403,6 +419,7 @@ function seriesShell({ site, origin, title, kicker, desc, canonical, ld, sub, li
 <link rel="manifest" href="/manifest.webmanifest">
 ${themeBoot(site)}
 <link rel="stylesheet" href="/style.css">
+<script src="/boot.js" defer></script>
 <style>
 .page-head{padding:42px 0 26px}
 .page-kicker{margin:0 0 8px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
@@ -1327,9 +1344,31 @@ async function injectTheme(env, res, url) {
 }
 
 /* 统一加安全头：HTML 顺带给内联脚本发 nonce（缓存里存的也是配对好的头，回放不会错位） */
+/* 外部统计服务（可选）。
+   默认走自己记的 /api/pv，一个第三方脚本都不引；
+   只有显式配了 UMAMI_SCRIPT 才换成 umami，并顺手关掉自建上报 ——
+   两套同时开着，两边数字会互相矛盾，没人能判断哪个是真的。 */
+function analyticsTag(env) {
+  const src = String((env && env.UMAMI_SCRIPT) || '').trim();
+  if (!/^https:\/\//.test(src)) return '';
+  const id = String((env && env.UMAMI_SITE_ID) || '').trim();
+  const attr = id ? ` data-website-id="${esc(id)}"` : '';
+  return `<script>window.__PV_OFF__=1</script><script defer src="${esc(src)}"${attr}></script>`;
+}
+
+function analyticsOrigin(env) {
+  const src = String((env && env.UMAMI_SCRIPT) || '').trim();
+  try {
+    return src ? new URL(src).origin : '';
+  } catch {
+    return '';
+  }
+}
+
 async function harden(res, env) {
   // 配了 Turnstile 才在 CSP 里放行它的域名；没配就保持零第三方
   const tsOn = !!(env && env.TURNSTILE_SITE_KEY);
+  const anOn = analyticsOrigin(env);
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('text/html')) {
     return new Response(res.body, {
@@ -1339,9 +1378,13 @@ async function harden(res, env) {
     });
   }
   const nonce = makeNonce();
+  let raw = await res.text();
+  const ana = analyticsTag(env);
+  // 放在补 nonce 之前：这段 script 自己也是内联的，得跟别的一起拿到 nonce
+  if (ana) raw = raw.replace('</head>', ana + '</head>');
   // 先混淆邮箱再补 nonce：解码脚本是内联的，得跟着一起拿到 nonce
-  const body = applyNonce(obfuscateEmail(await res.text()), nonce);
-  const headers = securityHeaders(new Headers(res.headers), nonce, { turnstile: tsOn });
+  const body = applyNonce(obfuscateEmail(raw), nonce);
+  const headers = securityHeaders(new Headers(res.headers), nonce, { turnstile: tsOn, analytics: anOn });
   // 所有 HTML 用同一套缓存口径，别再让文章页单独漏成 max-age=60 / 无 s-maxage
   const cc = (headers.get('cache-control') || '').toLowerCase();
   if (!cc.includes('no-store') && !cc.includes('private')) headers.set('cache-control', pageCacheControl());
@@ -1359,8 +1402,9 @@ async function notFoundPage(env, request, message = '页面走丢了') {
     `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>404 · ${siteName}</title>
-<script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m)})();</script>
+<script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);if(t!=='paper'&&t!=='anzhiyu')document.write('<link rel="stylesheet" href="/theme/'+t+'.css">')})();</script>
 <link rel="stylesheet" href="/style.css">
+<script src="/boot.js" defer></script>
 <style>
 .g404{min-height:100vh;display:grid;place-items:center;text-align:center;padding:40px 20px}
 .g404 h1{font-family:var(--serif);font-size:88px;margin:0;opacity:.12;font-weight:700;letter-spacing:-.05em}
@@ -1645,6 +1689,7 @@ async function route(request, env, ctx) {
   if (path === '/sitemap.xml') return await serveSitemap(env, request);
   if (path === '/robots.txt') return serveRobots(request);
   if (path === '/manifest.webmanifest') return await serveManifest(env, request);
+  if (path === '/admin/stats') return await statsPage(env, request);
 
   // 标签页 / 栏目页复用首页骨架，前端读路径
   if (path.startsWith('/tag/')) {
@@ -1802,5 +1847,9 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(checkFriends(env));
+    // 统计明细保留 90 天。cron 每 20 分钟一轮，没必要每轮都删一次，
+    // 挑 UTC 20:00（北京 04:00）那一轮做日更清理。
+    const utcHour = new Date(event.scheduledTime || Date.now()).getUTCHours();
+    if (utcHour === 20) ctx.waitUntil(prunePv(env));
   },
 };

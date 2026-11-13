@@ -1,0 +1,42 @@
+/* 冷白蓝调 · 靛蓝强调
+   只在 data-theme="ocean" 时由 <head> 的引导脚本引入。纸韵是默认值，留在 style.css 的 :root 里。 */
+/* ---- 静海：冷白蓝调，靛蓝强调，干净 ---- */
+:root[data-theme="ocean"] {
+  --bg: #f4f7fb;
+  --bg-soft: #e8eef7;
+  --card: #ffffff;
+  --fg: #121a25;
+  --fg-soft: #384659;
+  --muted: #606f85;
+  --line: #dce5f0;
+  --accent: #2a5aa8;
+  --accent-soft: #e4eefb;
+  --green: #2c8f6a;
+  --red: #c94a45;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(18, 26, 37, 0.04), 0 10px 26px -18px rgba(42, 90, 168, 0.25);
+  --tok-k: #8a4bb0;
+  --tok-s: #2b7a55;
+  --tok-n: #a9670f;
+  --tok-f: #1f6fb5;
+  color-scheme: light;
+}
+:root[data-theme="ocean"][data-mode="dark"] {
+  --bg: #0a1017;
+  --bg-soft: #111a24;
+  --card: #16222e;
+  --fg: #e2eaf4;
+  --fg-soft: #b4c2d4;
+  --muted: #76859a;
+  --line: #263444;
+  --accent: #71a7f2;
+  --accent-soft: #0f1d2d;
+  --green: #4dc095;
+  --red: #e57a74;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 26px -18px rgba(0, 0, 0, 0.75);
+  --tok-k: #c3a2e6;
+  --tok-s: #84d3a8;
+  --tok-n: #e6bd8a;
+  --tok-f: #8dc2f5;
+  color-scheme: dark;
+}

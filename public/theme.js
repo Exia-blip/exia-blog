@@ -50,30 +50,57 @@ function systemDark() {
   return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
 }
 
+/* 主题样式表现在是按需加载的：style.css 里只有纸韵的 :root，
+   其余六套在 /theme-<id>.css。切到没加载过的主题时先把文件拿到手再改 data-theme，
+   反过来的话会有一两帧「变量还是上一套」的错配，比闪一下白更难看。 */
+function ensureThemeCss(theme) {
+  // 纸韵与安知鱼都直接在主样式表里，不需要额外请求
+  if (theme === 'paper' || theme === 'anzhiyu') return Promise.resolve();
+  const id = `tcss-${theme}`;
+  if (document.getElementById(id)) return Promise.resolve();
+  return new Promise((resolve) => {
+    const l = document.createElement('link');
+    l.id = id;
+    l.rel = 'stylesheet';
+    l.href = `/theme/${theme}.css`;
+    // 加载失败也放行：样式缺一份总比点不动强
+    l.onload = resolve;
+    l.onerror = resolve;
+    document.head.appendChild(l);
+  });
+}
+
 /** 应用主题；persist=false 时只改不存（用于"跟随系统"下响应系统变化） */
 export function apply(theme, mode, persist = true) {
   if (!isValidTheme(theme)) theme = 'paper';
   if (!isValidMode(mode)) mode = 'auto';
 
-  const dark = mode === 'dark' || (mode === 'auto' && systemDark());
-  ROOT.setAttribute('data-theme', theme);
-  ROOT.setAttribute('data-mode', dark ? 'dark' : 'light');
-  ROOT.setAttribute('data-mpref', mode);
+  const run = () => {
+    const dark = mode === 'dark' || (mode === 'auto' && systemDark());
+    ROOT.setAttribute('data-theme', theme);
+    ROOT.setAttribute('data-mode', dark ? 'dark' : 'light');
+    ROOT.setAttribute('data-mpref', mode);
 
-  if (persist) {
-    try {
-      localStorage.setItem(K_THEME, theme);
-      localStorage.setItem(K_MODE, mode);
-    } catch {}
-  }
-  // 让浏览器/手机地址栏底色跟着主题走，深色模式下不会留一条刺眼的白边
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) {
-    const bg = getComputedStyle(ROOT).getPropertyValue('--bg').trim();
-    if (bg) meta.setAttribute('content', bg);
-  }
-  syncUI();
-  return { theme, mode, dark };
+    if (persist) {
+      try {
+        localStorage.setItem(K_THEME, theme);
+        localStorage.setItem(K_MODE, mode);
+      } catch {}
+    }
+    // 让浏览器/手机地址栏底色跟着主题走，深色模式下不会留一条刺眼的白边
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      const bg = getComputedStyle(ROOT).getPropertyValue('--bg').trim();
+      if (bg) meta.setAttribute('content', bg);
+    }
+    syncUI();
+    return { theme, mode, dark };
+  };
+
+  if (document.getElementById(`tcss-${theme}`) || theme === 'paper' || theme === 'anzhiyu') return run();
+  ensureThemeCss(theme).then(run);
+  // 样式到位前先不动 DOM，返回值只是给调用方一个乐观值
+  return { theme, mode, dark: mode === 'dark' || (mode === 'auto' && systemDark()) };
 }
 
 function syncUI() {

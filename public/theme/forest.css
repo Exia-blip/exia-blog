@@ -1,0 +1,45 @@
+/* 米绿纸面 · 森林绿 · 圆角柔和
+   只在 data-theme="forest" 时由 <head> 的引导脚本引入。纸韵是默认值，留在 style.css 的 :root 里。 */
+/* ---- 苔原：米绿纸面，森林绿，圆角柔和 ---- */
+:root[data-theme="forest"] {
+  --bg: #f6f8f2;
+  --bg-soft: #eaf0e0;
+  --card: #ffffff;
+  --fg: #1a2318;
+  --fg-soft: #3e4a3a;
+  --muted: #677161;
+  --line: #dee6d3;
+  --accent: #2f7a4a;
+  --accent-soft: #e5f2e6;
+  --green: #2f9e5f;
+  --red: #c0553f;
+  --radius: 16px;
+  --shadow: 0 1px 2px rgba(26, 35, 24, 0.04), 0 10px 28px -18px rgba(47, 122, 74, 0.28);
+  --tok-k: #8c5aa0;
+  --tok-s: #2c7a4e;
+  --tok-n: #a26a1e;
+  --tok-f: #2c6f96;
+  --sans: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --serif: "Iowan Old Style", "Palatino Linotype", Georgia, "Songti SC", "Noto Serif SC", serif;
+  color-scheme: light;
+}
+:root[data-theme="forest"][data-mode="dark"] {
+  --bg: #0e1411;
+  --bg-soft: #151d17;
+  --card: #1b261e;
+  --fg: #e5ede4;
+  --fg-soft: #bbc7b8;
+  --muted: #7c8878;
+  --line: #2c3a31;
+  --accent: #6cc088;
+  --accent-soft: #16281b;
+  --green: #57c47f;
+  --red: #e07468;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px -18px rgba(0, 0, 0, 0.7);
+  --tok-k: #c9a8dc;
+  --tok-s: #8fd49f;
+  --tok-n: #dfbb85;
+  --tok-f: #8fc0e4;
+  color-scheme: dark;
+}
