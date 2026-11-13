@@ -149,6 +149,7 @@ export async function mountHeader(active = '') {
   const links = [
     { href: '/', label: '首页', key: 'home' },
     { href: '/categories', label: '栏目', key: 'categories' },
+    { href: '/series', label: '系列', key: 'series' },
     { href: '/archive', label: '归档', key: 'archive' },
     { href: '/friends', label: '友链', key: 'friends' },
     { href: '/about', label: '关于', key: 'about' },
