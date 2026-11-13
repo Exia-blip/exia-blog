@@ -50,6 +50,9 @@
   "vars": {
     "SITE_NAME": "Exia Blog",
     "SITE_DESC": "写字的地方",
+    // 作者署名：进 RSS 的 <author> / <dc:creator>。留空则跟 SITE_NAME 走，
+    // 后台「站点设置 → 作者署名」的优先级更高（改完立即生效，不用重新部署）
+    "SITE_AUTHOR": "Exia",
     // 默认风格：anzhiyu | paper | ink | forest | ocean | plum | mono
     "SITE_THEME": "anzhiyu",
     // 默认外观：auto（跟随系统）| light | dark

@@ -26,6 +26,13 @@ const normAvatar = (v) => {
   }
 };
 
+/**
+ * 作者署名：写进 RSS 的 <author>。RSS 2.0 规范里这个值应该是
+ * 「邮箱 (名字)」的形式，但绝大多数阅读器只当纯文本渲染，所以这里不强制。
+ * 控制字符（尤其是换行）在 XML 1.0 里非法且 esc() 不处理，直接抹掉。
+ */
+const normAuthor = (v) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 80);
+
 export function invalidateSite() {
   cache = { at: 0, val: null };
 }
@@ -37,6 +44,8 @@ export async function getSite(env) {
   const site = {
     name: env.SITE_NAME || 'Exia Blog',
     desc: env.SITE_DESC || '',
+    // 优先级：后台 > SITE_AUTHOR > SITE_NAME。保证 RSS 永远有 <author> 可输出
+    author: normAuthor(env.SITE_AUTHOR) || env.SITE_NAME || 'Exia Blog',
     theme: normTheme(env.SITE_THEME),
     mode: normMode(env.SITE_MODE),
     avatar: normAvatar(env.SITE_AVATAR),
@@ -44,12 +53,13 @@ export async function getSite(env) {
 
   try {
     const { results } = await env.DB.prepare(
-      "SELECT key, value FROM settings WHERE key IN ('site_name','site_desc','site_theme','site_mode','site_avatar')"
+      "SELECT key, value FROM settings WHERE key IN ('site_name','site_desc','site_author','site_theme','site_mode','site_avatar')"
     ).all();
     for (const r of results) {
       if (!r.value) continue;
       if (r.key === 'site_name') site.name = r.value;
       if (r.key === 'site_desc') site.desc = r.value;
+      if (r.key === 'site_author') site.author = normAuthor(r.value);
       if (r.key === 'site_theme') site.theme = normTheme(r.value);
       if (r.key === 'site_mode') site.mode = normMode(r.value);
       if (r.key === 'site_avatar') site.avatar = normAvatar(r.value);
@@ -58,11 +68,14 @@ export async function getSite(env) {
     // 表还没建 / 库抖动，用 vars 兜底，不要让整站 500
   }
 
+  // 兜底：env 和库里都没给出可用值（比如全是控制字符被抹空）时退到站名
+  if (!site.author) site.author = site.name;
+
   cache = { at: now, val: site };
   return site;
 }
 
-export async function setSite(env, { name, desc, theme, mode, avatar }) {
+export async function setSite(env, { name, desc, author, theme, mode, avatar }) {
   const stmts = [];
   const put = (key, val) =>
     stmts.push(
@@ -73,6 +86,7 @@ export async function setSite(env, { name, desc, theme, mode, avatar }) {
 
   if (name !== undefined) put('site_name', String(name).trim().slice(0, 60));
   if (desc !== undefined) put('site_desc', String(desc).trim().slice(0, 200));
+  if (author !== undefined) put('site_author', normAuthor(author));
   if (theme !== undefined) put('site_theme', normTheme(theme));
   if (mode !== undefined) put('site_mode', normMode(mode));
   if (avatar !== undefined) put('site_avatar', normAvatar(avatar));

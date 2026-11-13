@@ -317,7 +317,7 @@ export async function handleApi(env, request, url, ctx) {
     const { res } = await requireAdmin(env, request);
     if (res) return res;
     const s = await getSite(env);
-    return json({ ok: true, name: s.name, desc: s.desc, theme: s.theme, mode: s.mode, avatar: s.avatar });
+    return json({ ok: true, name: s.name, desc: s.desc, author: s.author, theme: s.theme, mode: s.mode, avatar: s.avatar });
   }
 
   if (path === '/settings' && method === 'PUT') {
@@ -330,6 +330,12 @@ export async function handleApi(env, request, url, ctx) {
     if (name.length > 60) return err('站点名称太长（限 60 字）');
     const desc = String(body.desc ?? '').trim();
     if (desc.length > 200) return err('站点介绍太长（限 200 字）');
+    // 作者署名：RSS 的 <author> 用它。允许留空（留空就退回站名），不允许塞标签
+    let author;
+    if (body.author !== undefined) {
+      author = String(body.author ?? '').replace(/[<>]/g, '').trim();
+      if (author.length > 80) return err('作者名太长（限 80 字）');
+    }
     if (body.theme !== undefined && !THEME_IDS.includes(String(body.theme))) return err('未知的风格');
     if (body.mode !== undefined && !MODE_IDS.includes(String(body.mode))) return err('未知的外观模式');
 
@@ -345,11 +351,12 @@ export async function handleApi(env, request, url, ctx) {
     const s = await setSite(env, {
       name,
       desc,
+      author,
       theme: body.theme === undefined ? undefined : String(body.theme),
       mode: body.mode === undefined ? undefined : String(body.mode),
       avatar,
     });
-    return json({ ok: true, name: s.name, desc: s.desc, theme: s.theme, mode: s.mode, avatar: s.avatar });
+    return json({ ok: true, name: s.name, desc: s.desc, author: s.author, theme: s.theme, mode: s.mode, avatar: s.avatar });
   }
 
   /* ---- 站点头像上传（管理员，直接落 R2 并写入设置） ---- */

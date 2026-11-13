@@ -1453,26 +1453,16 @@ async function serveRss(env, request) {
   await attachTags(env.DB, results);
 
   const origin = new URL(request.url).origin;
-  const { name: siteName, desc: siteDesc } = await getSite(env);
+  const site = await getSite(env);
   const items = results
-    .map((p) => {
-      const link = `${origin}/p/${encodeURIComponent(p.slug)}`;
-      const cats = [...new Set([catName(p.category), ...(p.tags || [])].filter(Boolean))];
-      const catXml = cats.map((c) => `      <category>${esc(c)}</category>`).join('\n');
-      // 全文：站内相对链接补成绝对地址，否则阅读器里图片和文内跳转全是坏的
-      const full = sanitizeHtml(renderBody(p.content))
-        .replace(/(src|href)="\/(?!\/)/g, `$1="${origin}/`)
-        .replace(/\]\]>/g, ']]]]><![CDATA[>');
-      return `    <item>
-      <title>${esc(p.title)}</title>
-      <link>${link}</link>
-      <guid isPermaLink="true">${link}</guid>
-      <pubDate>${rfc822(p.published_at || p.created_at)}</pubDate>
-      <description>${esc(p.summary || extractExcerpt(p.content, 200))}</description>
-      <content:encoded><![CDATA[${full}]]></content:encoded>
-${catXml}
-    </item>`;
-    })
+    .map((p) =>
+      rssItem({
+        origin,
+        post: p,
+        author: site.author,
+        html: sanitizeHtml(renderBody(p.content)).replace(/(src|href)="\/(?!\/)/g, `$1="${origin}/`),
+      })
+    )
     .join('\n');
 
   // lastBuildDate 取最近一次改动的时间：聚合器靠它判断要不要重抓。
@@ -1483,26 +1473,68 @@ ${catXml}
   const now = Date.now();
   const rawBuild = lastPost ? rfc822(lastPost.updated_at || lastPost.created_at) : null;
   const lastBuild = rawBuild && new Date(rawBuild).getTime() <= now ? rawBuild : new Date(now).toUTCString();
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
-<channel>
-  <title>${esc(siteName)}</title>
-  <link>${origin}/</link>
-  <atom:link href="${origin}/rss.xml" rel="self" type="application/rss+xml"/>
-  <description>${esc(siteDesc || siteName)}</description>
-  <language>zh-CN</language>
-  <lastBuildDate>${lastBuild}</lastBuildDate>
-  <generator>Exia Blog</generator>
-  <ttl>60</ttl>
-${items}
-</channel></rss>`;
 
-  return new Response(xml, {
+  return new Response(rssDoc({ origin, site, items, lastBuild }), {
     headers: {
       'content-type': 'application/rss+xml; charset=utf-8',
       'cache-control': 'public, max-age=600, stale-while-revalidate=3600',
     },
   });
+}
+
+/**
+ * 单个 <item>。作者署名两处都给：<author> 是 RSS 2.0 原生字段（规范建议写成
+ * 「邮箱 (名字)」，但阅读器普遍当纯文本渲染），<dc:creator> 是 Feedly / Inoreader
+ * 实际去读的那个 —— 只写前者，有些聚合器会把文章标成未知作者。
+ */
+export function rssItem({ origin, post, author, html }) {
+  const link = `${origin}/p/${encodeURIComponent(post.slug)}`;
+  const cats = [...new Set([catName(post.category), ...(post.tags || [])].filter(Boolean))];
+  const catXml = cats.map((c) => `      <category>${esc(c)}</category>`).join('\n');
+  // CDATA 里唯一不能出现的就是 ]]>，它会把 CDATA 提前关掉、后面的正文变成裸 XML。
+  // 拆成 ]]]]><![CDATA[> 还原后正文一个字都不差，交给 rssItem 自己做，别指望调用方记得。
+  const safe = String(html ?? '').replace(/\]\]>/g, ']]]]><![CDATA[>');
+  return `    <item>
+      <title>${esc(post.title)}</title>
+      <link>${link}</link>
+      <guid isPermaLink="true">${link}</guid>
+      <pubDate>${rfc822(post.published_at || post.created_at)}</pubDate>
+      <author>${esc(author)}</author>
+      <dc:creator>${esc(author)}</dc:creator>
+      <description>${esc(post.summary || extractExcerpt(post.content, 200))}</description>
+      <content:encoded><![CDATA[${safe}]]></content:encoded>
+${catXml}
+    </item>`;
+}
+
+/**
+ * 频道外壳。抽成纯函数是为了能单测 —— 埋在 serveRss 里就只能起 miniflare 才能验。
+ * 作者放在 <managingEditor>：RSS 2.0 的 channel 层**没有** <author> 这个元素
+ * （那是 item 专有的），写进去会被校验器判为未定义元素。channel 层合法的署名
+ * 是 managingEditor / webMaster / dc:creator，读者一般也只读 item 上的那个。
+ * <ttl> 单位是分钟，60 与 HTTP 的 max-age=600 对齐：阅读器按 ttl 每小时来一次，
+ * 正好不会每次都撞上 CDN 里那份还没过期的旧 feed。
+ */
+export function rssDoc({ origin, site, items, lastBuild }) {
+  const { name, desc, author } = site;
+  // 空作者会让 reader 显示空白署名，退到站名总比空标签强（getSite 已经兜过一次，
+  // 这里再兜一次是防着以后有人绕过 getSite 直接拼 feed）
+  const who = author || name || '';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<channel>
+  <title>${esc(name)}</title>
+  <link>${origin}/</link>
+  <atom:link href="${origin}/rss.xml" rel="self" type="application/rss+xml"/>
+  <description>${esc(desc || name)}</description>
+  <language>zh-CN</language>
+  <managingEditor>${esc(who)}</managingEditor>
+  <dc:creator>${esc(who)}</dc:creator>
+  <lastBuildDate>${lastBuild}</lastBuildDate>
+  <generator>Exia Blog</generator>
+  <ttl>60</ttl>
+${items}
+</channel></rss>`;
 }
 
 async function serveSitemap(env, request) {

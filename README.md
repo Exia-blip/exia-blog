@@ -320,6 +320,7 @@ npx wrangler deploy
 |---|---|---|---|
 | `SITE_NAME` | var | 否 | 站点名默认值，后台「站点设置」可覆盖 |
 | `SITE_DESC` | var | 否 | 副标题默认值，后台可覆盖 |
+| `SITE_AUTHOR` | var | 否 | 作者署名默认值，进 RSS 的 `<author>`/`<dc:creator>`；留空跟 `SITE_NAME` 走，后台可覆盖 |
 | `SITE_THEME` | var | 否 | 默认风格 `anzhiyu`/`paper`/`ink`/`forest`/`ocean`/`plum`/`mono`，后台可覆盖 |
 | `SITE_MODE` | var | 否 | 默认外观 `auto`/`light`/`dark`，后台可覆盖 |
 | `SITE_AVATAR` | var | 否 | 站点头像默认地址，后台可覆盖 |

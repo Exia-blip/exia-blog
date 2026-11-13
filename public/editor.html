@@ -116,6 +116,11 @@
           <small class="site-hint">显示在导航栏站名右侧，窄屏自动隐藏；同时作为首页的搜索引擎描述</small>
         </div>
         <div class="field">
+          <label>作者署名</label>
+          <input type="text" id="site-author" placeholder="例如 Exia，或 hi@example.com (Exia)" maxlength="80" autocomplete="off">
+          <small class="site-hint">写进 RSS 的 &lt;author&gt; 与 &lt;dc:creator&gt;，订阅器里显示的「作者」。留空则退回 <code>SITE_AUTHOR</code>，再没有就用站点名称</small>
+        </div>
+        <div class="field">
           <label>站点头像（显示在导航栏左上角）</label>
           <div class="ava-row">
             <div class="ava-drop" id="ava-drop" title="点这里选图，也可以把图片拖进来或直接粘贴">
@@ -918,6 +923,7 @@ async function initSiteSettings() {
     const s = await api('/api/settings');
     $('site-name').value = s.name || '';
     $('site-desc').value = s.desc || '';
+    $('site-author').value = s.author || '';
     $('site-theme').value = s.theme || 'paper';
     $('site-mode').value = s.mode || 'auto';
     $('site-avatar').value = s.avatar || '';
@@ -939,12 +945,14 @@ async function initSiteSettings() {
         body: {
           name,
           desc: $('site-desc').value.trim(),
+          author: $('site-author').value.trim(),
           theme: $('site-theme').value,
           mode: $('site-mode').value,
           avatar: $('site-avatar').value.trim(),
         },
       });
       $('site-name').value = r.name;
+      $('site-author').value = r.author || '';
       $('site-avatar').value = r.avatar || '';
       paintAvatar(r.avatar || '');
       document.title = r.name + ' · 后台';
