@@ -500,6 +500,26 @@ npx wrangler dev --port 8788 --local
 
 浏览器端上传的图片在**上传前**就转成 WebP（`editor.html` 的 `toWebp()`）：长边 1600、q 0.82，省不到 8% 就直接传原图；GIF 与 SVG 不动（一个丢动画，一个是矢量）。服务端不做转码——Workers 里没有图像库，免费计划也用不了 Image Resizing。
 
+#### AVIF 变体（存量图补转）
+
+上传时只能产出 WebP：浏览器的 `canvas.toBlob` 在稳定版里没有 AVIF 编码（Safari 有、Chrome 没有），要 AVIF 只能在这台机器上转。所以分两步走：
+
+| 原图 | 已有 | 缺 |
+|---|---|---|
+| 老图 `.jpg` / `.png`（上传时还没接 `toWebp()`） | `.webp` + `.avif` | — |
+| 新图 `.webp`（上传前转过） | 原图已是 WebP | 只有 `.avif` |
+
+```bash
+npm run variants:check     # 只体检：正文引用了哪些图、谁缺变体、谁原图丢了，有缺口 exit 1
+npm run make:variants      # 补缺的（已有变体的跳过，--force 才全量重转）
+```
+
+体检走 `HEAD`，不下载不转码，7 张图一秒内跑完，适合发完带图文章顺手敲一次。两种缺口的修法不一样，所以分开报：**缺变体**跑 `make:variants` 就补上；**原图丢失**是转码救不了的，得回去重传或者改正文引用。
+
+变体 key 是原 key 加后缀（`/img/u/x.png.avif`），`serveImage` 认这个后缀，缺失时回退原图，所以转与不转都不会出现裂图。原图本身是 `.webp` 的只查 `.avif`——再产一份 `.webp` 变体是同一份编码，没有意义。
+
+`sharp` 是显式开发依赖（`npm i -D sharp`），不靠 `wrangler` 带的 miniflare 传递进来——那是别人的依赖，哪天它不带了脚本就断。
+
 ### 标题卡（分享图）
 
 纯文字文章分享出去原来只有一张通用 `og-default.jpg`。现在每篇都会渲染一张 1200×630 的标题卡，`og:image` 指它；列表缩略图仍然用抽象预设图——把带字的分享图塞进 108×78 只会露出半截标题。
