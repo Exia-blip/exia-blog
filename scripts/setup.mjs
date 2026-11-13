@@ -1,0 +1,217 @@
+#!/usr/bin/env node
+// 一条命令配好通知与人机验证：先验值 → 再写入 → 最后体检。
+//
+// 用法：
+//   npm run setup:webhook    -- <webhook 地址>
+//   npm run setup:turnstile  -- <SITE_KEY> <SECRET>
+//
+// 为什么非要先验一遍：这两个值配错的后果都是静默的。
+//   · webhook 地址失效时，企微/飞书回的是 HTTP 200 + {"errcode":93000}，只看状态码全是成功；
+//   · Turnstile secret 写错时前端照常弹框、服务端永远验不过，
+//     用户看到的是「评论一直提交失败」，页面上找不到任何线索。
+// 两个都能靠一次真实请求在写进去之前判掉，那就别把它留到线上试。
+import { readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { webhookPlatform, webhookPayload } from '../src/webhook.js';
+
+const argv = process.argv.slice(2);
+// --dry：只验值、不落盘。密钥不会写进 Worker，wrangler.jsonc 也不会改。
+// 想先确认「这把 secret 到底对不对」而不想动线上时用它。
+const dry = argv.includes('--dry');
+const [cmd, ...args] = argv.filter((a) => a !== '--dry');
+const die = (msg) => {
+  console.error(`\n✗ ${msg}\n`);
+  process.exit(1);
+};
+
+/* 一切 wrangler 调用都直接跑 node_modules 里的入口：
+   Windows 上 .cmd 不能被 spawn（EINVAL），用 npx 又要过一层 shell，
+   而这层 shell 在受限环境里本身就可能被拦。 */
+const wrangler = (argv, opts = {}) => spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', ...argv], opts);
+
+const putSecret = (name, value) => {
+  if (dry) {
+    console.log(`  --  跳过写入 secret ${name}（--dry）`);
+    return;
+  }
+  const r = wrangler(['secret', 'put', name], { input: value, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  if (r.status !== 0) die(`写入 ${name} 失败：${(r.stderr || '').split('\n').filter(Boolean).pop() || r.status}`);
+  console.log(`  ok  已写入 secret ${name}`);
+};
+
+const preflight = () => {
+  if (dry) {
+    console.log('\n（--dry：跳过体检）');
+    return;
+  }
+  console.log('\n—— 体检 ——');
+  const r = spawnSync(process.execPath, ['scripts/check-env.mjs'], { stdio: 'inherit' });
+  if (r.status !== 0) die('体检没过，见上面的原因');
+};
+
+/* ---------------- webhook ---------------- */
+async function setupWebhook() {
+  const url = (args[0] || '').trim();
+  if (!url) die('用法：npm run setup:webhook -- <webhook 地址>');
+
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    die(`这不是一个完整 URL：${url.slice(0, 60)}（要带 https://）`);
+  }
+  if (u.protocol !== 'https:') die(`必须是 https，当前是 ${u.protocol}`);
+
+  const platform = webhookPlatform(url);
+  const known = {
+    wecom: '企业微信群机器人',
+    feishu: '飞书自定义机器人',
+    discord: 'Discord',
+    slack: 'Slack',
+    generic: '通用（按 { text } 发）',
+  }[platform];
+  console.log(`  平台判定：${platform} —— ${known}`);
+  if (platform === 'generic') {
+    console.log('  ⚠ 域名不在企微/飞书/Discord/Slack 里，按通用结构发 { text }。');
+    console.log('    接收端不是 Slack 兼容的话可能收不到，先看下面这条测试消息有没有到。');
+  }
+
+  console.log('\n—— 发一条测试消息 ——');
+  const text = '🔔 通知已接通\n这条来自 exia.de5.net 的配置脚本，收到即表示地址有效。';
+  let r;
+  try {
+    r = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(webhookPayload(url, text)),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (e) {
+    die(`请求没发出去：${e.message}\n  常见原因：地址拼错、机器人已被移除、本机网络不通。`);
+  }
+
+  const body = await r.text();
+  let code = 0;
+  let detail = '';
+  try {
+    const d = JSON.parse(body);
+    code = Number(d.errcode ?? d.code ?? d.StatusCode ?? 0);
+    detail = d.errmsg || d.msg || d.message || '';
+  } catch {
+    /* 非 JSON 响应（Slack 回 "ok" 之类），只看状态码 */
+  }
+
+  if (!r.ok || code) {
+    // 企微：93000 地址错 / 93001 内容空 / 45009 频率超限；飞书：19021 签名校验失败
+    const hint =
+      code === 93000
+        ? 'webhook 地址无效或机器人已被删除，去群里重新拿一次地址'
+        : code === 45009
+          ? '该机器人发得太频繁，等几分钟再试'
+          : code === 19021
+            ? '飞书开了「签名校验」，本项目的发送端不带签名，需要在飞书那边关掉'
+            : '看返回内容，地址一般要整段重新复制（key 在 query 里）';
+    die(`发送失败：HTTP ${r.status}${code ? ` / 平台码 ${code} ${detail}` : ''}\n  ${hint}`);
+  }
+
+  console.log(`  ok  平台接受了这条消息（HTTP ${r.status}${code ? ` code ${code}` : ''}）`);
+  console.log('     去群里确认一下真的收到，再往下走。');
+
+  console.log('\n—— 写入密钥 ——');
+  putSecret('WEBHOOK_URL', url);
+  preflight();
+  console.log('\n完成。新评论会推到刚才那个群。');
+}
+
+/* ---------------- turnstile ---------------- */
+async function setupTurnstile() {
+  const [siteKey, secret] = args.map((s) => (s || '').trim());
+  if (!siteKey || !secret) die('用法：npm run setup:turnstile -- <SITE_KEY> <SECRET>');
+
+  // Cloudflare 的密钥都是 0x/1x/2x/3x 开头 + 一长串 base62，长度 24 上下
+  const shape = /^[0-9]x[0-9A-Za-z]{18,}$/;
+  if (!shape.test(siteKey)) die(`SITE_KEY 形状不对：${siteKey.slice(0, 12)}…（应以 0x 开头，二十多位）`);
+  if (!shape.test(secret)) die(`SECRET 形状不对：${secret.slice(0, 12)}…（同上）`);
+  if (siteKey === secret) die('SITE_KEY 和 SECRET 填成同一个了。它们是两个不同的值。');
+
+  console.log('  SITE_KEY 形状正常（公开值，最终写进 wrangler.jsonc 的 vars）');
+  console.log('  SECRET   形状正常（私密值，走 wrangler secret）');
+
+  console.log('\n—— 拿 secret 去 siteverify 验一次 ——');
+  /* 用一个假 token 换错误码，判别的是 secret 本身：
+       有效 secret + 假 token  → invalid-input-response   ← 说明 secret 被认了
+       无效 secret + 任何 token → invalid-input-secret     ← 说明 secret 是错的
+     这是唯一能在「不产生真实验证流量」的前提下判断 secret 对错的办法。 */
+  const form = new FormData();
+  form.append('secret', secret);
+  form.append('response', 'probe-not-a-real-token');
+  let d;
+  try {
+    const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: form });
+    d = await r.json();
+  } catch (e) {
+    die(`连不上 siteverify：${e.message}`);
+  }
+  const codes = d['error-codes'] || [];
+  if (codes.includes('invalid-input-secret')) {
+    die('SECRET 无效：Cloudflare 不认这把密钥。\n  去 Turnstile → 你的 widget → Secret Key 重新复制（注意别拿成 Site Key）。');
+  }
+  if (d.success) {
+    console.log('  ok  通过，但返回 success:true —— 这是 Cloudflare 的测试密钥（1x000…）。');
+    console.log('     测试密钥对任何人都放行，只适合本地验证流程，上线前换成正式密钥。');
+  } else if (codes.includes('invalid-input-response')) {
+    console.log('  ok  SECRET 被接受（假 token 被拒，正是预期结果）');
+  } else {
+    console.log(`  ? 返回了没见过的结果：${JSON.stringify(d)}`);
+    console.log('     不阻断，但建议先搞清这串错误码再上线。');
+  }
+
+  console.log('\n—— 把 SITE_KEY 写进 wrangler.jsonc ——');
+  const path = 'wrangler.jsonc';
+  const src = readFileSync(path, 'utf8');
+  const line = `"TURNSTILE_SITE_KEY": "${siteKey}"`;
+  let out;
+  if (/"TURNSTILE_SITE_KEY"\s*:\s*"[^"]*"/.test(src)) {
+    out = src.replace(/"TURNSTILE_SITE_KEY"\s*:\s*"[^"]*"/, line);
+    console.log('  ok  已有该键，替换为新值');
+  } else {
+    /* 插在 R2_PUBLIC_BASE 后面：那里是 vars 的最后一项，
+       新键接上去要补一个逗号，否则整份配置立刻语法错误。 */
+    const anchor = /(\n(\s*)"R2_PUBLIC_BASE":\s*"[^"]*")(,?)/;
+    if (!anchor.test(src)) die('wrangler.jsonc 里找不到 "R2_PUBLIC_BASE"，不敢乱插，停手。');
+    out = src.replace(anchor, (m, keep, indent, comma) => `${keep}${comma || ','}\n${indent}${line}`);
+    console.log('  ok  已插入 vars');
+  }
+
+  /* 写回之前先确认这份 JSONC 去掉注释后还能被解析。
+     「改配置改出语法错误」在部署时才报，那时候人已经在等结果了。 */
+  const stripped = out.replace(/^\s*\/\/.*$/gm, '');
+  try {
+    JSON.parse(stripped);
+  } catch (e) {
+    die(`改完之后 wrangler.jsonc 不是合法 JSON（${e.message}）。文件没有保存，原样未动。`);
+  }
+  if (dry) {
+    const around = out.split('\n').filter((l) => /TURNSTILE_SITE_KEY|R2_PUBLIC_BASE/.test(l));
+    console.log('  --  不落盘（--dry），改完会是这两行：');
+    for (const l of around) console.log(`      ${l.trim()}`);
+  } else {
+    writeFileSync(path, out);
+  }
+
+  console.log('\n—— 写入密钥 ——');
+  putSecret('TURNSTILE_SECRET', secret);
+  preflight();
+
+  console.log('\n完成。部署后打开任一文章页，评论区应该出现验证框。');
+  console.log('如果验证框一直转圈或报错，先去 CF 面板确认 widget 的 Hostname 包含 exia.de5.net。');
+}
+
+if (cmd === 'webhook') await setupWebhook();
+else if (cmd === 'turnstile') await setupTurnstile();
+else {
+  console.log('用法：');
+  console.log('  npm run setup:webhook   -- <webhook 地址>');
+  console.log('  npm run setup:turnstile -- <SITE_KEY> <SECRET>');
+  process.exitCode = 1;
+}

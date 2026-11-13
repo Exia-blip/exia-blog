@@ -167,6 +167,23 @@ npx wrangler secret put WEBHOOK_URL
 printf '%s' 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' | npx wrangler secret put WEBHOOK_URL
 ```
 
+### 6.1 用 setup 脚本配通知与人机验证（推荐）
+
+上面两条也可以交给脚本：它会先拿真实请求验一遍，通过了才写进去。
+
+```bash
+# 会往群里发一条测试消息，收到才算通过，然后写入 WEBHOOK_URL
+npm run setup:webhook -- 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx'
+
+# 会拿 secret 去 siteverify 验一次，然后再写 secret、写 vars
+npm run setup:turnstile -- '0x4AAAAAAA...' '0x4AAAAAAA...'
+
+# 只想验，不想动线上：加 --dry
+npm run setup:turnstile -- '0x4AAAAAAA...' '0x4AAAAAAA...' --dry
+```
+
+为什么值得多这一步：这两个值配错的后果都是**静默**的。webhook 地址失效时企微回的是 `HTTP 200 + {"errcode":93000}`，只看状态码全是成功；Turnstile secret 写错时前端照常弹框、服务端永远验不过，用户看到的是「评论一直提交失败」。脚本用一次真实请求把两种情况都挡在写入之前。
+
 写完跑一次体检，它会列出每一项是「已配」「仅本地」还是「未配」，并拦下有问题的组合：
 
 ```bash
