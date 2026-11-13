@@ -102,6 +102,12 @@ function inline(line) {
     if (/^\/img\/[^?#]+\.(png|jpe?g)$/i.test(url)) {
       return `<picture><source type="image/avif" srcset="${url}.avif"><source type="image/webp" srcset="${url}.webp">${img}</picture>`;
     }
+    /* 编辑器上传前已经把 jpg/png 转成 webp 了，那类图的原图就是 webp，
+       只差一档 avif。再给一个 .webp 候选等于让浏览器在原图和自己之间二选一 ——
+       省不了字节，还多一次请求判断。 */
+    if (/^\/img\/[^?#]+\.webp$/i.test(url)) {
+      return `<picture><source type="image/avif" srcset="${url}.avif">${img}</picture>`;
+    }
     return img;
   });
   // 链接

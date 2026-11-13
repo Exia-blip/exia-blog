@@ -101,6 +101,18 @@ t('svg 不加变体：位图转码对矢量图没意义', () => {
   assert.ok(!out.includes('<picture>'), out);
 });
 
+/* 编辑器上传前就把 jpg/png 转成 webp，那类图只需要补一档 avif。
+   给它再挂一个 .webp 候选，等于让浏览器在「原图」和「原图转出来的 webp」
+   之间做选择 —— 选哪个都是同一份画质，白白多一次判断。 */
+t('上传时已转 webp 的图只挂 avif 候选', () => {
+  const out = renderBody('![图](/img/u/202611/a.webp)');
+  assert.ok(out.includes('<picture>'), out);
+  assert.ok(out.includes('type="image/avif"'), out);
+  assert.ok(!out.includes('type="image/webp"'), out);
+  assert.ok(!out.includes('.webp.webp'), out);
+  assert.ok(out.includes('src="/img/u/202611/a.webp"'), out);
+});
+
 let pass = 0;
 for (const [name, fn] of cases) {
   try {

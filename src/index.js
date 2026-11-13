@@ -43,8 +43,11 @@ async function serveImage(env, key) {
      不按 Accept 协商，是因为 HTML 和图片都在边缘缓存，接受头分支会让同一份缓存
      发给不支持的浏览器；变体做成了独立 URL，让 <picture> 在浏览器端挑。
      变体还没转出来（新上传的图、批量脚本没跑过）时回退原图 ——
-     白跑一次查询，好过让访客看到一张裂开的图。 */
-  const m = path.match(/^(.*\.(?:png|jpe?g))\.(?:avif|webp)$/i);
+     白跑一次查询，好过让访客看到一张裂开的图。
+
+     原图本身是 .webp 的也要认：编辑器上传前就把 jpg/png 转成 webp 了，
+     那些图只缺一档 avif（a.webp.avif），漏掉的话新图永远拿不到 avif。 */
+  const m = path.match(/^(.*\.(?:png|jpe?g|webp))\.(?:avif|webp)$/i);
   if (m) {
     const orig = await env.BUCKET.get(m[1]);
     if (orig) return imageResponse(orig);
