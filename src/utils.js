@@ -65,7 +65,11 @@ export async function signToken(secret, payload, ttlSec = 60 * 60 * 24 * 30) {
 
 export async function verifyToken(secret, token) {
   if (!token || !token.includes('.')) return null;
-  const [p, s] = token.split('.');
+  const parts = token.split('.');
+  // 多出来的段不是「无害的尾巴」：签名只覆盖 p，s 之后的内容会被静默忽略，
+  // 让人误以为 token 里带了东西而实际没有。形状不对就当无效。
+  if (parts.length !== 2) return null;
+  const [p, s] = parts;
   try {
     const ok = await crypto.subtle.verify(
       'HMAC',
@@ -75,7 +79,15 @@ export async function verifyToken(secret, token) {
     );
     if (!ok) return null;
     const data = JSON.parse(new TextDecoder().decode(fromB64u(p)));
-    if (data.exp && data.exp < Math.floor(Date.now() / 1000)) return null;
+    /* 过期判断必须「没有 exp 就算无效」，而不是「有 exp 才算过期」。
+       原来写的是 `if (data.exp && ...)`：token 里不带 exp 时等式直接短路，
+       签名正确就永久有效 —— 一个本该 30 天过期的会话票，改成永久票只要去掉一个字段。
+       exp 是字符串或 NaN 时 `'abc' < 123` 也是 false，同样绕过。
+
+       这里不靠 Number() 转换：`exp: [9999999999]` 也能转成一个未来的时间戳。
+       签发方（signToken）只会写数字，所以这里就只认数字，边界写死比宽松转换好审。 */
+    if (typeof data.exp !== 'number' || !Number.isFinite(data.exp)) return null;
+    if (data.exp <= Math.floor(Date.now() / 1000)) return null;
     return data;
   } catch {
     return null;

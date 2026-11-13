@@ -9,7 +9,7 @@
     "db:init": "wrangler d1 execute blog-db --remote --file=./schema.sql",
     "db:init:local": "wrangler d1 execute blog-db --local --file=./schema.sql",
     "tail": "wrangler tail",
-    "test": "node scripts/test-md.mjs && node scripts/test-security.mjs && node scripts/test-antispam.mjs && node scripts/test-routes.mjs && node scripts/test-copy-notice.mjs && node scripts/verify-copy.mjs && node scripts/test-seo-series.mjs && node scripts/test-comment-ssr.mjs && node scripts/test-stats.mjs",
+    "test": "node scripts/test-md.mjs && node scripts/test-security.mjs && node scripts/test-antispam.mjs && node scripts/test-routes.mjs && node scripts/test-copy-notice.mjs && node scripts/verify-copy.mjs && node scripts/test-seo-series.mjs && node scripts/test-comment-ssr.mjs && node scripts/test-stats.mjs && node scripts/test-token.mjs",
     "cards": "node scripts/gen-cards.mjs",
     "shots": "node scripts/shot.mjs",
     "check:ld": "node scripts/check-ld.mjs",
