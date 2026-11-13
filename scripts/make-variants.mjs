@@ -9,12 +9,19 @@
 // 变体的 key 是原 key 加上 .webp / .avif（/img/u/x.png.webp），
 // Worker 的 serveImage 认这个后缀，缺失时回退原图，所以转与不转都不会裂。
 import { execFileSync, execSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 
+// Windows 上直接 spawn .cmd 会报 EINVAL，得让 cmd.exe 去拉起它
+const WR =
+  process.platform === 'win32'
+    ? { cmd: 'cmd.exe', pre: ['/c', 'node_modules\\.bin\\wrangler.cmd'] }
+    : { cmd: 'node_modules/.bin/wrangler', pre: [] };
+
 const BUCKET = 'blog-images';
+const SITE = 'https://exia.de5.net';
 const force = process.argv.includes('--force');
 const tmp = mkdtempSync(join(tmpdir(), 'variants-'));
 
@@ -50,11 +57,12 @@ let saved = 0;
 for (const key of keys) {
   const local = join(tmp, key.replace(/[\\/]/g, '_'));
   try {
-    execFileSync('npx', ['wrangler', 'r2', 'object', 'get', `${BUCKET}/${key}`, '--file', local, '-y'], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
+    // 走公网地址下载，不用 r2 object get：那条命令在 Windows 下 spawn 起来很别扭
+    const res = await fetch(SITE + '/img/' + key);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    writeFileSync(local, Buffer.from(await res.arrayBuffer()));
   } catch (e) {
-    console.log(`跳过 ${key}（R2 里没有，可能是删稿残留）`);
+    console.log(`跳过 ${key}（R2 里没有：${String(e.stderr || e.message).split('\n')[0].slice(0, 80)}）`);
     continue;
   }
 
@@ -74,10 +82,11 @@ for (const key of keys) {
       console.log(`  ${ext} 没省（${f(before)} → ${f(buf.length)}），跳过`);
       continue;
     }
+    writeFileSync(out, buf); // 落盘再上传：put 读的是文件，不是内存里的 buffer
     execFileSync(
-      'npx',
+      WR.cmd,
       [
-        'wrangler',
+        ...WR.pre,
         'r2',
         'object',
         'put',
@@ -86,9 +95,7 @@ for (const key of keys) {
         out,
         '--content-type',
         ext === 'webp' ? 'image/webp' : 'image/avif',
-        '--cache-control',
-        'public, max-age=31536000, immutable',
-        '-y',
+        '--remote',
       ],
       { stdio: ['ignore', 'ignore', 'pipe'] }
     );
