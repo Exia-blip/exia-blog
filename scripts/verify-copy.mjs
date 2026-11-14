@@ -4,8 +4,9 @@
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
-const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = resolveChrome();
 
 const LONG = '正文第一段，长度足够触发署名声明。这里写了很多字，目的是让选区的字符数跨过门槛。'.repeat(3);
 
