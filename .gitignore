@@ -17,3 +17,5 @@ scripts/.cards-input.json
 # 临时导出：调试时把模板吐成 *.tmp.out.mjs 看过，别跟着提交
 *.tmp.out.mjs
 *.tmp
+.tmp-*
+!.tmp-*.md.example
