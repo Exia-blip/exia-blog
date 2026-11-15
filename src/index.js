@@ -1,6 +1,6 @@
 import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
-import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso } from './utils.js';
+import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf } from './utils.js';
 import { checkFriends } from './cron.js';
 import { getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
@@ -72,22 +72,53 @@ function imageResponse(obj, fallback = '') {
    缓存只给 60 秒 —— 原图补传上去之后，很快就能看到真图。 */
 const MISSING_IMG = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="320" height="180" rx="8" fill="#eef0f2"/><g fill="none" stroke="#b9c0c7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="116" y="62" width="88" height="62" rx="6"/><path d="M116 108l24-22 16 14 12-10 24 22"/><circle cx="150" cy="80" r="6"/></g><path d="M108 136l104-92" stroke="#b9c0c7" stroke-width="3" stroke-linecap="round"/></svg>`;
 
-function missingImage() {
+/* reason 区分两种「没有图」：
+   - missing：R2 里真的没有，属于运营事故（缺传/写错路径），缓存 60 秒让补传快速生效
+   - r2-error：读 R2 本身失败，属于故障，一秒都别缓存 —— 否则一次抖动会被定格一分钟 */
+function missingImage(reason = 'missing') {
+  const broken = reason !== 'missing';
   return new Response(MISSING_IMG, {
     status: 200,
     headers: {
       'content-type': 'image/svg+xml; charset=utf-8',
-      'cache-control': 'public, max-age=60, must-revalidate',
+      'cache-control': broken ? 'no-store' : 'public, max-age=60, must-revalidate',
       'x-img-missing': '1',
+      ...(broken ? { 'x-img-error': reason } : {}),
       'x-robots-tag': 'noindex',
       'x-content-type-options': 'nosniff',
     },
   });
 }
 
+/* R2 的 key 是字面量，`..` 在它眼里就是两个点，走不出前缀 —— 所以这里不是
+   在防目录穿越（R2 没有目录），是在拒绝一类「明显不是图片地址」的输入：
+   双斜杠、反斜杠、NUL、控制字符、超长路径。这些东西进到 R2.get 只会
+   白跑一次网络往返，然后拿到 null，最后被当成「图片缺失」记一笔，
+   真正缺图反而被噪音盖住。 */
+const BAD_KEY = /(^\/|\/\/|\\|\u0000|[\u0001-\u001f\u007f])/;
+const MAX_KEY = 512;
+
 async function serveImage(env, key) {
-  const path = decodeURIComponent(key);
-  const obj = await env.BUCKET.get(path);
+  let path;
+  try {
+    path = decodeURIComponent(key);
+  } catch {
+    return new Response('bad image path', { status: 400 });
+  }
+  if (!path || path.length > MAX_KEY || BAD_KEY.test(path) || path.includes('..')) {
+    return new Response('bad image path', { status: 400 });
+  }
+
+  let obj = null;
+  try {
+    obj = await env.BUCKET.get(path);
+  } catch (e) {
+    /* R2 读取失败和「对象不存在」是两回事：前者是故障（该报警），
+       后者是常态（该让体检脚本看见）。混在一起会让真故障看起来像缺图。
+       故障时给占位图但 no-store，别把一次抖动缓存住 60 秒。 */
+    console.error('r2 get failed', path, e);
+    return missingImage('r2-error');
+  }
   if (obj) return imageResponse(obj);
 
   /* /img/a.png.webp、/img/a.png.avif：转码后的变体。
@@ -105,14 +136,19 @@ async function serveImage(env, key) {
   const m = path.match(/^(.*\.(?:png|jpe?g|webp))\.(avif|webp)$/i);
   if (m) {
     const want = m[2].toLowerCase();
-    if (want === 'avif') {
-      const wp = await env.BUCKET.get(`${m[1]}.webp`);
-      if (wp) return imageResponse(wp, 'avif-missing-served-webp');
+    try {
+      if (want === 'avif') {
+        const wp = await env.BUCKET.get(`${m[1]}.webp`);
+        if (wp) return imageResponse(wp, 'avif-missing-served-webp');
+      }
+      const orig = await env.BUCKET.get(m[1]);
+      /* 原图也没有、变体也没有 —— 这时候别再回 404 让页面裂图。
+         注意这里跟上面不同：上面是有东西可给（原图），这里是真的什么都没有。 */
+      if (orig) return imageResponse(orig, `${want}-missing-served-original`);
+    } catch (e) {
+      console.error('r2 fallback failed', path, e);
+      return missingImage('r2-error');
     }
-    const orig = await env.BUCKET.get(m[1]);
-    /* 原图也没有、变体也没有 —— 这时候别再回 404 让页面裂图。
-       注意这里跟上面不同：上面是有东西可给（原图），这里是真的什么都没有。 */
-    if (orig) return imageResponse(orig, `${want}-missing-served-original`);
   }
   return missingImage();
 }
@@ -1813,6 +1849,58 @@ const isPagePath = (p) =>
   p.startsWith('/cat/') ||
   p.startsWith('/p/');
 
+/* 出错时给浏览器一个能看的页面。
+ *
+ * 为什么不直接抛给 Cloudflare：默认错误页是英文、无导航、无站点身份的空白页，
+ * 读者只会以为站没了然后关掉。给一张「稍后再试 + 回首页」的页面，至少留人。
+ *
+ * 注意这里一滴 D1 都不碰、也不引用 /style.css：能走到这个分支，很可能就是
+ * 数据库或静态资源本身出了问题，再去依赖它们等于二次踩雷。样式全部内联。
+ * no-store：故障页一秒都别缓存，恢复后要立刻能看到真页面。 */
+export function serverErrorPage() {
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>服务暂时不可用</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:40px 20px;
+  font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  color:#1b1f24;background:#fbfbfa;text-align:center}
+.wrap{max-width:420px}
+.big{font-size:64px;line-height:1;margin:0 0 18px;opacity:.12;font-weight:800;letter-spacing:-.04em}
+p{margin:0 0 22px;color:#5a6470}
+a{display:inline-block;padding:10px 22px;border-radius:999px;background:#1b1f24;color:#fbfbfa;
+  text-decoration:none;font-size:14px}
+@media (prefers-color-scheme:dark){
+  body{background:#16181c;color:#e8eaed}
+  p{color:#9aa4b0}
+  a{background:#e8eaed;color:#16181c}
+}
+</style></head>
+<body><div class="wrap"><p class="big">500</p>
+<p>刚刚那次请求没能完成，多半是临时的。<br>过一会儿再试，或者先回首页。</p>
+<a href="/">回到首页</a></div></body></html>`;
+}
+
+/* 给最终 HTML 补 ETag。
+ *
+ * 为什么不在 html() 里算：那个 body 之后还要被 injectTheme（塞 __POST__/__ARCH__）
+ * 和 harden（去注释、改头）动过两轮，早算出来的 tag 与浏览器手里的副本对不上，
+ * 304 永远命中不了 —— 而且这种错不会报错，只会让你以为「ETag 做了」。
+ *
+ * 代价是把 body 读成字符串再重建 Response（50KB 页面约 0.3ms），
+ * 换的是复访时整页不再重传。streaming 那条路暂时用不上，页面本来也不是流式的。 */
+async function withEtag(res) {
+  if (res.status !== 200) return res;
+  if (!(res.headers.get('content-type') || '').includes('text/html')) return res;
+  if (res.headers.get('etag')) return res;
+  const body = await res.text();
+  const headers = new Headers(res.headers);
+  headers.set('etag', tagOf(body));
+  return new Response(body, { status: 200, headers });
+}
+
 /** 缓存命中的响应也要改头，否则浏览器会按存缓存时的 s-maxage 去缓存 HTML */
 function asClient(res) {
   const headers = new Headers(res.headers);
@@ -1820,6 +1908,41 @@ function asClient(res) {
   headers.set('cache-control', pageCacheControl());
   headers.set('cdn-cache-control', `public, s-maxage=${EDGE_TTL}, stale-while-revalidate=${EDGE_SWR}`);
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
+/* If-None-Match 的值可以是 `*`、单个或多个用逗号分隔的 tag，前面还可能带 W/。
+   不按这份清单拆，只做整体等值比较的话，浏览器发来两个 tag 就永远匹配不上。 */
+export function etagHit(header, etag) {
+  if (!header) return false;
+  if (header.trim() === '*') return true;
+  const bare = (s) => s.trim().replace(/^W\//, '');
+  const mine = bare(etag);
+  return header.split(',').some((t) => bare(t) === mine);
+}
+
+/* 把 200 换成一个空 body 的 304。
+   省的是整个响应体：一篇文章页压缩后 20 多 KB，304 只有几百字节的响应头。
+   注意要删掉 content-encoding / content-length —— 304 没有 body，
+   留着这两个头会让某些客户端等一个永远不会来的实体。 */
+export function maybe304(res, request) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return res;
+  if (res.status !== 200) return res;
+  const etag = res.headers.get('etag');
+  if (!etag) return res;
+  if (!etagHit(request.headers.get('if-none-match'), etag)) return res;
+  const headers = new Headers(res.headers);
+  headers.delete('content-encoding');
+  headers.delete('content-length');
+  /* 这一行是整个 304 里最容易踩死人的地方。
+     CSP 头里带着本次请求新生成的 nonce，而浏览器手里那份 body 里是**上一次**的
+     nonce。把新 CSP 发过去，页面所有内联脚本的 nonce 全部对不上 —— 主题初始化、
+     SSR 引导数据、评论渲染会一起静默失效，页面看着是好的，功能全没了。
+     删掉这个头，浏览器会沿用缓存里那份响应自带的 CSP（RFC 9111：304 未提供的
+     头保持不变），body 与 nonce 就还是配套的。 */
+  headers.delete('content-security-policy');
+  headers.delete('content-security-policy-report-only');
+  headers.set('cache-control', pageCacheControl());
+  return new Response(null, { status: 304, headers });
 }
 
 async function route(request, env, ctx) {
@@ -1972,23 +2095,50 @@ export default {
 
       if (cacheable) {
         const hit = await edgeGet(url);
-        if (hit) return asClient(hit);
+        /* 没有 ETag 的副本一律当未命中。
+           那种副本是「上线前存进 caches.default 的旧响应」，里面没有 etag 头，
+           直接用它的话：浏览器收到的还是没有 ETag 的页面，304 永远开不了，
+           而且要等 s-maxage / swr 自然过期才恢复 —— 表现为「部署了但没效果」。
+           当作未命中重渲染一次，顺手把缓存覆盖成带 ETag 的版本。 */
+        if (hit && hit.headers.get('etag')) return maybe304(asClient(hit), request);
       }
 
       let res = await route(request, env, ctx);
       res = await injectTheme(env, res, url);
       res = await harden(res, env);
+      res = await withEtag(res);
 
+      /* 顺序很重要：先按 200 写边缘缓存，再决定要不要改回 304。
+         反过来做的话，304 一返回就不满足 `status === 200` 的写缓存条件，
+         于是「客户端永远带着 If-None-Match」的访客永远灌不进边缘缓存 ——
+         看着是省了流量，实际每次都要完整渲染一遍。 */
       if (cacheable && res.status === 200 && (res.headers.get('content-type') || '').includes('text/html')) {
         // 存缓存用 s-maxage；回给浏览器的副本一律 max-age=0，
         // 否则 CF 会按 zone 的 Browser Cache TTL 把 HTML 在浏览器里压 4 小时
         const stored = await edgePut(url, res, EDGE_TTL);
-        return asClient(stored);
+        return maybe304(asClient(stored), request);
       }
 
-      return res;
+      return maybe304(res, request);
     } catch (e) {
       console.error(e);
+      /* API 还是回 JSON（调用方是前端脚本，解析 HTML 只会更糟）；
+         页面请求回那张 500 页，别把人扔到 Cloudflare 的英文白屏上。 */
+      const here = new URL(request.url).pathname;
+      const wantsHtml =
+        !here.startsWith('/api/') &&
+        (request.method === 'GET' || request.method === 'HEAD') &&
+        /text\/html/.test(request.headers.get('accept') || '');
+      if (wantsHtml) {
+        return new Response(serverErrorPage(), {
+          status: 500,
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'no-store',
+            'retry-after': '60',
+          },
+        });
+      }
       return json({ ok: false, error: e.message }, 500);
     }
   },

@@ -5,7 +5,52 @@ export function json(data, status = 200, headers = {}) {
   });
 }
 
+/* 页面 ETag。
+ *
+ * 为什么必须有：HTML 的 cache-control 是 max-age=0（浏览器每次都得回源校验），
+ * 没有 ETag 的话这个「校验」就是一次完整的 200 —— 每次翻页都重传 50 多 KB，
+ * 而内容其实一个字没变。有了它，第二次起就是 304，几十字节。
+ *
+ * 为什么用弱校验（W/）：body 是渲染出来的 HTML，字节完全一致才叫强校验；
+ * 这里只要「语义没变」就够了，中间层（比如 CF 的 br 重压缩）也可能改动字节，
+ * 强校验反而会假阴性。
+ *
+ * 为什么要先把相对时间归一化：评论区的「3 分钟前」每秒都在变，
+ * 不归一化的话 ETag 每分钟翻新一次，304 一次都命中不了 —— 等于白做。 */
+/* 注意别在这里用 \b：JS 的 \b 只认 ASCII 单词字符，中文旁边根本不存在「边界」，
+   写了等于没写（这个坑第一次就是被测试抓出来的 —— 三条相对时间断言全红）。
+   代价是正文里「3 天前」这种叙述也会被归一化，但那只会让两个页面的 ETag 更容易
+   撞在一起，不影响正确性：弱校验只要「变化时能变、不变时不变」。 */
+const VOLATILE = /刚刚|\d+\s*(?:秒|分钟|小时|天|个月|年)前/g;
+
+/* CSP nonce 每次请求都重新随机（security.js 的 makeNonce），会注入到页面里每个
+   <script nonce="...">。不归一化的话整页 body 每次都不同，ETag 跟着每次都变 ——
+   表面上功能齐全，实际 304 命中率恒为 0。这正是「算了个 ETag」和「304 能工作」
+   之间的距离。 */
+const NONCE = /\snonce="[0-9a-f]{8,}"/g;
+
+/* 为什么是强 ETag（不带 W/）而不是弱校验：
+   Cloudflare 边缘只对强 ETag 做条件响应 —— 缓存 HIT 时自己就能答 304。
+   用 W/ 的话请求会一路打到 Worker，等于白搭一层（实测：弱 tag 下 CF 回的是
+   完整 200 + 29KB，强 tag 下才是 304 + 0B）。
+
+   语义上它是「归一化后的内容指纹」：nonce 与相对时间这两处每次都会变的地方
+   已经抹平，剩下的字节确实稳定。304 响应刻意不发 CSP（见 index.js maybe304），
+   所以浏览器继续用自己那份 body 与它的 nonce，两边始终配套。 */
+export function tagOf(body) {
+  const s = String(body).replace(VOLATILE, '~t~').replace(NONCE, ' nonce="~"');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `"${s.length.toString(36)}-${(h >>> 0).toString(16)}"`;
+}
+
 export function html(body, status = 200, headers = {}) {
+  /* 这里刻意不算 ETag：html() 之后还要经过 injectTheme / harden 两次改写，
+     在这里算出来的 tag 对应的是「注入前」的 body，浏览器拿它做校验永远对不上。
+     ETag 统一在入口按最终 body 补（见 index.js 的 withEtag）。 */
   return new Response(body, {
     status,
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', ...headers },
