@@ -6,7 +6,7 @@
  *   1. 只看状态码 → 把回退的原图当成变体，体检显示「齐全」，实际每次多传几百 KB
  *   2. 回退响应也发 immutable 一年 → 补传变体后同一个 URL 继续吐原图，且没有任何提示
  */
-import { variantOk, expectedType, whyNotVariant } from './img-type.mjs';
+import { variantOk, expectedType, whyNotVariant, originOk } from './img-type.mjs';
 import { imgCacheControl } from '../src/index.js';
 
 let pass = 0;
@@ -42,6 +42,12 @@ t(variantOk(null, 'webp') === false, '没有响应不算命中');
 
 t(/回的是 image\/jpeg/.test(whyNotVariant(res(200, 'image/jpeg'), 'webp')), '失败原因说清楚「回的是原图」');
 t(/HTTP 404/.test(whyNotVariant(res(404, ''), 'webp')), '404 的原因说清状态码');
+
+/* ---- 原图存在性：占位响应也是 200 ---- */
+t(originOk({ status: 200, phantom: false }) === true, '真图算存在');
+t(originOk({ status: 200, phantom: true }) === false, '占位图不算存在（x-img-missing）');
+t(originOk({ status: 404, phantom: false }) === false, '404 不算存在');
+t(originOk(null) === false, '没有响应不算存在');
 
 /* ---- 缓存：回退不能发 immutable ---- */
 const okCache = imgCacheControl();

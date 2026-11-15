@@ -423,7 +423,7 @@ a.cat-chip:hover { filter: brightness(0.96); }
 }
 .md blockquote p:last-child { margin-bottom: 0; }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 2.2em 0; }
-.md img { border-radius: 10px; margin: 1.5em auto; }
+.md img { border-radius: 10px; margin: 1.5em auto; height: auto; }
 /* <picture> 只是给浏览器挑格式的外壳，不该在布局里占位：
    display:contents 让里面的 img 直接参与原来的排版，居中与圆角都不用重写。 */
 .md picture { display: contents; }

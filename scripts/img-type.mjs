@@ -35,3 +35,14 @@ export function whyNotVariant(res, ext) {
   const got = String(res.type || '').toLowerCase() || '（无 Content-Type）';
   return `回的是 ${got}，不是 ${want}（说明是回退的原图）`;
 }
+
+/**
+ * 原图是否真的存在。
+ *
+ * 为什么不能只看 status：图片缺失时 Worker 回的是 200 + 占位 SVG（为了不裂图），
+ * 所以「原图丢了」在状态码上和「原图在」完全一样。占位响应带 x-img-missing 头，
+ * 那才是判据。漏了这一条，体检会把 10 个坏链报成 10 张健康图片。
+ */
+export function originOk(res) {
+  return !!res && res.status === 200 && !res.phantom;
+}

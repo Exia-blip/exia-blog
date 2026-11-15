@@ -488,15 +488,33 @@ window.addEventListener('beforeunload', (e) => {
 
 /* 上传前在浏览器里转 WebP：省的是访客流量，也省 Worker 出口。
    长边 1600 对正文插图足够（正文栏 720px，2 倍屏也不过 1440）；
-   GIF / SVG 不碰 —— 一个丢动画，一个是矢量，转了反而糟。 */
+   GIF / SVG 不碰 —— 一个丢动画，一个是矢量，转了反而糟。
+
+   顺带把宽高量出来一起返回：直传 R2 那条路 Worker 根本见不到文件内容，
+   只有浏览器知道尺寸；把 800x600 拼进 URL 之后，正文渲染才能写出
+   width/height，图片没加载完也有位置，不会把下面的内容顶下去。 */
 async function toWebp(file, maxSide = 1600, quality = 0.82) {
-  if (!/^image\/(jpeg|png)$/.test(file.type)) return file;
+  const raw = { file, w: 0, h: 0 };
+  let bmp;
   try {
-    const bmp = await createImageBitmap(file);
+    bmp = await createImageBitmap(file);
+    raw.w = bmp.width;
+    raw.h = bmp.height;
+  } catch {
+    return raw; // 量不出来（老浏览器、怪格式）也别拦上传，只是少了宽高属性
+  }
+  if (!/^image\/(jpeg|png)$/.test(file.type)) {
+    if (bmp.close) bmp.close();
+    return raw;
+  }
+  try {
     const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
     const w = Math.max(1, Math.round(bmp.width * scale));
     const h = Math.max(1, Math.round(bmp.height * scale));
-    if (scale === 1 && file.size < 200 * 1024) return file; // 本来就小，不折腾
+    if (scale === 1 && file.size < 200 * 1024) {
+      if (bmp.close) bmp.close();
+      return raw; // 本来就小，不折腾
+    }
     const cv = document.createElement('canvas');
     cv.width = w;
     cv.height = h;
@@ -507,11 +525,11 @@ async function toWebp(file, maxSide = 1600, quality = 0.82) {
     if (bmp.close) bmp.close();
     const blob = await new Promise((ok) => cv.toBlob(ok, 'image/webp', quality));
     // 省不到 8% 就不换格式：有些图（已经压过的截图）转完反而更大
-    if (!blob || blob.size >= file.size * 0.92) return file;
+    if (!blob || blob.size >= file.size * 0.92) return { file, w, h };
     const name = String(file.name || 'image').replace(/\.[^.]+$/, '') + '.webp';
-    return new File([blob], name, { type: 'image/webp' });
+    return { file: new File([blob], name, { type: 'image/webp' }), w, h };
   } catch {
-    return file; // 老浏览器没有 createImageBitmap，退回原图，别把上传搞挂
+    return raw;
   }
 }
 
@@ -521,7 +539,8 @@ async function uploadFile(file) {
     toast('图片超过 12MB');
     return null;
   }
-  file = await toWebp(file);
+  const conv = await toWebp(file);
+  file = conv.file;
 
   toast('上传中…', 8000);
   try {
@@ -552,9 +571,15 @@ async function uploadFile(file) {
       r.publicUrl = r2.publicUrl;
     }
 
-    insertAtCursor(`\n![${file.name || 'image'}](${r.publicUrl})\n`);
+    /* 两条路各自管尺寸：Worker 中转那条后端已经拼好了（它读得到文件）；
+       直传那条后端只见到一个 key，得用这里量出来的补上。 */
+    let url = r.publicUrl;
+    if (conv.w && conv.h && !/[?&](?:amp;)?w=/.test(url)) {
+      url += `${url.includes('?') ? '&' : '?'}w=${conv.w}&h=${conv.h}`;
+    }
+    insertAtCursor(`\n![${file.name || 'image'}](${url})\n`);
     toast('图片已插入');
-    return r.publicUrl;
+    return url;
   } catch (e) {
     toast('上传失败：' + e.message);
     return null;

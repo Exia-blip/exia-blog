@@ -6,6 +6,7 @@ import { sanitizeHtml, cleanMarkdown } from './clean.js';
 import { coverOf, thumbOf } from './cover.js';
 import { bustPaths } from './cache.js';
 import { presignPut, makeKey, IMAGE_TYPES } from './s3.js';
+import { imageSize, withSize } from './img-size.js';
 import { notifyComment } from './webhook.js';
 import { checkFriends } from './cron.js';
 import { getSite, setSite, THEME_IDS, MODE_IDS } from './settings.js';
@@ -1086,12 +1087,17 @@ export async function handleApi(env, request, url, ctx) {
     if (!IMAGE_TYPES[type]) return err('只支持图片');
 
     const key = makeKey(file.name);
-    await env.BUCKET.put(key, await file.arrayBuffer(), {
+    const buf = await file.arrayBuffer();
+    /* 上传时就量好宽高，写进返回的 URL —— 正文渲染时直接读，不用再回源查一次。
+       量不出来（格式不认识）就不加，页面那边退化成不写属性，不影响上传成功。 */
+    const size = imageSize(buf);
+    await env.BUCKET.put(key, buf, {
       httpMetadata: { contentType: type, cacheControl: 'public, max-age=31536000, immutable' },
     });
 
     const base = env.R2_PUBLIC_BASE ? env.R2_PUBLIC_BASE.replace(/\/$/, '') : '';
-    return json({ ok: true, key, publicUrl: base ? `${base}/${key}` : `/img/${key}` });
+    const url = base ? `${base}/${key}` : `/img/${key}`;
+    return json({ ok: true, key, publicUrl: withSize(url, size), w: size?.w || 0, h: size?.h || 0 });
   }
 
   return err('未知接口', 404);

@@ -79,6 +79,32 @@ const URL_PART = String.raw`(?:[^()\s]|\([^()\s]*\))+`;
 const IMG_RE = new RegExp(String.raw`!\[([^\]]*)\]\((${URL_PART})(?:\s+&quot;([^&]*)&quot;)?\)`, 'g');
 const LINK_RE = new RegExp(String.raw`\[([^\]]+)\]\((${URL_PART})(?:\s+&quot;([^&]*)&quot;)?\)`, 'g');
 
+/* 图片宽高：上传时把 w/h 拼进 URL 查询串（见 /api/upload），渲染时取出来变成
+   width/height 属性，再把这俩参数从 src 里剥掉。
+   为什么要剥离：尺寸是排版元数据，不是资源标识。留在 URL 里会让同一张图在边缘
+   多出一份缓存分区（/x.jpg?w=800 与 /x.jpg 各存一份），而图片内容完全一样。
+   此刻入参已经过 esc()，参数分隔符是 &amp; 而不是 &，剥的时候要连 amp; 一起认。 */
+function imgSize(raw) {
+  const pick = (k) => {
+    const m = new RegExp(`[?&](?:amp;)?${k}=(\\d{1,6})`).exec(raw);
+    return m ? Number(m[1]) : 0;
+  };
+  const w = pick('w');
+  const h = pick('h');
+  if (!w || !h) return null;
+  const q = raw.indexOf('?');
+  const base = q < 0 ? raw : raw.slice(0, q);
+  const keep =
+    q < 0
+      ? []
+      : raw
+          .slice(q + 1)
+          .split('&')
+          .map((p) => p.replace(/^amp;/, ''))
+          .filter((p) => !/^[wh]=\d{1,6}$/.test(p));
+  return { w, h, url: keep.length ? `${base}?${keep.join('&amp;')}` : base };
+}
+
 function inline(line) {
   const codes = [];
   let s = String(line).replace(/`([^`\n]+)`/g, (_, c) => {
@@ -90,10 +116,15 @@ function inline(line) {
 
   // 图片
   s = s.replace(IMG_RE, (_, alt, src, title) => {
-    const url = safeUrl(src, 'img');
+    let url = safeUrl(src, 'img');
+    /* width/height 是给浏览器占位用的：图片还没下载完，它已经能从这两个数推出
+       宽高比，把位置先留出来。少了它，每张图加载完成都会把下面的内容往下顶一次。 */
+    const sz = imgSize(url);
+    const dim = sz ? ` width="${sz.w}" height="${sz.h}"` : '';
+    if (sz) url = sz.url;
     const img = `<img src="${url}" alt="${alt}"${
       title ? ` title="${title}"` : ''
-    } loading="lazy" decoding="async">`;
+    }${dim} loading="lazy" decoding="async">`;
     /* 站内上传的 png/jpg 额外给一份 avif / webp 候选。
        为什么用 <picture> 而不是在服务端按 Accept 协商：HTML 是边缘缓存的，
        同一份缓存要发给所有浏览器，按 Accept 分支会让缓存串味；

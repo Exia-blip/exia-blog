@@ -529,6 +529,29 @@ npm run make:variants      # 补缺的（已有变体的跳过，--force 才全�
 
 `sharp` 是显式开发依赖（`npm i -D sharp`），不靠 `wrangler` 带的 miniflare 传递进来——那是别人的依赖，哪天它不带了脚本就断。
 
+#### 宽高（CLS）
+
+正文图必须带 `width` / `height`，否则浏览器在图片下载完之前不知道该留多高，每张图落地都把下面的内容往下顶一次。实测同一篇文章：
+
+| | CLS |
+|---|---|
+| 带宽高 | **0.0005**（good） |
+| 去掉宽高 | **0.2682**（poor） |
+
+尺寸从哪来，两条路各管一段：
+
+- **Worker 中转上传**（`/api/upload`）读得到文件，用 `src/img-size.js` 读文件头拿宽高（PNG 的 IHDR、JPEG 的 SOF、WebP 三种子格式、AVIF 的 ispe、GIF 的逻辑屏），拼成 `?w=800&h=400` 返回。
+- **R2 直传**后端只见到一个 key，所以由浏览器在 `toWebp()` 里顺带量好（那里本来就 `createImageBitmap` 了），插入 markdown 时补上参数。
+
+渲染时 `md.js` 把 w/h 取出来变成属性，再把这两个参数从 `src` / `srcset` 里**剥掉**——尺寸是排版元数据不是资源标识，留着会让同一张图在边缘多一份缓存分区。认不出的格式（`imageSize()` 返回 `null`）就不写属性，不瞎猜。
+
+```bash
+npm run backfill:imgsize   # 给历史文章补尺寸（读 R2 文件头，幂等，--dry 先看）
+npm run check:alt          # 扫 alt：空值 / 文件名型 / 过长（--fix-name 只做去扩展名）
+```
+
+存量 9 张图就是这么补上的。返回 200 也骗不过体检——图片缺失时 Worker 回的是占位 SVG（不裂图），带 `x-img-missing` 头，`originOk()` 靠它判断「原图到底在不在」。
+
 ### 标题卡（分享图）
 
 纯文字文章分享出去原来只有一张通用 `og-default.jpg`。现在每篇都会渲染一张 1200×630 的标题卡，`og:image` 指它；列表缩略图仍然用抽象预设图——把带字的分享图塞进 108×78 只会露出半截标题。

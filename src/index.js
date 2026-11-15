@@ -62,6 +62,29 @@ function imageResponse(obj, fallback = '') {
   return new Response(obj.body, { headers });
 }
 
+/* 图片真的不存在时回的占位图。
+   为什么不回 404：<img> 收到 404 会画成裂图图标（浏览器那个碎框），
+   一篇长文里出现几个碎框，比留白难看得多；而且不同浏览器/阅读模式表现还不一样。
+   回一张 SVG 占位，页面结构稳住，读者能看出「这儿本该有张图」。
+
+   状态码仍是 200，但配了 x-img-missing 与 noindex：
+   前者让体检脚本能分辨「真图」和「占位」，后者让搜索引擎别把这个地址当有效图片。
+   缓存只给 60 秒 —— 原图补传上去之后，很快就能看到真图。 */
+const MISSING_IMG = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="320" height="180" rx="8" fill="#eef0f2"/><g fill="none" stroke="#b9c0c7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="116" y="62" width="88" height="62" rx="6"/><path d="M116 108l24-22 16 14 12-10 24 22"/><circle cx="150" cy="80" r="6"/></g><path d="M108 136l104-92" stroke="#b9c0c7" stroke-width="3" stroke-linecap="round"/></svg>`;
+
+function missingImage() {
+  return new Response(MISSING_IMG, {
+    status: 200,
+    headers: {
+      'content-type': 'image/svg+xml; charset=utf-8',
+      'cache-control': 'public, max-age=60, must-revalidate',
+      'x-img-missing': '1',
+      'x-robots-tag': 'noindex',
+      'x-content-type-options': 'nosniff',
+    },
+  });
+}
+
 async function serveImage(env, key) {
   const path = decodeURIComponent(key);
   const obj = await env.BUCKET.get(path);
@@ -87,9 +110,11 @@ async function serveImage(env, key) {
       if (wp) return imageResponse(wp, 'avif-missing-served-webp');
     }
     const orig = await env.BUCKET.get(m[1]);
+    /* 原图也没有、变体也没有 —— 这时候别再回 404 让页面裂图。
+       注意这里跟上面不同：上面是有东西可给（原图），这里是真的什么都没有。 */
     if (orig) return imageResponse(orig, `${want}-missing-served-original`);
   }
-  return new Response('404 Not Found', { status: 404 });
+  return missingImage();
 }
 
 /* ---------- 头像代理 ----------
@@ -1488,8 +1513,16 @@ async function notFoundPage(env, request, message = '页面走丢了') {
 .g404 h1{font-family:var(--serif);font-size:88px;margin:0;opacity:.12;font-weight:700;letter-spacing:-.05em}
 .g404 p{color:var(--muted);margin:0 0 26px}
 .g404 a{display:inline-block;padding:10px 20px;border-radius:999px;background:var(--fg);color:var(--bg);text-decoration:none;font-size:14px}
+/* 走错路的人多半是在找某篇文章，光给「回首页」等于让他重新找一遍 */
+.g404 form{display:flex;gap:8px;justify-content:center;margin:0 0 22px;max-width:380px}
+.g404 input{flex:1;min-width:0;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--bg-soft,transparent);color:var(--fg);font-size:14px;font-family:inherit}
+.g404 input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.g404 button{padding:10px 18px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--fg);font-size:14px;font-family:inherit;cursor:pointer}
+.g404 button:hover{border-color:var(--fg)}
 </style></head>
-<body><div class="g404"><div><h1>404</h1><p>${esc(message)}</p><a href="/">回到首页</a></div></div></body></html>`,
+<body><div class="g404"><div><h1>404</h1><p>${esc(message)}</p>
+<form action="/" method="get" role="search"><input type="search" name="q" placeholder="搜一下想找的内容…" aria-label="搜索文章"><button type="submit">搜索</button></form>
+<a href="/">回到首页</a></div></div></body></html>`,
     404
   );
 }

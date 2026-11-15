@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { variantOk, whyNotVariant } from './img-type.mjs';
+import { variantOk, whyNotVariant, originOk } from './img-type.mjs';
 
 /* 直调 wrangler 的入口，不走 npx / .cmd：
    Windows 上 spawn('.cmd') 报 EINVAL，spawn('npx') 报 ENOENT，
@@ -125,9 +125,14 @@ function targetsFor(key) {
    只看状态码会把「回退」当成「变体齐全」。 */
 async function head(url) {
   const r = await fetch(url, { method: 'HEAD' });
+  /* 图片不存在时 Worker 回的是 200 + 占位 SVG（为了不让页面裂图），
+     光看状态码会把「原图丢了」读成「原图在」。占位响应带 x-img-missing，
+     拿它当真正的判据；同时 content-type 也不是图片本身，双保险。 */
+  const phantom = r.headers.has('x-img-missing');
   return {
-    ok: r.ok,
+    ok: originOk({ status: r.status, phantom }),
     status: r.status,
+    phantom,
     len: Number(r.headers.get('content-length') || 0),
     type: r.headers.get('content-type') || '',
   };
@@ -141,7 +146,8 @@ if (checkOnly) {
     const orig = await head(`${SITE}/img/${key}`);
     if (!orig.ok) {
       broken++;
-      console.log(`  ✗ ${key}  原图 ${orig.status} —— 正文引用了但 R2 里没有（引用它的文章：${[...posts].join(',')}）`);
+      const why = orig.phantom ? '回的是占位图（x-img-missing），R2 里没有这张原图' : `原图 HTTP ${orig.status}`;
+      console.log(`  ✗ ${key}  ${why} —— 正文引用了但 R2 里没有（引用它的文章：${[...posts].join(',')}）`);
       continue;
     }
     const gaps = [];
