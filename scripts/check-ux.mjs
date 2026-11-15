@@ -95,12 +95,19 @@ const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new'
     t(times.every((x) => /T.*Z$/.test(x.dt || '')), 'datetime 是合法 ISO（带 Z）', times[0]?.dt || '');
     t(times.some((x) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(x.title || '')), '悬停能看到准确时间', times[0]?.title || '');
 
-    const clip = await p.evaluate(() => {
-      const txt = [...document.querySelectorAll('#cmt-list .text')].find((el) => el.classList.contains('clipped'));
-      if (!txt) return null;
-      return { h: Math.round(txt.getBoundingClientRect().height), more: !!txt.nextElementSibling?.classList.contains('cmt-more') };
+    const probe = await p.evaluate(() => {
+      const els = [...document.querySelectorAll('#cmt-list .text')];
+      const txt = els.find((el) => el.classList.contains('clipped'));
+      return {
+        // 失败时必须能看出「是没长评论，还是量出来的高度不够」——两者修法完全不同
+        metrics: els.map((e) => ({ len: e.textContent.length, h: e.scrollHeight, w: Math.round(e.getBoundingClientRect().width) })),
+        clip: txt
+          ? { h: Math.round(txt.getBoundingClientRect().height), more: !!txt.nextElementSibling?.classList.contains('cmt-more') }
+          : null,
+      };
     });
-    t(!!clip, '长评论被折叠', clip ? `折叠高度 ${clip.h}px` : '没有超过阈值的长评论');
+    const clip = probe.clip;
+    t(!!clip, '长评论被折叠', clip ? `折叠高度 ${clip.h}px` : `没有超过阈值的长评论 ${JSON.stringify(probe.metrics)}`);
     t(clip ? clip.more : true, '折叠下方有展开按钮');
 
     if (clip) {
