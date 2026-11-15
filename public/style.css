@@ -170,7 +170,11 @@ header.site .inner {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-nav.top { display: flex; gap: 4px; margin-left: auto; align-items: center; flex-wrap: wrap; }
+/* flex-shrink:0 不能省。nav 自己带 flex-wrap，一旦被父级压缩（哪怕容器看起来
+   还很空），它会先把链接折成两行而不是拒绝变窄 —— 实测 1440px 下被压到 217px，
+   6 个链接排成 2 行、头高从 37 涨到 77。真正该让路的是右边那句站点描述，
+   它有 min-width:0 + 省略号，压它不会破版。 */
+nav.top { display: flex; gap: 4px; margin-left: auto; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
 /* 登录态是 Worker 先留空、JS 再填：空的时候整块不占位，避免「已登录却闪一下登录」 */
 #nav-user { display: contents; }
 #nav-user:empty { display: none; }
