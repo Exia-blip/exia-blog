@@ -10,8 +10,9 @@
 import fs from 'node:fs';
 import zlib from 'node:zlib';
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
-const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe'].find((p) => fs.existsSync(p));
+const CHROME = resolveChrome();
 const css = fs.readFileSync('public/style.css', 'utf8');
 
 // 按大区切段：这些区块只有特定页面用得上

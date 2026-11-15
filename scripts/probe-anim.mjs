@@ -6,10 +6,11 @@
 // 用法：node scripts/probe-anim.mjs [url] [--touch]
 // 依赖本机 Chrome（puppeteer-core 不下载浏览器）。
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
 const url = process.argv[2] || 'https://exia.de5.net/';
 const touch = process.argv.includes('--touch');
-const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = resolveChrome();
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox'] });
 const page = await browser.newPage();

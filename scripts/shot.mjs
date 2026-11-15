@@ -2,10 +2,11 @@
 // 用法：node scripts/shot.mjs [url] [outDir]
 // 依赖本机 Chrome（puppeteer-core 不下载浏览器）。
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
 const url = process.argv[2] || 'https://exia.de5.net/p/comment-anti-spam';
 const out = process.argv[3] || 'shots';
-const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = resolveChrome();
 
 import { mkdirSync } from 'node:fs';
 mkdirSync(out, { recursive: true });

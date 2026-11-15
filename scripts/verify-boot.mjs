@@ -3,11 +3,9 @@
 // 2. 页面 load 之后发一次 /api/pv
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
-const CHROME = [
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-].find((p) => fs.existsSync(p));
+const CHROME = resolveChrome();
 const BASE = process.env.BASE || 'http://127.0.0.1:8799';
 
 const b = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--hide-scrollbars'] });

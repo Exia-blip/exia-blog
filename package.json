@@ -29,6 +29,8 @@
     "check:images": "node scripts/check-images.mjs",
     "check:ux": "node scripts/check-ux.mjs",
     "check:sitemap": "node scripts/check-sitemap.mjs",
+    "check:browser": "node scripts/ci-browser.mjs",
+    "seed:ci": "node scripts/seed-ci.mjs",
     "probe:anim": "node scripts/probe-anim.mjs"
   },
   "devDependencies": {

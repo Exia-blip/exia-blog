@@ -5,9 +5,10 @@
 //
 // 用法：node scripts/check-images.mjs [url]
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
 const url = process.argv[2] || 'http://127.0.0.1:8788/p/blog-markdown-xss';
-const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = resolveChrome();
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox'] });
 const page = await browser.newPage();

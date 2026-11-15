@@ -30,3 +30,20 @@ jobs:
 
       - name: 单元测试
         run: npm test
+
+  # 页面级断言：起本地 Worker、灌 D1 夹具、用 headless Chrome 打真页面。
+  # 与 check 分开是因为它对环境更挑（要浏览器、要服务），挂了不该连累单测的信号。
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 浏览器断言（顶栏 / 搜索高亮 / 评论折叠 / 阅读百分比 / 目录色条）
+        run: npm run check:browser

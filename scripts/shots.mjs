@@ -2,11 +2,9 @@
 // 用 puppeteer-core 挂本机 Chrome，先写 localStorage 再进页面，强制进暗色。
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
-const CHROME = [
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-].find((p) => fs.existsSync(p));
+const CHROME = resolveChrome();
 
 const ORIGIN = 'https://exia.de5.net';
 const OUT = 'shots';

@@ -2,11 +2,9 @@
 // 全部走真实浏览器 + 真实线上页面，不 mock。
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
-const CHROME = [
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-].find((p) => fs.existsSync(p));
+const CHROME = resolveChrome();
 
 const ORIGIN = 'https://exia.de5.net';
 const POST = '/p/comment-anti-spam';

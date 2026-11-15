@@ -1,8 +1,9 @@
 // 线上端到端：真文章页、真拖选、真 Ctrl+C、真读系统剪贴板。
 // 用法：node scripts/verify-copy-live.mjs [url]
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
-const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = resolveChrome();
 const url = process.argv[2] || 'https://exia.de5.net/p/comment-anti-spam';
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox'] });

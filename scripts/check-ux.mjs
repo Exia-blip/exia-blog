@@ -9,8 +9,9 @@
  * 需要本地装 Chrome。跑本地时用 --q 指定一个确实能命中的关键词。
  */
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = resolveChrome();
 const base = (process.argv[2] || 'http://127.0.0.1:8788').replace(/\/$/, '');
 const qIdx = process.argv.indexOf('--q');
 const KEY = qIdx > 0 ? process.argv[qIdx + 1] : '缓存';

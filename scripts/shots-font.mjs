@@ -1,11 +1,9 @@
 // 字号调整验收：截图 + 量行宽 / 横向溢出
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
-const CHROME = [
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-].find((p) => fs.existsSync(p));
+const CHROME = resolveChrome();
 
 const BASE = process.env.BASE || 'http://127.0.0.1:8799';
 const OUT = process.argv[2] || 'shots/font-after';

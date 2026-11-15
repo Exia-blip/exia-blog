@@ -2,9 +2,10 @@
 // 只要有一项换行就会掉到下一行，offsetTop 和第一项不同。
 // 用法：node scripts/check-nav.mjs [url]
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
 const url = process.argv[2] || 'http://127.0.0.1:8799/';
-const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = resolveChrome();
 const widths = [660, 700, 760, 820, 900, 1024, 1280, 1440];
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox'] });

@@ -3,9 +3,10 @@
 //
 // 用法：node scripts/check-scroll-ui.mjs [url]
 import puppeteer from 'puppeteer-core';
+import { resolveChrome } from './chrome.mjs';
 
 const url = process.argv[2] || 'http://127.0.0.1:8788/p/blog-markdown-xss';
-const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = resolveChrome();
 
 let pass = 0;
 let fail = 0;
