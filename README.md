@@ -624,6 +624,30 @@ npm run check:alt          # 扫 alt：空值 / 文件名型 / 过长（--fix-na
 
 存量 9 张图就是这么补上的。返回 200 也骗不过体检——图片缺失时 Worker 回的是占位 SVG（不裂图），带 `x-img-missing` 头，`originOk()` 靠它判断「原图到底在不在」。
 
+#### SVG 与不可信 MIME
+
+`/img/` 的 Content-Type 来自 R2 元数据，而元数据是**上传时由客户端写进去的一句声明**，不是事实。它一旦是 `text/html`，同源导航到 `/img/xxx.png` 就是一次存储型 XSS：`nosniff` 不管用（`text/html` 本来就该按 HTML 渲染），`X-Frame-Options` 也不管用（这是顶层导航），更糟的是出口那层 `harden()` 会把响应当页面处理，顺手给攻击者的 `<script>` 补上本站 nonce，CSP 从「拦」变成「盖章放行」。
+
+所以出口按白名单发，不按 R2 说的发：
+
+| R2 里的 content-type | 实际响应 | 效果 |
+|---|---|---|
+| `image/png` `image/jpeg` `image/webp` `image/avif` `image/gif` | 原样 | 正常显示 |
+| `image/svg+xml` | 原样 + `CSP: default-src 'none'; style-src 'unsafe-inline'; sandbox` | 文档级沙箱：脚本不跑、外链不加载、站内导航被禁 |
+| 其它（`text/html` / `application/json` / 空值 / 认不出的扩展名） | `application/octet-stream` + `attachment` + `x-img-rejected` | 触发下载，不渲染 |
+
+两条判据取并集：content-type 说 svg **或** key 以 `.svg` 结尾，都按 svg 处理。key 用 `makeKey(name, type)` 生成，扩展名跟声明过的白名单类型走，不听文件名——否则 `type=image/svg+xml` 配 `name=a.png` 就能让扩展名这道判据失效。
+
+入口也收了一道：
+
+- `/api/upload` 与 `/api/upload-url` 用 `imageSize()` 读文件头复核声明的 MIME，两者打架时以内容为准（`settleType()`）。声明 png、内容其实是 svg 的，会被纠正成 `image/svg+xml`，出口才会给它上沙箱。
+- R2 直传的 presigned URL 现在把 `content-type` 签进 `SignedHeaders`。原来只签 `host`，等于允许客户端 PUT 任意类型——包括 `text/html`。改了类型就是 403，前端会自动回退到 Worker 中转，不阻断上传。
+- `/avatar` 代理同样不透传上游 MIME，认不出的按 `image/png` 发（头像位必须能显示，裂图比下载链接好）。
+
+**SVG 不进封面位**：手动填的 `cover` 和正文首图都会被过滤掉，退到预设图。SVG 没有固定像素尺寸，108×78 的缩略图里会按 `viewBox` 拉伸变形，`og:image` 更有一半平台不渲染。正文里嵌 SVG 不受影响，`<img>` 上下文本来就不执行它的脚本。
+
+`npm test` 里有 26 条针对这块的用例（`scripts/test-svg.mjs`），`npm run check:live` 会抽文章里的真实图片验一遍「类型在白名单内、没有被降级、svg 都带沙箱」。
+
 ### 标题卡（分享图）
 
 纯文字文章分享出去原来只有一张通用 `og-default.jpg`。现在每篇都会渲染一张 1200×630 的标题卡，`og:image` 指它；列表缩略图仍然用抽象预设图——把带字的分享图塞进 108×78 只会露出半截标题。

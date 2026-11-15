@@ -172,7 +172,40 @@ console.log(`\n${ORIGIN}\n`);
   ok('首屏没有第三方子资源', third.length === 0, [...new Set(third)].join(', '));
 }
 
-/* ---------- 9. 安全与缓存头 ---------- */
+/* ---------- 9. 图片出口：类型必须落在白名单里 ----------
+ * /img/ 的 content-type 来自 R2 元数据，而元数据在上传时由客户端写入 —— 它是一份
+ * 声明，不是事实。一旦某一环把它写成 text/html，同源导航就能执行其中的脚本。
+ * 这里验的不是「图片能不能显示」，而是「出口有没有把不可信类型降级掉」。 */
+{
+  const home = (await get('/')).body;
+  /* 首页头几篇不一定有正文配图，往下翻几篇再定样本 */
+  const slugs = [...new Set([...home.matchAll(/href="(\/p\/[^"]+)"/g)].map((m) => m[1]))].slice(0, 5);
+  let imgs = [];
+  for (const p of slugs) {
+    const art = (await get(p)).body;
+    imgs = [...new Set([...art.matchAll(/<img[^>]+src="(\/img\/[^"]+)"/g)].map((m) => m[1]))].slice(0, 8);
+    if (imgs.length) break;
+  }
+  if (imgs.length) {
+    const ALLOWED = /^image\/(png|jpeg|webp|avif|gif|svg\+xml)$/;
+    const bad = [];
+    for (const src of imgs) {
+      const r = await fetch(ORIGIN + src);
+      const ct = (r.headers.get('content-type') || '').split(';')[0];
+      if (!ALLOWED.test(ct)) bad.push(`${src} -> ${ct || '(空)'}`);
+      const rj = r.headers.get('x-img-rejected');
+      if (rj) bad.push(`${src} 被降级(${rj})`);
+      if (ct === 'image/svg+xml' && !/sandbox/.test(r.headers.get('content-security-policy') || '')) {
+        bad.push(`${src} 是 svg 却没有沙箱`);
+      }
+    }
+    ok(`图片类型全在白名单（抽 ${imgs.length} 张）`, bad.length === 0, bad.join('; '));
+  } else {
+    console.log('  --   跳过后端图片检查：最近 5 篇文章都没有 /img/ 配图');
+  }
+}
+
+/* ---------- 10. 安全与缓存头 ---------- */
 {
   const { h } = await get('/');
   ok('有 CSP', !!h.get('content-security-policy'));

@@ -34,9 +34,15 @@ export { hmac as _hmac, hex as _hex, sha256 as _sha256 };
 
 /**
  * 生成 presigned PUT URL
+ *
+ * contentType 会被签进 SignedHeaders。原来的签名只覆盖 host，等价于允许客户端
+ * 在 PUT 时自己填任意 Content-Type —— 包括 text/html。那样一个登录用户就能把
+ * 一段 <script> 存进 R2，再让任何访客打开 /img/xxx.png 在站点同源执行。
+ * 签进去之后，PUT 的 Content-Type 必须与这里给的值逐字一致，改了就是 403。
+ *
  * @returns {Promise<string>}
  */
-export async function presignPut(env, key, expires = 900) {
+export async function presignPut(env, key, contentType = 'application/octet-stream', expires = 900) {
   const accountId = env.R2_ACCOUNT_ID;
   const accessKey = env.R2_ACCESS_KEY_ID;
   const secretKey = env.R2_SECRET_ACCESS_KEY;
@@ -50,16 +56,26 @@ export async function presignPut(env, key, expires = 900) {
   const { amz, date } = amzDate();
   const scope = `${date}/auto/s3/aws4_request`;
 
+  const ct = String(contentType || 'application/octet-stream').trim();
+  const signedHeaders = 'content-type;host';
+
   const canonicalUri = `/${bucket}/${key.split('/').map(uriEncode).join('/')}`;
   const query = [
     `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
     `X-Amz-Credential=${encodeURIComponent(`${accessKey}/${scope}`)}`,
     `X-Amz-Date=${amz}`,
     `X-Amz-Expires=${expires}`,
-    `X-Amz-SignedHeaders=host`,
+    `X-Amz-SignedHeaders=${uriEncode(signedHeaders)}`,
   ].join('&');
 
-  const canonicalRequest = ['PUT', canonicalUri, query, `host:${host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const canonicalRequest = [
+    'PUT',
+    canonicalUri,
+    query,
+    `content-type:${ct}\nhost:${host}\n`,
+    signedHeaders,
+    'UNSIGNED-PAYLOAD',
+  ].join('\n');
   const stringToSign = ['AWS4-HMAC-SHA256', amz, scope, await sha256(canonicalRequest)].join('\n');
 
   const k = await deriveSigningKey(secretKey, date, 'auto', 's3');
@@ -77,8 +93,12 @@ export const IMAGE_TYPES = {
   'image/avif': 'avif',
 };
 
-export function makeKey(name) {
-  const ext = (String(name || '').split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+export function makeKey(name, type = '') {
+  /* 扩展名跟声明的 MIME 走，不跟文件名走。两者可以不一致（type=image/svg+xml
+     配 name=a.png）的话，/img/ 那边「按扩展名认 svg」的第二道判据就形同虚设，
+     沙箱只能靠 content-type 一个判据撑着。 */
+  const raw = (String(name || '').split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const ext = IMAGE_TYPES[type] || raw || 'png';
   const d = new Date();
   const ym = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   return `u/${ym}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.${ext}`;

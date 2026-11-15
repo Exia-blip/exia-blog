@@ -551,9 +551,12 @@ async function uploadFile(file) {
 
     if (r.mode === 'direct') {
       try {
+        /* Content-Type 必须用**服务端返回的那个值**：它已经被校验过白名单，
+           而且已经签进了 presigned URL 的 SignedHeaders，这里差一个大小写就是 403。
+           顺手也修了 file.type 为空（剪贴板 blob）时发不出头的问题。 */
         const put = await fetch(r.uploadUrl, {
           method: 'PUT',
-          headers: { 'content-type': file.type },
+          headers: { 'content-type': r.type || file.type },
           body: file,
         });
         if (!put.ok) throw new Error('R2 直传失败 ' + put.status);

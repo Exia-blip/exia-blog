@@ -38,27 +38,87 @@ const IMG_MIME = {
   svg: 'image/svg+xml',
 };
 
-function imageResponse(obj, fallback = '') {
+/* 出口白名单。R2 里躺着的 content-type 完全不可信：
+   直传那条路的 Content-Type 是客户端自己填的（原签名只签了 host），
+   中转那条路的 file.type 同样来自客户端。实测过最坏的一种 ——
+   把一个 <script> 存成 text/html 再直接导航到 /img/xxx.png，它会被当成页面渲染，
+   而且 harden 会给攻击者的 <script> 补上本站 nonce，CSP 从「拦」变成「签章放行」。
+   nosniff / X-Frame-Options 在这里都救不了：这是同源的一次正常导航。 */
+const SAFE_IMG_MIME = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/avif',
+  'image/gif',
+  'image/svg+xml',
+]);
+// 少见的别名，先归一成标准值再过白名单（image/jpg 不在白名单里，但那并不是攻击）
+const MIME_ALIAS = {
+  'image/jpg': 'image/jpeg',
+  'image/pjpeg': 'image/jpeg',
+  'image/x-png': 'image/png',
+};
+
+export function imageResponse(obj, fallback = '') {
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
   headers.set('etag', obj.httpEtag);
+
+  const key = String(obj.key || '');
+  const ext = (key.match(/\.([a-z0-9]+)$/i) || [, ''])[1].toLowerCase();
+  const rawCt = (headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+
   /* 元数据里没有 content-type 时按扩展名兜底：writeHttpMetadata 只搬 R2 里存着的
      那几项，用 --file 直传（没带 --content-type）的对象是空的。
      缺这个头，nosniff 下有的浏览器不肯渲染，而体检脚本也会把它判成「不是变体」。 */
-  if (!headers.get('content-type')) {
-    const ext = (String(obj.key || '').match(/\.([a-z0-9]+)$/i) || [, ''])[1].toLowerCase();
-    if (IMG_MIME[ext]) headers.set('content-type', IMG_MIME[ext]);
+  let ct = rawCt || IMG_MIME[ext] || '';
+  ct = MIME_ALIAS[ct] || ct;
+
+  /* 认不出的类型一律降级成二进制下载。降级后 content-type 不再是 text/html，
+     出口那层也就不会把它当页面处理、不会补 nonce —— 攻击者的脚本来不及被签章。
+     完全没有类型（元数据和扩展名都说不出是什么）也算认不出：缺 content-type 时
+     浏览器会自己嗅探，那等于把「这串字节是什么」的判断权交还给最不该信任的一环。 */
+  let rejected = '';
+  if (!SAFE_IMG_MIME.has(ct)) {
+    rejected = ct || 'unknown';
+    ct = 'application/octet-stream';
   }
+
   headers.set('cache-control', imgCacheControl(fallback));
   if (fallback) headers.set('x-img-fallback', fallback);
-  // SVG 是文档不是图片：直接访问这个 URL 时浏览器会执行里面的 <script>，
-  // 而这个 URL 跟站点同源（贴进 <img> 时没事，单独打开就成了一次存储型 XSS）。
-  // sandbox + default-src 'none' 把它降级成只能看。
-  const ct = (headers.get('content-type') || '').toLowerCase();
-  if (ct.includes('svg')) {
+
+  if (rejected) {
+    headers.set('content-type', 'application/octet-stream');
+    headers.set('content-disposition', 'attachment');
+    headers.set('x-img-rejected', rejected);
+    headers.set('x-content-type-options', 'nosniff');
+    /* 用 x-img-type 告诉出口那层「这是一次图片请求，别做 HTML 加工」。
+       降级本身已经够了，这条是纵深防御：万一以后有人往 imageResponse 里加了
+       能产出 HTML 的分支，出口也不会替它签名。 */
+    headers.set('x-img-type', 'rejected');
+    return new Response(obj.body, { headers });
+  }
+
+  /* SVG 是文档不是图片：直接访问这个 URL 时浏览器会执行里面的 <script>，
+     而这个 URL 跟站点同源（贴进 <img> 时没事，单独打开就成了一次存储型 XSS）。
+     sandbox + default-src 'none' 把它降级成只能看：脚本不跑、外部资源不加载、
+     顶层导航被禁。key 的扩展名也认一遍 —— content-type 不可信，两个判据取并集。 */
+  const isSvg = ct === 'image/svg+xml' || ext === 'svg';
+  if (isSvg) {
+    if (ct !== 'image/svg+xml') {
+      /* key 说 svg、元数据说别的：以 key 为准。内容是矢量图时按 image/png 发出去
+         会渲染失败，而按 svg 发最多是「多加了沙箱」，两种错法的代价差一个数量级。 */
+      ct = 'image/svg+xml';
+    }
+    headers.set('content-type', ct);
     headers.set('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
     headers.set('content-disposition', 'inline');
+  } else if (ct) {
+    headers.set('content-type', ct);
   }
+
+  headers.set('x-img-type', ct || 'unknown');
+  headers.set('x-content-type-options', 'nosniff');
   return new Response(obj.body, { headers });
 }
 
@@ -157,6 +217,18 @@ async function serveImage(env, key) {
    只放行 avatars.githubusercontent.com/u/<数字>，别的域名一律 400，
    免得这个口子变成通用 SSRF 跳板。第一次回源 GitHub，落一份到 R2，
    之后同源长缓存；边缘直接命中，页面上再没有第三方连接。 */
+
+/* 头像位的 MIME 同样不透传：GitHub 正常只给 png/jpeg，但「上游给什么就发什么」
+   等于把这层信任外包给了第三方响应头。认不出的一律按 image/png 发 —— 头像是
+   一定要显示的，标成 attachment 会让整排评论变成下载链接，而标成 png 配 nosniff
+   时最坏结果是裂图，不会执行任何东西。 */
+const AVATAR_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif']);
+function avatarType(ct) {
+  const t = String(ct || '').split(';')[0].trim().toLowerCase();
+  const n = MIME_ALIAS[t] || t;
+  return AVATAR_MIME.has(n) ? n : 'image/png';
+}
+
 async function serveAvatarProxy(env, url) {
   const raw = url.searchParams.get('u') || '';
   const size = Math.min(256, Math.max(32, Number(url.searchParams.get('s')) || 96));
@@ -178,7 +250,9 @@ async function serveAvatarProxy(env, url) {
     const headers = new Headers();
     hit.writeHttpMetadata(headers);
     headers.set('etag', hit.httpEtag);
+    headers.set('content-type', avatarType(headers.get('content-type')));
     headers.set('cache-control', 'public, max-age=31536000, immutable');
+    headers.set('x-content-type-options', 'nosniff');
     return new Response(hit.body, { headers });
   }
 
@@ -196,7 +270,7 @@ async function serveAvatarProxy(env, url) {
   }
 
   const buf = await up.arrayBuffer();
-  const type = up.headers.get('content-type') || 'image/png';
+  const type = avatarType(up.headers.get('content-type') || 'image/png');
   try {
     await env.BUCKET.put(key, buf, {
       httpMetadata: { contentType: type, cacheControl: 'public, max-age=31536000, immutable' },
@@ -204,7 +278,11 @@ async function serveAvatarProxy(env, url) {
   } catch {} // 落盘失败不影响这一响应，下次访问再补
 
   return new Response(buf, {
-    headers: { 'content-type': type, 'cache-control': 'public, max-age=31536000, immutable' },
+    headers: {
+      'content-type': type,
+      'cache-control': 'public, max-age=31536000, immutable',
+      'x-content-type-options': 'nosniff',
+    },
   });
 }
 
@@ -1589,7 +1667,11 @@ async function harden(res, env) {
   const anCfg = analyticsCfg(env);
   const anOn = anCfg ? { script: anCfg.script, collect: anCfg.collect } : null;
   const ct = res.headers.get('content-type') || '';
-  if (!ct.includes('text/html')) {
+  /* 图片代理出来的响应不参与任何 HTML 加工 —— 哪怕它的 content-type 被写成 text/html。
+     否则 applyNonce 会给攻击者塞进来的 <script> 签上本站 nonce，CSP 的
+     script-src 'nonce-…' 反而成了「已批准」的印章。imageResponse 那边已经统一降级成
+     application/octet-stream 了，这里再加一道，防止以后有人改坏那个判断。 */
+  if (res.headers.get('x-img-type') || !ct.includes('text/html')) {
     return new Response(res.body, {
       status: res.status,
       statusText: res.statusText,

@@ -22,21 +22,32 @@ export { AUTO_COVER_COUNT } from '../public/cover.js';
 function bodyCoverOf(post) {
   const url = extractCover(post?.content || '');
   if (!url) return '';
-  if (/\.svg(\?|#|$)/i.test(url)) return '';
+  if (!usableCover(url)) return '';
   if (/(^|\/)(favicon|icon[-_.]|emoji)/i.test(url)) return '';
   return url;
 }
 
+/* SVG 不进封面位。它不是位图，没有固定的像素尺寸：塞进 108×78 的缩略图会按
+   viewBox 拉伸变形，og:image 更有一半平台直接不渲染。这条规则对「后台手动填的
+   cover」同样成立 —— 否则显式填一个 .svg 就绕过去了。
+   正文里嵌 SVG 不受影响（<img> 上下文本来就不执行它的脚本），仍然能显示。 */
+function usableCover(u) {
+  const s = String(u || '').trim();
+  if (!s) return '';
+  if (/\.svg(\?|#|$)/i.test(s)) return '';
+  return s;
+}
+
 /** 最终生效的封面地址，永远非空 */
 export function coverOf(post) {
-  const own = String(post?.cover || '').trim();
+  const own = usableCover(post?.cover);
   if (own) return own;
   return bodyCoverOf(post) || autoCover(post);
 }
 
 /** 是否走到了预设图（决定 og:image 的尺寸元信息，以及编辑器要不要提示） */
 export function isAutoCover(post) {
-  if (String(post?.cover || '').trim()) return false;
+  if (usableCover(post?.cover)) return false;
   return !bodyCoverOf(post);
 }
 

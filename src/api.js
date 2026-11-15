@@ -12,6 +12,28 @@ import { checkFriends } from './cron.js';
 import { getSite, setSite, THEME_IDS, MODE_IDS } from './settings.js';
 import { refreshSummary, generateSummary, contentHash, hasAI } from './ai.js';
 import { recordPv } from './stats.js';
+
+/* 声明的 MIME 不可信：multipart 里的 file.type 就是客户端随手写的一个字符串，
+   直传那条路的 Content-Type 更是完全由浏览器决定。用文件头再认一遍，两者打架时
+   以内容为准 —— 不是为了「校验格式」，是为了让 /img/ 出口那句「这是不是 svg、
+   要不要上沙箱」有真凭据。认不出来（损坏文件、HTML 冒充图片）就保留声明值，
+   出口那边还有一层白名单兜着。 */
+const SNIFF_MIME = {
+  png: 'image/png',
+  jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  svg: 'image/svg+xml',
+};
+
+function settleType(declared, buf) {
+  const sized = imageSize(buf);
+  const byContent = sized ? SNIFF_MIME[sized.type] : '';
+  if (byContent && byContent !== declared) return { type: byContent, size: sized, corrected: true };
+  return { type: declared, size: sized, corrected: false };
+}
 import {
   CATS,
   TAG_SEED,
@@ -383,12 +405,14 @@ export async function handleApi(env, request, url, ctx) {
     const file = form.get('file');
     if (!file || typeof file === 'string') return err('没有文件');
 
-    const type = file.type || '';
-    if (!IMAGE_TYPES[type]) return err('只支持 jpg / png / gif / webp / svg / avif');
+    const type0 = String(file.type || '').toLowerCase();
+    if (!IMAGE_TYPES[type0]) return err('只支持 jpg / png / gif / webp / svg / avif');
     if (file.size > 4 * 1024 * 1024) return err('图片别超过 4MB');
 
-    const key = makeKey(`avatar.${IMAGE_TYPES[type]}`);
-    await env.BUCKET.put(key, await file.arrayBuffer(), {
+    const buf = await file.arrayBuffer();
+    const { type } = settleType(type0, buf);
+    const key = makeKey(`avatar.${IMAGE_TYPES[type]}`, type);
+    await env.BUCKET.put(key, buf, {
       httpMetadata: { contentType: type, cacheControl: 'public, max-age=31536000, immutable' },
     });
 
@@ -1064,19 +1088,21 @@ export async function handleApi(env, request, url, ctx) {
     if (res) return res;
 
     const body = await request.json();
-    const type = String(body.type || 'image/png');
+    const type = String(body.type || 'image/png').toLowerCase();
     if (!IMAGE_TYPES[type]) return err('只支持 jpg/png/gif/webp/svg/avif');
 
-    const key = makeKey(body.name);
+    const key = makeKey(body.name, type);
     const base = env.R2_PUBLIC_BASE ? env.R2_PUBLIC_BASE.replace(/\/$/, '') : '';
     const publicUrl = base ? `${base}/${key}` : `/img/${key}`;
 
     try {
-      const uploadUrl = await presignPut(env, key);
-      return json({ ok: true, mode: 'direct', key, uploadUrl, publicUrl });
+      /* type 要签进 URL：直传时 Content-Type 由浏览器设，不签的话客户端可以
+         把 svg 存成 text/html，/img/ 就会把它当页面发出去。 */
+      const uploadUrl = await presignPut(env, key, type);
+      return json({ ok: true, mode: 'direct', key, uploadUrl, publicUrl, type });
     } catch {
       // 没配 S3 凭据 -> 走 Worker 中转
-      return json({ ok: true, mode: 'proxy', key, publicUrl });
+      return json({ ok: true, mode: 'proxy', key, publicUrl, type });
     }
   }
 
@@ -1088,14 +1114,14 @@ export async function handleApi(env, request, url, ctx) {
     const file = form.get('file');
     if (!file || typeof file === 'string') return err('没有文件');
 
-    const type = file.type || 'image/png';
-    if (!IMAGE_TYPES[type]) return err('只支持图片');
+    const declared = String(file.type || 'image/png').toLowerCase();
+    if (!IMAGE_TYPES[declared]) return err('只支持图片');
 
-    const key = makeKey(file.name);
     const buf = await file.arrayBuffer();
     /* 上传时就量好宽高，写进返回的 URL —— 正文渲染时直接读，不用再回源查一次。
        量不出来（格式不认识）就不加，页面那边退化成不写属性，不影响上传成功。 */
-    const size = imageSize(buf);
+    const { type, size } = settleType(declared, buf);
+    const key = makeKey(file.name, type);
     await env.BUCKET.put(key, buf, {
       httpMetadata: { contentType: type, cacheControl: 'public, max-age=31536000, immutable' },
     });
