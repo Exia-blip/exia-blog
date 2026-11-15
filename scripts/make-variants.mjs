@@ -14,6 +14,7 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
+import { variantOk, whyNotVariant } from './img-type.mjs';
 
 /* 直调 wrangler 的入口，不走 npx / .cmd：
    Windows 上 spawn('.cmd') 报 EINVAL，spawn('npx') 报 ENOENT，
@@ -74,6 +75,42 @@ if (!keys.size) {
 
 const f = (n) => (n < 1024 ? `${n}B` : `${(n / 1024).toFixed(1)}KB`);
 
+/* 刚上传的变体 URL。清缓存只针对这些：
+   变体缺失时 Worker 会拿原图顶上，那份回退响应虽然现在只缓存 5 分钟（见
+   src/index.js 的 imgCacheControl），但**修复之前**缓存下来的回退是 immutable
+   一年 —— 那些路径不会自己好，必须主动清一次。 */
+const uploaded = [];
+
+/* 按 URL 清 Cloudflare 边缘缓存。需要 CF_API_TOKEN（Cache Purge 权限）+ CF_ZONE_ID。
+   没配就不清，但要吼一声：静默跳过的后果是「本地看得见变体、线上还是原图」。 */
+async function purge(urls) {
+  if (!urls.length) return;
+  const token = process.env.CF_API_TOKEN;
+  const zone = process.env.CF_ZONE_ID;
+  if (!token || !zone) {
+    console.log(`\n⚠ 刚上传 ${urls.length} 个变体，但没有配 CF_API_TOKEN / CF_ZONE_ID，无法自动清缓存。`);
+    console.log('  如果这些 URL 之前被访问过，边缘可能还缓存着「回退的原图」（旧版本发的是 immutable 一年）。');
+    console.log('  手动清：控制台 Caching → Purge by URL，或：');
+    console.log(`    curl -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/purge_cache" \\`);
+    console.log('      -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" \\');
+    console.log(`      -d '{"files":["${urls[0]}"]}'   # 一次最多 30 条`);
+    return;
+  }
+  let ok = 0;
+  for (let i = 0; i < urls.length; i += 30) {
+    const batch = urls.slice(i, i + 30);
+    const r = await fetch(`https://api.cloudflare.com/client/v4/zones/${zone}/purge_cache`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ files: batch }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.success) ok += batch.length;
+    else console.log(`  清缓存失败（${r.status}）：${JSON.stringify(j.errors || j).slice(0, 160)}`);
+  }
+  console.log(`\n已清缓存 ${ok}/${urls.length} 条。`);
+}
+
 /* 这张图需要哪些变体。原图已是 webp 的只需要 avif ——
    拿同一份编码再产一个 .webp 变体没有意义，只多占一次上传。 */
 function targetsFor(key) {
@@ -81,11 +118,19 @@ function targetsFor(key) {
   return srcExt === 'webp' ? ['avif'] : ['webp', 'avif'];
 }
 
-/* head() 用 HEAD 拿状态码和图大小：check 模式只想知道「在不在」，
-   把整张图 GET 下来只为了看一个状态码，在 200KB 的图上很浪费。 */
+/* head() 用 HEAD 拿状态码、类型和图大小：check 模式只想知道「在不在」，
+   把整张图 GET 下来只为了看一个状态码，在 200KB 的图上很浪费。
+
+   必须带上 Content-Type：Worker 对缺失变体会回退原图并返回 200，
+   只看状态码会把「回退」当成「变体齐全」。 */
 async function head(url) {
   const r = await fetch(url, { method: 'HEAD' });
-  return { ok: r.ok, status: r.status, len: Number(r.headers.get('content-length') || 0) };
+  return {
+    ok: r.ok,
+    status: r.status,
+    len: Number(r.headers.get('content-length') || 0),
+    type: r.headers.get('content-type') || '',
+  };
 }
 
 if (checkOnly) {
@@ -102,7 +147,7 @@ if (checkOnly) {
     const gaps = [];
     for (const ext of targetsFor(key)) {
       const v = await head(`${SITE}/img/${key}.${ext}`);
-      if (!v.ok) gaps.push(ext);
+      if (!variantOk(v, ext)) gaps.push(`${ext}（${whyNotVariant(v, ext)}）`);
     }
     if (gaps.length) {
       missing++;
@@ -138,7 +183,9 @@ for (const key of keys.keys()) {
   if (!force) {
     const want = targetsFor(key);
     const have = await Promise.all(want.map((ext) => head(`${SITE}/img/${key}.${ext}`)));
-    if (have.every((v) => v.ok)) {
+    // 同样不能只看 200：回退的原图也是 200，会把「缺 avif」误判成已齐，
+    // 于是一张永远拿不到 avif 的图被永久跳过。
+    if (want.every((ext, i) => variantOk(have[i], ext))) {
       uptodate++;
       continue;
     }
@@ -185,12 +232,20 @@ for (const key of keys.keys()) {
     });
     if (ext === 'webp') saved += Math.max(0, before - buf.length);
     if (ext === 'avif') savedAvif += Math.max(0, before - buf.length);
+    uploaded.push(`${SITE}/img/${key}.${ext}`);
     console.log(`  ${key}.${ext}  ${f(before)} → ${f(buf.length)}`);
     rmSync(out, { force: true });
   }
 }
 
-rmSync(tmp, { recursive: true, force: true });
+/* Windows 上 sharp 有时还握着下载文件的句柄，rmSync 会 EBUSY ——
+   那是临时目录，清不掉也不影响结果，不能让它把「已经传完了」变成一次失败退出。 */
+try {
+  rmSync(tmp, { recursive: true, force: true });
+} catch (e) {
+  if (e.code !== 'EBUSY' && e.code !== 'EPERM') throw e;
+}
+await purge(uploaded);
 if (uptodate) console.log(`\n${uptodate} 张已有变体，跳过（要重转加 --force）。`);
 console.log(`\n完成。WebP 一项合计省 ${f(saved)}（AVIF 通常再小 20-30%）。`);
 if (missing) console.log(`有 ${missing} 张原图在 R2 里找不到，已跳过 —— 跑 npm run make:variants -- --check 看是哪几张。`);

@@ -18,11 +18,39 @@ const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;
 const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ESC[c]);
 
 /* ---------- 图片代理 ---------- */
-function imageResponse(obj) {
+/* 缓存策略分两种：
+   - 正常命中：这张 URL 的内容不会再变（变体是内容寻址的），锁一年。
+   - 回退：变体还没转出来时把原图顶上。这是**临时状态**，如果也发 immutable，
+     这张原图会在边缘躺满一年 —— 之后补传了变体，同一个 URL 仍然吐原图，
+     而且没有任何报错。所以回退只给 5 分钟，补传后最迟 5 分钟自动换真变体。
+   x-img-fallback 让「到底命中的是变体还是回退」一眼可见（Content-Type 也能看出来，
+   但多一个显式头，排查时不用先知道原图是什么格式）。 */
+export const imgCacheControl = (fallback = '') =>
+  fallback ? 'public, max-age=300, must-revalidate' : 'public, max-age=31536000, immutable';
+
+const IMG_MIME = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  gif: 'image/gif',
+  svg: 'image/svg+xml',
+};
+
+function imageResponse(obj, fallback = '') {
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
   headers.set('etag', obj.httpEtag);
-  headers.set('cache-control', 'public, max-age=31536000, immutable');
+  /* 元数据里没有 content-type 时按扩展名兜底：writeHttpMetadata 只搬 R2 里存着的
+     那几项，用 --file 直传（没带 --content-type）的对象是空的。
+     缺这个头，nosniff 下有的浏览器不肯渲染，而体检脚本也会把它判成「不是变体」。 */
+  if (!headers.get('content-type')) {
+    const ext = (String(obj.key || '').match(/\.([a-z0-9]+)$/i) || [, ''])[1].toLowerCase();
+    if (IMG_MIME[ext]) headers.set('content-type', IMG_MIME[ext]);
+  }
+  headers.set('cache-control', imgCacheControl(fallback));
+  if (fallback) headers.set('x-img-fallback', fallback);
   // SVG 是文档不是图片：直接访问这个 URL 时浏览器会执行里面的 <script>，
   // 而这个 URL 跟站点同源（贴进 <img> 时没事，单独打开就成了一次存储型 XSS）。
   // sandbox + default-src 'none' 把它降级成只能看。
@@ -53,12 +81,13 @@ async function serveImage(env, key) {
      那些图只缺一档 avif（a.webp.avif），漏掉的话新图永远拿不到 avif。 */
   const m = path.match(/^(.*\.(?:png|jpe?g|webp))\.(avif|webp)$/i);
   if (m) {
-    if (m[2].toLowerCase() === 'avif') {
+    const want = m[2].toLowerCase();
+    if (want === 'avif') {
       const wp = await env.BUCKET.get(`${m[1]}.webp`);
-      if (wp) return imageResponse(wp);
+      if (wp) return imageResponse(wp, 'avif-missing-served-webp');
     }
     const orig = await env.BUCKET.get(m[1]);
-    if (orig) return imageResponse(orig);
+    if (orig) return imageResponse(orig, `${want}-missing-served-original`);
   }
   return new Response('404 Not Found', { status: 404 });
 }
