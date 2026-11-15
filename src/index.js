@@ -1894,7 +1894,11 @@ a{display:inline-block;padding:10px 22px;border-radius:999px;background:#1b1f24;
 async function withEtag(res) {
   if (res.status !== 200) return res;
   if (!(res.headers.get('content-type') || '').includes('text/html')) return res;
-  if (res.headers.get('etag')) return res;
+  /* 这里必须无条件重算，不能「已有 etag 就跳过」。
+     首页 / 归档这些页面的模板来自 env.ASSETS，运行时会给静态文件自动配一个
+     内容 ETag —— 那个 tag 对应的是**注入前**的模板，而 injectTheme 往 </head>
+     里塞了 window.__SITE__ / __ARCH__。拿它当校验值的话，站点设置改了、数据变了，
+     tag 却纹丝不动，访客会一直看到旧页面，而且没有任何报错。 */
   const body = await res.text();
   const headers = new Headers(res.headers);
   headers.set('etag', tagOf(body));
