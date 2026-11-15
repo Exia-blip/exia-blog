@@ -595,7 +595,11 @@ npm run assets:check    # 比对体积预算，超了 exit 1
 ```bash
 npm run check:ux -- http://127.0.0.1:8788 --q 缓存   # 高亮 / 空结果 / 折叠 / 百分比 / 代码横滚 / 正文宽度
 npm run check:sitemap -- https://exia.de5.net        # 每条 URL 都有 lastmod、无未来日期、无重复
+npm run check:browser                                # 一条命令：灌 D1 夹具 → 起本地 Worker → 跑上面这组页面断言
+npm run seed:ci                                      # 只灌夹具（本地空库时文章页全 404，页面断言没有靶子）
 ```
+
+`check:browser` 就是 CI 里 `browser` job 跑的同一个入口：先建表 + 灌两篇夹具（一篇带目录/长代码行/关键词，一篇无小标题），起 `wrangler dev`，跑完再收服务。CI runner 没有中文字体，同样的字数排出来的行数更少，夹具里那条长评论按「最窄字体」留了余量——它需要稳定超过 220px 的折叠阈值。
 
 配色上 `--muted` 全部提到 4.5:1 以上（`#6f6a63` 在 paper 主题下是 5.36:1；暗色主题值在 4.6–5.0 之间），meta 文字只有 12.5px，原来 3.7:1 是这套界面里唯一真正不合格的可访问性项。
 
