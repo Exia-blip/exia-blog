@@ -350,6 +350,10 @@ a.cat-chip:hover { filter: brightness(0.96); }
   align-items: flex-start;
 }
 .post-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); }
+/* <picture> 只是给浏览器挑格式用的，不该在 flex 里多出一个盒子：
+   display:contents 让它彻底透明，.thumb 跟以前一样直接是 .post-card 的子项，
+   所有按 `flex: 0 0 108px` 写的断点都不用动。 */
+.post-card picture { display: contents; }
 .post-card .thumb {
   width: 108px; height: 78px; flex: 0 0 108px;
   border-radius: 9px; object-fit: cover; background: var(--bg-soft);

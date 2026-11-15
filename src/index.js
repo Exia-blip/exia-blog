@@ -1,6 +1,6 @@
 import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
-import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf } from './utils.js';
+import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts } from './utils.js';
 import { checkFriends } from './cron.js';
 import { getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
@@ -310,8 +310,12 @@ export function renderComments(rows, total, viewer = null) {
    且不再重建首屏（切视图/切年份才重绘）。 */
 
 const archSpan = (first, last) => {
-  const a = String(first || '').slice(0, 7).replace('-', '.');
-  const b = String(last || '').slice(0, 7).replace('-', '.');
+  const ym = (v) => {
+    const p = localParts(v);
+    return p.y ? `${p.y}.${p.m}` : '';
+  };
+  const a = ym(first);
+  const b = ym(last);
   if (!a) return '';
   return a === b ? a : `${a} — ${b}`;
 };
@@ -357,7 +361,7 @@ function archTimeline(data) {
         <div class="tl-items">${m.posts
           .map((p) => {
             const stamp = String(p.published_at || p.created_at || '');
-            const md = stamp.slice(5, 10);
+            const md = localParts(stamp).md;
             return `<a class="tl-item" href="/p/${encodeURIComponent(p.slug)}" title="${esc(p.title)}">
               <span class="tl-day">${esc(md)}</span>
               <span class="tl-body"><span class="tl-title">${esc(p.title)}</span><span class="tl-meta">${
@@ -386,7 +390,7 @@ function archList(data) {
         <div class="arch-mlabel">${esc(m.label)}</div>
         <div class="arch-rows">${m.posts
           .map((p) => {
-            const md = String(p.published_at || p.created_at || '').slice(5, 10);
+            const md = localParts(p.published_at || p.created_at).md;
             return `<a class="arch-row" href="/p/${encodeURIComponent(p.slug)}">
               <span class="arch-day">${esc(md)}</span>
               <span class="arch-title">${esc(p.title)}</span>
@@ -559,7 +563,9 @@ ${renderHeader(site, '/series')}
 </body></html>`;
 }
 
-const fmtDay = (v) => String(v || '').slice(0, 10);
+/* 显示统一按北京时间：D1 存 UTC，直接 slice 会让凌晨发布的文章显示成前一天。
+   机器读的那几条（JSON-LD / sitemap / RSS）不走这里，它们就该是 UTC。 */
+const fmtDay = (v) => localDay(v);
 
 // 序号优先用 series_order；没填过就按列表位置兜底，别让读者看见「00」
 function seriesRows(rows) {
@@ -755,7 +761,7 @@ function renderAdjacent(post, list, seriesList) {
   const cell = (p, dir, label) => {
     if (!p) return '';
     const cname = p.category ? catName(p.category) : '';
-    const day = String(p.published_at || p.created_at || '').slice(0, 10);
+    const day = fmtDay(p.published_at || p.created_at);
     const meta = [day, cname].filter(Boolean).join(' · ');
     return `<a class="adj ${dir}" href="/p/${encodeURIComponent(p.slug)}" rel="${dir}">
       <span class="adj-k"><i aria-hidden="true">${dir === 'prev' ? '←' : '→'}</i>${label}</span>
@@ -931,11 +937,11 @@ async function servePostPage(env, request, slug) {
         <div class="meta">
           ${post.avatar ? `<img class="avatar-xs" src="${esc(avatarSrc(post.avatar, 48))}" alt="" width="20" height="20" loading="lazy" decoding="async">` : ''}
           <span>${esc(post.author_name || post.login || '')}</span>
-          <span class="sep-dot">${esc(String(post.published_at || post.created_at || '').slice(0, 10))}</span>
+          <span class="sep-dot">${esc(fmtDay(post.published_at || post.created_at))}</span>
           <span class="sep-dot">${reading} 分钟阅读</span>
           ${
-            post.updated_at && post.updated_at.slice(0, 10) !== String(post.published_at || post.created_at || '').slice(0, 10)
-              ? `<span class="sep-dot">更新于 ${esc(String(post.updated_at).slice(0, 10))}</span>`
+            post.updated_at && fmtDay(post.updated_at) !== fmtDay(post.published_at || post.created_at)
+              ? `<span class="sep-dot">更新于 ${esc(fmtDay(post.updated_at))}</span>`
               : ''
           }
           <span class="post-edit" style="margin-left:auto"></span>
@@ -1096,7 +1102,10 @@ function renderHeader(site, path) {
     <div class="inner">
       <a class="brand" href="/">${avatar}<span class="brand-name">${esc(name)}<span class="dot">.</span></span></a>
       ${desc ? `<span class="brand-desc" title="${esc(desc)}">${esc(desc)}</span>` : ''}
-      <nav class="top" id="site-nav">${links}${extra.join('')}<span id="nav-user"></span>${THEME_BTN}</nav>
+      /* nav-user 先按匿名访客填上「登录」。留空等 JS 填的话，
+         那一格会从 0 宽长到 51px，整条导航跟着左移 —— 又是一次布局偏移。
+         已登录的访客会被 app.js 换成后台入口，位置宽度差不多，不跳。 */
+      <nav class="top" id="site-nav">${links}${extra.join('')}<span id="nav-user"><a href="/login">登录</a></span>${THEME_BTN}</nav>
       ${NAV_TOGGLE}
     </div>
   </header>`;
@@ -1149,9 +1158,31 @@ const SKELETON = Array.from({ length: 3 })
   )
   .join('');
 
-function postCard(p) {
+/* 列表缩略图。两个点：
+   ① /img/ 下的对象是用户原图，R2 里有对应的 .webp / .avif 变体（make-variants 生成）。
+      之前变体转完就没人引用 —— 108×78 的方框照样下 140KB 的 jpg。
+      用 <picture> 让支持 avif 的浏览器拿 79KB。变体缺失时 serveImage 会逐级退回原图，
+      所以 source 写死了也不会裂图。
+   ② 第一张给 eager + fetchpriority=high。lazy 要等布局算完才发起请求，
+      而第一张图恰好经常就是 LCP 元素 —— 这一下能白丢几百毫秒。 */
+function thumbTag(url, first = false) {
+  const u = String(url || '');
+  const attrs = first ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
+  const img = `<img class="thumb" src="${esc(u)}" alt="" ${attrs} decoding="async" width="108" height="78">`;
+  // /thumbs/* 是构建时生成的 webp，/cards/* 是 png 标题卡，都没有 R2 变体
+  if (!/^\/img\//.test(u)) return img;
+  const variant = (ext) => {
+    const [base, q] = u.split('?');
+    return q ? `${base}.${ext}?${q}` : `${base}.${ext}`;
+  };
+  return `<picture><source type="image/avif" srcset="${esc(variant('avif'))}"><source type="image/webp" srcset="${esc(
+    variant('webp')
+  )}">${img}</picture>`;
+}
+
+function postCard(p, i = 0) {
   // 卡片永远有图：shapePost 已经兜过一层，这里再兜一次是防「传进来的是原始行」
-  const cover = `<img class="thumb" src="${esc(thumbOf(p))}" alt="" loading="lazy" decoding="async" width="108" height="78">`;
+  const cover = thumbTag(thumbOf(p), i === 0);
   const tags = (p.tags || [])
     .slice(0, 3)
     .map((t) => `<span class="tag">#${esc(t)}</span>`)
@@ -1159,7 +1190,7 @@ function postCard(p) {
   return `<a class="post-card" href="/p/${encodeURIComponent(p.slug)}">${cover}<div class="body"><h2>${esc(p.title)}${
     p.is_private ? ' <span class="tiny muted">私密</span>' : ''
   }</h2>${p.excerpt ? `<p class="excerpt">${esc(p.excerpt)}</p>` : ''}<div class="meta"><span>${esc(
-    String(p.published_at || p.created_at || '').slice(0, 10)
+    fmtDay(p.published_at || p.created_at)
   )}</span><span class="sep-dot">${p.reading} 分钟</span>${
     p.comments ? `<span class="sep-dot">${p.comments} 条评论</span>` : ''
   }${p.category ? `<span class="tag cat-chip">${esc(p.category_name || catName(p.category))}</span>` : ''}${tags}</div></div></a>`;
@@ -1395,6 +1426,52 @@ function fillSeo(body, site, url) {
   return stripped.replace('<!--SEO-->', block);
 }
 
+/* 首页顶部那两条筛选栏（栏目 / 标签）直出到 HTML。
+
+   它们原来是两个空 div，等 app.js 拉完 /api/categories 再 innerHTML 填进去。
+   代价是首屏已经画完、读者开始看了，整块列表突然往下推 90 多像素 ——
+   实测 0.0176 的 CLS 全部来自这里（图片的 width/height 早就补齐了）。
+
+   数据本来就是现成的：injectTheme 为了别的页面已经在并行取栏目计数和标签云，
+   这里只是真的把它们用掉，不额外增加一次 D1 往返。
+   客户端拿到 SSR 内容后只改选中态，不再整体重绘。 */
+function renderListBars(body, counts, tags, url) {
+  const needCat = body.includes('<!--CATBAR-->');
+  const needTag = body.includes('<!--TAGBAR-->');
+  if (!needCat && !needTag) return body;
+
+  const path = url ? url.pathname : '';
+  const curCat = (path.match(/^\/cat\/([^/]+)/) || [])[1] || '';
+  const curTag = (path.match(/^\/tag\/([^/]+)/) || [])[1] || '';
+  const hl = (on) => (on ? ' style="background:var(--accent-soft);color:var(--accent)"' : '');
+
+  let out = body;
+  if (needCat) {
+    const rows = CATS.map(
+      (c) =>
+        `<a class="tag cat-chip" href="/cat/${c.slug}" title="${esc(c.desc)}"${hl(curCat === c.slug)}>${esc(c.name)} ${
+          counts.get(c.slug) || 0
+        }</a>`
+    ).join('');
+    out = out.replace(
+      '<!--CATBAR-->',
+      `<span class="bar-label">栏目</span><a class="tag" href="/"${hl(!curCat && !curTag)}>全部</a>${rows}`
+    );
+  }
+  if (needTag) {
+    const rows = (tags || [])
+      .map(
+        (t) =>
+          `<a class="tag" href="/tag/${encodeURIComponent(t.name)}"${hl(curTag === t.name)}>#${esc(t.name)} ${
+            t.count
+          }</a>`
+      )
+      .join('');
+    out = out.replace('<!--TAGBAR-->', `<span class="bar-label">标签</span><a class="tag" href="/"${hl(!curTag)}>全部</a>${rows}`);
+  }
+  return out;
+}
+
 /* ---------- 主题默认值注入（首访不闪） ---------- */
 async function injectTheme(env, res, url) {
   const ct = res.headers.get('content-type') || '';
@@ -1407,8 +1484,10 @@ async function injectTheme(env, res, url) {
      以前是一个 await 接一个，线上冷启动 cfWorker 跑到 500ms+ 大部分耗在这串行上。
      现在先全部发出去，最慢的那条决定总时长。 */
   const siteP = getSite(env);
-  const catsP = body.includes('<!--CATS-->') ? catCounts(env) : Promise.resolve(new Map());
-  const tagsP = body.includes('<!--TAGS-->') ? tagsData(env.DB).catch(() => []) : Promise.resolve(null);
+  const catsP =
+    body.includes('<!--CATS-->') || body.includes('<!--CATBAR-->') ? catCounts(env) : Promise.resolve(new Map());
+  const tagsP =
+    body.includes('<!--TAGS-->') || body.includes('<!--TAGBAR-->') ? tagsData(env.DB).catch(() => []) : Promise.resolve(null);
   // 列表只依赖模板和 URL，不依赖站点设置，所以这里就能先发车
   const listP = listQuery(env, url);
 
@@ -1439,6 +1518,7 @@ async function injectTheme(env, res, url) {
 
   const { body: listed, list } = applyList(body, await listP);
   body = renderCats(listed, counts, tags);
+  body = renderListBars(body, counts, tags, url);
 
   // 结构化数据：站点一条，列表页再加 CollectionPage
   const ld = [ldJson(siteLd(s, url.origin))];
@@ -1524,10 +1604,19 @@ async function harden(res, env) {
   // 先混淆邮箱再补 nonce：解码脚本是内联的，得跟着一起拿到 nonce
   const body = applyNonce(obfuscateEmail(raw), nonce);
   const headers = securityHeaders(new Headers(res.headers), nonce, { turnstile: tsOn, analytics: anOn });
-  // 所有 HTML 用同一套缓存口径，别再让文章页单独漏成 max-age=60 / 无 s-maxage
+  /* 统一缓存口径，但只管「正常页面」。
+     4xx/5xx 不能跟 200 用同一套：一张 404 页在边缘压 300 秒，意味着
+     刚发布的文章地址会在这 5 分钟里继续回 404；一张 500 页更不该被缓存，
+     否则一次数据库抖动会被定格成整站错误页。调用方给了头就尊重调用方，
+     没给才用这里的兜底。 */
   const cc = (headers.get('cache-control') || '').toLowerCase();
-  if (!cc.includes('no-store') && !cc.includes('private')) headers.set('cache-control', pageCacheControl());
-  headers.set('cdn-cache-control', `public, s-maxage=${EDGE_TTL}, stale-while-revalidate=${EDGE_SWR}`);
+  const normal = res.status >= 200 && res.status < 400;
+  if (normal) {
+    if (!cc.includes('no-store') && !cc.includes('private')) headers.set('cache-control', pageCacheControl());
+    headers.set('cdn-cache-control', `public, s-maxage=${EDGE_TTL}, stale-while-revalidate=${EDGE_SWR}`);
+  } else if (!headers.has('cache-control') || cc === 'no-cache') {
+    headers.set('cache-control', res.status === 404 ? 'public, max-age=0, s-maxage=60' : 'no-store');
+  }
   headers.delete('content-length');
   return new Response(body, { status: res.status, statusText: res.statusText, headers });
 }
@@ -1541,9 +1630,11 @@ async function notFoundPage(env, request, message = '页面走丢了') {
     `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>404 · ${siteName}</title>
+<meta name="robots" content="noindex,follow">
+<meta name="description" content="页面不存在">
 <script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);if(t!=='paper'&&t!=='anzhiyu')document.write('<link rel="stylesheet" href="/theme/'+t+'.css">')})();</script>
-<link rel="stylesheet" href="/style.css">
-<script src="/boot.js" defer></script>
+<link rel="stylesheet" href="/style.css?v=${assetVersion(env)}">
+<script src="/boot.js?v=${assetVersion(env)}" defer></script>
 <style>
 .g404{min-height:100vh;display:grid;place-items:center;text-align:center;padding:40px 20px}
 .g404 h1{font-family:var(--serif);font-size:88px;margin:0;opacity:.12;font-weight:700;letter-spacing:-.05em}
@@ -1559,7 +1650,13 @@ async function notFoundPage(env, request, message = '页面走丢了') {
 <body><div class="g404"><div><h1>404</h1><p>${esc(message)}</p>
 <form action="/" method="get" role="search"><input type="search" name="q" placeholder="搜一下想找的内容…" aria-label="搜索文章"><button type="submit">搜索</button></form>
 <a href="/">回到首页</a></div></div></body></html>`,
-    404
+    404,
+    /* 404 页每访问一次就要查一次站点设置（D1）再拼一遍 HTML。
+       爬虫扫废链的时候这是纯粹的负载：给它 60 秒边缘缓存，
+       既不会把「刚发布的文章」挡在 404 里太久（60 秒后自然失效），
+       也不至于让一次扫描把 D1 打满。x-robots-tag 与 meta 双保险，别让
+       任何搜索入口把它当成有效页面。 */
+    { 'cache-control': 'public, max-age=0, s-maxage=60', 'x-robots-tag': 'noindex, follow' }
   );
 }
 
@@ -1758,10 +1855,21 @@ function assetVersion(env) {
   return env.SITE_VERSION || (env.CF_VERSION_METADATA && env.CF_VERSION_METADATA.id) || '';
 }
 
+/* 给静态资源加部署版本号，让它们能进一年强缓存。
+
+   /thumbs/ 与 /cards/ 也一起带上：这两类不是 R2 动态图，是构建产物
+   （public/thumbs/auto-N.webp、public/cards/*.png），文件名固定、内容
+   只随构建变。不带版本号的话只能给 1 天 + swr，每天都要回源校验一次；
+   带上之后就与 /img/ 的原图一样是 immutable，重新构建换版本号自然失效。
+   注意 og:image 用的是绝对 URL（https://…/cards/x.png），正则要求引号后
+   紧跟斜杠，不会误伤它 —— 分享卡片的缓存不该被部署版本带着跑。 */
 function stampAssets(body, env) {
   const v = assetVersion(env);
   if (!v) return body;
-  return body.replace(/(["'])\/(style\.css|app\.js|theme\.js|md\.js|boot\.js|cover\.js|avatar\.js)\1/g, (m, q, f) => `${q}/${f}?v=${v}${q}`);
+  return body.replace(
+    /(["'])\/(style\.css|app\.js|theme\.js|md\.js|boot\.js|cover\.js|avatar\.js|thumbs\/[^"']+|cards\/[^"']+)\1/g,
+    (m, q, f) => `${q}/${f}?v=${v}${q}`
+  );
 }
 
 async function asset(env, request, url) {
@@ -2046,6 +2154,20 @@ async function route(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
+    /* HEAD 一律按 GET 走一遍，最后再把 body 丢掉。
+       不这么做的后果很隐蔽：Workers 运行时对 HEAD 请求会先把 body 置空，
+       withEtag 里 `await res.text()` 拿到的是空串 —— 所有页面的 HEAD 响应
+       都回同一个 ETag "0-811c9dc5"（空串的 FNV 初值），与实际内容无关。
+       监控、SEO 工具、CDN 预检都爱用 HEAD，拿着这个假 tag 做校验，
+       要么永远命中 304、要么永远不命中，而 GET 一切正常，很难怀疑到这里。 */
+    if (request.method === 'HEAD') {
+      const res = await this.fetch(
+        new Request(request.url, { method: 'GET', headers: request.headers, redirect: request.redirect }),
+        env,
+        ctx
+      );
+      return new Response(null, { status: res.status, statusText: res.statusText, headers: res.headers });
+    }
     try {
       const url = new URL(request.url);
 

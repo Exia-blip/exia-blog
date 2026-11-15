@@ -443,7 +443,7 @@ npx wrangler dev --port 8788 --local
 | 文章正文 / 评论 | 空 `<main>` + 「加载中…」 | 全文 + 评论列表 + 评论表单 |
 | 标签页/分类页标题 | 先显示站名再被 JS 改成 `#标签` | 直接是 `#标签` |
 
-登录态（登录 / 后台 / 退出）不参与 SSR——HTML 是共享缓存的，带上用户信息会串号。Worker 只留一个空的 `<span id="nav-user">`，JS 取到 `/api/me` 后再填。空的时候 `:empty` 会让它不占位，避免「已登录却闪一下登录」。SSR 页面在前端只挂事件、不重建 DOM，所以正文不会重排、滚动位置不会跳。
+登录态（登录 / 后台 / 退出）不参与 SSR——HTML 是共享缓存的，带上用户信息会串号。Worker 先按匿名访客填上「登录」，JS 取到 `/api/me` 后再按真实状态替换成后台入口。**那一格不能留空**：留空的话它会从 0 宽长到 51px，整条导航跟着左移，又是一次布局偏移（CLS）。首页的栏目条 / 标签条同理，见下面「CLS 的最后一格」。
 
 **三层缓存**：
 
@@ -453,7 +453,8 @@ npx wrangler dev --port 8788 --local
 | 浏览器 | 同上但不带版本号 | `max-age=300, stale-while-revalidate=3600` |
 | 边缘（Cache API） | 匿名访客的公开页面 | `s-maxage=300` + `stale-while-revalidate=86400` |
 | 浏览器/边缘 | R2 图片、`/avatar` 头像代理 | `max-age=31536000, immutable` |
-| 浏览器/边缘 | `/thumbs/*`（预设头图，文件名复用） | `max-age=86400, stale-while-revalidate=604800` |
+| 浏览器/边缘 | `/thumbs/*`、`/cards/*`（带 `?v=`） | `max-age=31536000, immutable` |
+| 浏览器/边缘 | 同上但不带版本号（兜底） | `max-age=86400, stale-while-revalidate=604800` |
 
 资源版本号取自 `CF_VERSION_METADATA.id`（每次 `wrangler deploy` 自动换一个 UUID），HTML 里的 `/style.css?v=<uuid>` 跟着变，所以能放心给一年强缓存——改样式不用教用户清缓存。
 
@@ -470,6 +471,67 @@ npx wrangler dev --port 8788 --local
 另外必须是**强** ETag（不带 `W/`）：Cloudflare 只对强 ETag 在边缘直接答 304，弱校验会一路打到 Worker，等于白做。
 
 **其它**：`robots.txt` 与 `manifest.webmanifest` 由 Worker 按当前域名动态生成；`/login`、`/editor` 带 `noindex`；文章页顶部有阅读进度条，正文不足一屏时不显示；深色模式下 `theme-color` 会跟着主题底色变。
+
+### Core Web Vitals 实测
+
+不用 Lighthouse 跑分（分数会飘，而且分不清「网络慢」和「代码慢」），直接读浏览器里的 PerformanceObserver：
+
+```bash
+npm run vitals                 # 桌面，默认打 https://exia.de5.net/
+npm run vitals -- <URL>        # 换地址
+npm run vitals:mobile          # 移动 4G（1.6Mbps / 150ms RTT）+ 4x CPU，跑 3 次取最好
+npm run cls -- <URL>           # 只看 CLS，并打出每个偏移的前后矩形与父链
+```
+
+`perf-vitals.mjs` 报四项：LCP（连同元素和候选）、CLS（连同每次偏移的来源）、INP（用 CDP 发真实点击/触摸，Event Timing 只认可信输入）、阻塞资源（parser-blocking 的 `<script>` 和首屏 `<link rel=stylesheet>`）。
+
+两个细节值得记一下：
+
+- **Event Timing 默认 `durationThreshold` 是 104ms**，低于这个值的交互根本不进 buffer。不显式降到 16ms，「INP 很好」和「一个事件都没采到」在数据上长得一模一样。
+- **`<script defer>` 的判断要看整个标签**。只匹配到 `src="` 为止的话，`defer` 在 `src` 后面，每条都会被误报成阻塞脚本。
+
+当前基线（2026-11，首页）：
+
+| | 桌面 | 移动 4G + 4x CPU |
+|---|---|---|
+| LCP | 244ms | 368ms |
+| CLS | 0 | 0 |
+| INP | 32ms | 32ms |
+| TTFB | 60ms | 152ms |
+
+CLS 归零靠三处改动，缺一不可：
+
+1. **正文图 / 列表图都带 `width` + `height`**，浏览器在图片字节到达之前就知道该占多大。
+2. **首屏第一张图 `loading="eager"` + `fetchpriority="high"`**。`lazy` 要等布局算完才发请求，而它经常正好就是 LCP 元素。
+3. **栏目条 / 标签条服务端直出**（`renderListBars()`）。它们原来是两个空 `<div>`，等 `app.js` 拉完 `/api/categories` 才 `innerHTML`——首屏画完一两百毫秒后整块列表往下推 90 多像素。图片的宽高早就补齐了，CLS 0.0176 全部来自这两个条。现在数据本来就在 `injectTheme` 里并行取（栏目计数、标签云），只是把它用掉，不多一次 D1 往返。
+
+### 时区
+
+D1 里所有时间都是 **UTC 裸字符串**（`nowISO()` 写进去的就是 UTC），而 `String(x).slice(0, 10)` 取的是 UTC 的日期。
+
+后果不是理论上的：北京时间 11-12 00:30 发的文章，UTC 是 11-11 16:30，页面上写 11-11——凌晨写完顺手发布的人，看到的日期是「昨天」。27 篇里有 6 篇踩中。跨年那 8 小时更糟：北京 2027-01-01 00:30 的文章会被归档进 2026 那一栏。
+
+规则：
+
+- **给人看的**（列表日期、归档年月、文章页日期、「更新于」）→ `localDay()` / `localParts()`，固定 UTC+8。
+- **喂机器的**（JSON-LD `datePublished`、sitemap `lastmod`、RSS `pubDate`）→ 保持 UTC。ISO 8601 带 `Z`、RFC 822 带 `GMT` 才是协议要的，改成 +08:00 反而会被部分解析器当成非法值。
+- **`liveSql()` 的发布闸门**（`<= datetime('now')`）→ 不动。存的是 UTC、比的也是 UTC，换算过来反而全部错位。
+- **归档的年份过滤**走 SQL `strftime('%Y', datetime(ts, '+8 hours'))`，和 JS 侧同一口径；否则 `/2027` 页面会漏掉跨年凌晨发的那篇，而那篇在页面上明明写着 2027。
+
+`npm test` 里有 36 条用例（`scripts/test-tz.mjs`），把边界钉死：UTC 15:59:59 同日 / 16:00:00 跨日、跨年、闰年 2-28、以及线上那 6 篇真实数据。
+
+### 线上体检
+
+```bash
+npm run check:live             # 一次性过 38 项硬指标
+```
+
+只打 HTTP，不跑浏览器，验证那些「用户不会报障但坏了很难察觉」的东西：编码声明、404 语义与缓存、时区显示、HEAD 与 GET 的 ETag 是否一致、缩略图缓存策略、阻塞脚本、CSP/HSTS。
+
+两个踩过的坑写进脚本里了：
+
+- **请求首页要带 cache-buster**。边缘 `s-maxage=300`，刚部署完直接打正式 URL 会拿到上一版 HTML，然后得到一堆「明明是刚修过的」FAIL。
+- **`text/html` 的 charset 被 Cloudflare 规范掉了**。Worker 发的是 `text/html; charset=utf-8`，出网变成 `text/html`——这是 HTML 规范定的（text/html 的编码由 BOM 和 `<meta charset>` 决定，头里的 charet 参数已废弃）。所以断言要写成「头或 meta 至少有一条」，页面里 `<meta charset="utf-8">` 在第一位，中文不会乱码。
 
 ## 结构化数据与分享卡片
 

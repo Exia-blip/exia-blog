@@ -94,9 +94,11 @@
     <a class="btn sm" href="/friends">友链</a>
   </div>
 
-  <div class="tagbar" id="catbar"></div>
+  <!-- 这两条筛选栏由服务端直出。原来是空 div、等 app.js 拉完接口才填，
+       结果首屏渲染完再过一两百毫秒整块内容往下推 90 多像素 —— CLS 全在这儿。 -->
+  <div class="tagbar" id="catbar"><!--CATBAR--></div>
 
-  <div class="tagbar" id="tagbar"></div>
+  <div class="tagbar" id="tagbar"><!--TAGBAR--></div>
 
   <div class="post-list" id="list" aria-live="polite">
     <!--LIST-->
@@ -268,7 +270,14 @@ function renderPager(pages, total) {
     ${page < pages ? `<a class="btn sm" href="${qs(page + 1)}">下一页 →</a>` : ''}`;
 }
 
+/* 这两条筛选栏服务端已经画好了（src/index.js 的 renderListBars）。
+   这里再 innerHTML 一遍，内容虽然一样，浏览器仍要重新布局一次 ——
+   而这一下正是 CLS 的来源。SSR 给出来了就不再碰；只有 SSR 没给
+   （接口挂了、或者模板换了别的版本）才落回客户端渲染。 */
+const ssrBars = { cat: catbarEl.childElementCount > 0, tag: tagbarEl.childElementCount > 0 };
+
 async function loadCats() {
+  if (ssrBars.cat) return;
   try {
     const { categories } = await api('/api/categories');
     if (!categories.length) { catbarEl.innerHTML = ''; return; }
@@ -281,6 +290,7 @@ async function loadCats() {
 }
 
 async function loadTags() {
+  if (ssrBars.tag) return;
   try {
     const { tags } = await api('/api/tags');
     if (!tags.length) return;

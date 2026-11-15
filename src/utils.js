@@ -159,6 +159,37 @@ export function nowISO() {
   return new Date().toISOString().replace('T', ' ').slice(0, 19);
 }
 
+/* ---------- 时区：显示层统一在这里换算 ----------
+   D1 里所有时间都是 UTC 裸字符串（nowISO() 写进去的就是 UTC），
+   而 `String(x).slice(0, 10)` 取的是 **UTC 的日期**。
+
+   后果不是理论上的：北京时间 11-12 00:30 发的文章，UTC 是 11-11 16:30，
+   页面上写 11-11 —— 凌晨写完顺手发布的人，看到的日期是「昨天」。
+   跨年那 8 小时更糟：北京 2027-01-01 00:30 的文章会被归档进 2026。
+
+   所以凡是「给人看」的日期都走这里。JSON-LD / sitemap / RSS 一律不动：
+   那几个是喂机器的，ISO 8601 带 Z 和 RFC 822 带 GMT 才是对的。 */
+export const TZ_HOURS = 8;
+
+export function localParts(v) {
+  const s = String(v || '').trim();
+  if (!s) return { y: '', m: '', d: '', md: '', day: '', time: '' };
+  const d = new Date(sqlIso(s));
+  if (isNaN(d.getTime())) {
+    // 不是 D1 那种格式（已带偏移、或干脆是脏数据）：退回字符串切片，至少不崩
+    return { y: s.slice(0, 4), m: s.slice(5, 7), d: s.slice(8, 10), md: s.slice(5, 10), day: s.slice(0, 10), time: s.slice(11, 16) };
+  }
+  const t = new Date(d.getTime() + TZ_HOURS * 3600e3);
+  const p = (n) => String(n).padStart(2, '0');
+  const y = String(t.getUTCFullYear());
+  const m = p(t.getUTCMonth() + 1);
+  const dd = p(t.getUTCDate());
+  return { y, m, d: dd, md: `${m}-${dd}`, day: `${y}-${m}-${dd}`, time: `${p(t.getUTCHours())}:${p(t.getUTCMinutes())}` };
+}
+
+/** 北京时间的 'YYYY-MM-DD' */
+export const localDay = (v) => localParts(v).day;
+
 /* D1 存的是 'YYYY-MM-DD HH:MM:SS'（UTC，无时区）。直接塞进 datetime="" 是非法值，
    浏览器解析成 Invalid Date，微数据与屏幕阅读器都读不出时间。补成 ISO。 */
 export function sqlIso(v) {

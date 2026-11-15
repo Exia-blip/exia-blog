@@ -1,4 +1,4 @@
-import { json, err, pageParams, slugify, uniqueSlug, nowISO, setCookie } from './utils.js';
+import { json, err, pageParams, slugify, uniqueSlug, nowISO, setCookie, localParts } from './utils.js';
 import { currentUser, requireUser, requireAdmin } from './auth.js';
 import { guard, record, banIp, verifyTurnstile, DID_MAX_AGE } from './antispam.js';
 import { renderBody, extractTags, extractCover, extractExcerpt, readingTime, searchSnippet } from '../public/md.js';
@@ -159,7 +159,9 @@ export async function archiveData(db, year = '') {
   const where = ['p.is_private = 0', 'p.hidden = 0', liveSql('p')];
   const args = [];
   if (y) {
-    where.push("substr(COALESCE(NULLIF(p.published_at, ''), p.created_at), 1, 4) = ?");
+    /* 年份过滤也得按北京时间算，否则 /2027 那一页会漏掉跨年凌晨发的文章，
+       而这篇文章在页面上明明写着 2027 —— 读者点年份进去找不到它。 */
+    where.push("strftime('%Y', datetime(COALESCE(NULLIF(p.published_at, ''), p.created_at), '+8 hours')) = ?");
     args.push(y);
   }
 
@@ -189,9 +191,12 @@ export async function archiveData(db, year = '') {
 
   const yearMap = new Map();
   for (const p of results) {
-    const stamp = String(p.published_at || p.created_at || '');
-    const yy = stamp.slice(0, 4) || '未知';
-    const mm = stamp.slice(5, 7) || '00';
+    /* 按北京时间的年月分组。原来切片取的是 UTC 的年月，于是北京时间
+       2027-01-01 00:30 发的文章会进 2026 那一栏 —— 一年只有 8 小时会出错，
+       所以从来没人在测试里撞见过。 */
+    const lp = localParts(p.published_at || p.created_at);
+    const yy = lp.y || '未知';
+    const mm = lp.m || '00';
     if (!yearMap.has(yy)) yearMap.set(yy, { year: yy, count: 0, months: new Map() });
     const yb = yearMap.get(yy);
     yb.count += 1;
