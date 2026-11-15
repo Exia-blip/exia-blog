@@ -1176,13 +1176,13 @@ function renderHeader(site, path) {
       `<a href="${l.href}"${active === l.key ? ' class="active" aria-current="page"' : ''}>${l.label}</a>`
   ).join('');
 
+  /* nav-user 先按匿名访客填上「登录」。留空等 JS 填的话，
+     那一格会从 0 宽长到 51px，整条导航跟着左移 —— 又是一次布局偏移。
+     已登录的访客会被 app.js 换成后台入口，位置宽度差不多，不跳。 */
   return `<header class="site">
     <div class="inner">
       <a class="brand" href="/">${avatar}<span class="brand-name">${esc(name)}<span class="dot">.</span></span></a>
       ${desc ? `<span class="brand-desc" title="${esc(desc)}">${esc(desc)}</span>` : ''}
-      /* nav-user 先按匿名访客填上「登录」。留空等 JS 填的话，
-         那一格会从 0 宽长到 51px，整条导航跟着左移 —— 又是一次布局偏移。
-         已登录的访客会被 app.js 换成后台入口，位置宽度差不多，不跳。 */
       <nav class="top" id="site-nav">${links}${extra.join('')}<span id="nav-user"><a href="/login">登录</a></span>${THEME_BTN}</nav>
       ${NAV_TOGGLE}
     </div>

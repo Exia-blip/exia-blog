@@ -172,6 +172,25 @@ console.log(`\n${ORIGIN}\n`);
   ok('首屏没有第三方子资源', third.length === 0, [...new Set(third)].join(', '));
 }
 
+/* ---------- 8.5 模板里不能漏出注释 ----------
+ * 在 return `…` 的模板字符串中间写 /* 说明 *\/ ，JS 不会报错，它会老老实实
+ * 把那段当成文本节点输出到页面上 —— 语法检查、类型检查、单元测试全部通过，
+ * 只有打开页面才看得见。剥掉 <style>/<script> 再看，才不会误伤真正的 CSS 注释。 */
+{
+  const pages = ['/', '/archive', '/p/post-brfy5'];
+  const leaked = [];
+  for (const path of pages) {
+    const { body } = await get(path);
+    const text = body
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '');
+    const m = text.match(/\/\*[\s\S]{0,80}?\*\//g);
+    if (m) leaked.push(`${path}: ${m[0].slice(0, 50).replace(/\s+/g, ' ')}`);
+  }
+  ok(`页面正文里没有漏出的注释（抽 ${pages.length} 页）`, leaked.length === 0, leaked.join(' | '));
+}
+
 /* ---------- 9. 图片出口：类型必须落在白名单里 ----------
  * /img/ 的 content-type 来自 R2 元数据，而元数据在上传时由客户端写入 —— 它是一份
  * 声明，不是事实。一旦某一环把它写成 text/html，同源导航就能执行其中的脚本。
