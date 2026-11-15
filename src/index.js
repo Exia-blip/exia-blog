@@ -2,7 +2,7 @@ import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, l
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
 import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts } from './utils.js';
 import { checkFriends } from './cron.js';
-import { getSite } from './settings.js';
+import { themeCssTag, getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
 import { coverOf, autoThumb, isAutoCover, isCardCover, thumbOf } from './cover.js';
 import { avatarSrc } from '../public/avatar.js';
@@ -592,7 +592,7 @@ async function serveFriendsPage(env, request) {
 // 主题初始化那一段在 404、系列页都要用，复制三份迟早漂移
 function themeBoot(site) {
   const cfg = JSON.stringify({ theme: site.theme, mode: site.mode }).replace(/</g, '\\u003c');
-  return `<script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);if(t!=='paper'&&t!=='anzhiyu')document.write('<link rel="stylesheet" href="/theme/'+t+'.css">')})();</script>`;
+  return `<script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);(function(){var L=document.getElementById('tcss-default'),trivial=(t==='paper'||t==='anzhiyu');if(trivial){if(L)document.head.removeChild(L);return}if(L){L.id='tcss-'+t;L.href='/theme/'+t+'.css'}else{var S=document.createElement('link');S.id='tcss-'+t;S.rel='stylesheet';S.href='/theme/'+t+'.css';document.head.appendChild(S)}})()})();</script>`;
 }
 
 function seriesShell({ site, origin, title, kicker, desc, canonical, ld, sub, list }) {
@@ -953,7 +953,11 @@ async function servePostPage(env, request, slug) {
       ? { type: 'image/png', w: 1200, h: 630 }
       : null;
 
-  const bodyHtml = sanitizeHtml(renderBody(post.content));
+  /* 发布时已经渲染 + 消毒并落库（html_content），这里只读成品。
+     缓存 miss 的那一次回源不再跑 Markdown 解析 —— 长文 miss 是最吃亏的场景：
+     边缘挡得住重复访问，挡不住冷启动、淘汰和改文之后的那一下。
+     空串（还没回填的历史行）退回现算，两种情况页面完全一致。 */
+  const bodyHtml = post.html_content || sanitizeHtml(renderBody(post.content));
   const words = String(post.content || '').replace(/\s/g, '').length;
   const reading = readingTime(post.content);
 
@@ -1585,8 +1589,14 @@ async function injectTheme(env, res, url) {
     '<link rel="icon" href="/favicon.ico" sizes="any">' +
     '<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">' +
     '<link rel="apple-touch-icon" href="/apple-touch-icon.png">';
+  /* 非纸韵/安知鱼的主题，样式表直接在 head 里直出。
+     以前这段是内联脚本里的 document.write —— 在那之前解析器必须停下来等脚本执行，
+     而 document.write 插入的 link 又会把渲染卡到 CSS 到手。直出之后浏览器
+     解析到 link 就开始下载，跟后面的 style.css 并行。
+     用户自己换过主题时，head 里那段脚本会把这个 link 的 href 改掉（见模板）。 */
+  const themeCss = themeCssTag(s.theme, assetVersion(env));
   const inject =
-    `<script>window.__THEME_DEFAULT__=${cfg};window.__SITE__=${siteCfg};</script>${icon}`;
+    `<script>window.__THEME_DEFAULT__=${cfg};window.__SITE__=${siteCfg};</script>${icon}${themeCss}`;
 
   body = fillSeo(body, s, url).replace('<!--THEME-->', inject);
 
@@ -1714,7 +1724,7 @@ async function notFoundPage(env, request, message = '页面走丢了') {
 <title>404 · ${siteName}</title>
 <meta name="robots" content="noindex,follow">
 <meta name="description" content="页面不存在">
-<script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);if(t!=='paper'&&t!=='anzhiyu')document.write('<link rel="stylesheet" href="/theme/'+t+'.css">')})();</script>
+<script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);(function(){var L=document.getElementById('tcss-default'),trivial=(t==='paper'||t==='anzhiyu');if(trivial){if(L)document.head.removeChild(L);return}if(L){L.id='tcss-'+t;L.href='/theme/'+t+'.css'}else{var S=document.createElement('link');S.id='tcss-'+t;S.rel='stylesheet';S.href='/theme/'+t+'.css';document.head.appendChild(S)}})()})();</script>
 <link rel="stylesheet" href="/style.css?v=${assetVersion(env)}">
 <script src="/boot.js?v=${assetVersion(env)}" defer></script>
 <style>
@@ -1753,7 +1763,7 @@ const rfc822 = (v) => {
 
 async function serveRss(env, request) {
   const { results } = await env.DB.prepare(
-    `SELECT id, slug, title, content, summary, category, published_at, created_at, updated_at FROM posts
+    `SELECT id, slug, title, content, html_content, summary, category, published_at, created_at, updated_at FROM posts
      WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
      ORDER BY COALESCE(NULLIF(published_at, ''), created_at) DESC LIMIT 30`
   ).all();
@@ -1769,7 +1779,7 @@ async function serveRss(env, request) {
         origin,
         post: p,
         author: site.author,
-        html: sanitizeHtml(renderBody(p.content)).replace(/(src|href)="\/(?!\/)/g, `$1="${origin}/`),
+        html: (p.html_content || sanitizeHtml(renderBody(p.content))).replace(/(src|href)="\/(?!\/)/g, `$1="${origin}/`),
       })
     )
     .join('\n');

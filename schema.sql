@@ -21,8 +21,10 @@ CREATE TABLE IF NOT EXISTS posts (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   slug        TEXT UNIQUE NOT NULL,
   title       TEXT NOT NULL,
-  content     TEXT NOT NULL DEFAULT '',
+  content     TEXT NOT NULL DEFAULT '',      -- Markdown 原文，编辑器回显用
+  html_content TEXT NOT NULL DEFAULT '',     -- 渲染 + 消毒后的正文 HTML；空串表示还没回填，读取时现算
   cover       TEXT,
+  cover_body  TEXT NOT NULL DEFAULT '',      -- 正文首图（保存时算好，列表查询不必读正文）
   category    TEXT NOT NULL DEFAULT '',      -- 分类：一篇文章一个，空串表示未分类
   is_private  INTEGER NOT NULL DEFAULT 0,  -- 私密：仅作者可见，未登录 404
   hidden      INTEGER NOT NULL DEFAULT 0,  -- 不列入首页

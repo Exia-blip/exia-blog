@@ -3,7 +3,7 @@ import { currentUser, requireUser, requireAdmin } from './auth.js';
 import { guard, record, banIp, verifyTurnstile, DID_MAX_AGE } from './antispam.js';
 import { renderBody, extractTags, extractCover, extractExcerpt, readingTime, searchSnippet } from '../public/md.js';
 import { sanitizeHtml, cleanMarkdown } from './clean.js';
-import { coverOf, thumbOf } from './cover.js';
+import { coverOf, thumbOf, bodyCoverFor } from './cover.js';
 import { bustPaths } from './cache.js';
 import { presignPut, makeKey, IMAGE_TYPES } from './s3.js';
 import { imageSize, withSize } from './img-size.js';
@@ -196,7 +196,7 @@ export async function archiveData(db, year = '') {
 
   const { results } = await db
     .prepare(
-      `SELECT p.id, p.slug, p.title, p.summary, p.summary_src, p.cover, p.category,
+      `SELECT p.id, p.slug, p.title, p.summary, p.summary_src, p.cover, p.cover_body, p.category,
               p.series, p.series_order, p.is_private, p.hidden,
               p.published_at, p.created_at, p.updated_at,
               ${CONTENT_LEN} AS content_len,
@@ -301,10 +301,26 @@ export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q
   /* COUNT 和主查询互不依赖，一起发出去。
      以前是先 await COUNT 再 await 列表，冷启动时两个往返叠加，
      等于把 D1 的延迟翻了一倍。 */
+  /* 列裁剪：列表只需要卡片上那几个字段。
+     原来 SELECT p.* 会把每篇的 Markdown 正文一起读出来 —— 一页 10 篇、每篇几千字，
+     穿过 D1 的返回和 Worker 的内存，最后只用来算一个阅读时长和一张缩略图。
+     阅读时长改由 SQL 算（口径与 archiveData / public/md.js 的 readingTime 一致），
+     封面改读 cover_body（保存时落库的正文首图快照）。
+     只有真的在搜索时才带 content：searchSnippet 要按关键词截那一段，
+     LIKE 条件本身在 WHERE 里，不需要 SELECT 出来。 */
+  const CONTENT_LEN = `length(replace(replace(replace(replace(COALESCE(p.content, ''), char(32), ''), char(10), ''), char(13), ''), char(9), ''))`;
+  const listCols = [
+    'p.id', 'p.slug', 'p.title', 'p.cover', 'p.cover_body', 'p.summary', 'p.summary_src',
+    'p.category', 'p.series', 'p.series_order', 'p.is_private', 'p.hidden', 'p.author_id',
+    'p.published_at', 'p.created_at', 'p.updated_at',
+    `${CONTENT_LEN} AS content_len`,
+    q ? 'p.content' : '',
+  ].filter(Boolean).join(', ');
+
   const [{ results }, totalRow] = await Promise.all([
     db
       .prepare(
-        `SELECT p.*, ${AUTHOR_COLS}, ${TAG_AGG}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
+        `SELECT ${listCols}, ${AUTHOR_COLS}, ${TAG_AGG}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
          FROM posts p ${AUTHOR_JOIN} WHERE ${whereSql}
          ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC, p.id DESC LIMIT ? OFFSET ?`
       )
@@ -435,7 +451,9 @@ export async function handleApi(env, request, url, ctx) {
       size,
       tag: url.searchParams.get('tag') || '',
       cat: (url.searchParams.get('cat') || '').trim(),
-      q: (url.searchParams.get('q') || '').trim(),
+      /* q 直接进 LIKE '%…%'，不限长的话一个几 KB 的关键词就等于让 D1
+         把整表扫一遍，还什么都匹配不到。60 字够覆盖正常搜索意图。 */
+      q: (url.searchParams.get('q') || '').trim().slice(0, 60),
     });
     return json({ ok: true, ...data });
   }
@@ -550,8 +568,8 @@ export async function handleApi(env, request, url, ctx) {
 
     await attachTags(db, [p]);
 
-    // 文章内的 #标签 转为可点击，再走一遍白名单消毒
-    const rendered = sanitizeHtml(renderBody(p.content));
+    // 发布时已经渲染好并消毒过，这里只读成品；空串表示这篇还没回填，退回现算
+    const rendered = p.html_content || sanitizeHtml(renderBody(p.content));
 
     return json({ ok: true, post: { ...shapePost(p, true), html: rendered } });
   }
@@ -581,13 +599,18 @@ export async function handleApi(env, request, url, ctx) {
     const stamp = nowISO();
     const published = publishedOf('', !!body.is_private, stamp);
 
+    /* 入库前把正文渲染成成品：这条路径写一次，之后每次回源读的都是成品 HTML。
+       消毒必须在这一步做完 —— 读的时候不会再 sanitize 一遍（那样就白省了 CPU）。 */
+    const html = sanitizeHtml(renderBody(content));
+    const coverBody = bodyCoverFor(content);
+
     const info = await db
       .prepare(
-        `INSERT INTO posts (slug, title, content, cover, category, series, series_order, is_private, hidden, published_at, author_id, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO posts (slug, title, content, html_content, cover, cover_body, category, series, series_order, is_private, hidden, published_at, author_id, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .bind(
-        slug, title, content, cover, category,
+        slug, title, content, html, cover, coverBody, category,
         seriesOf(body), seriesOrderOf(body),
         body.is_private ? 1 : 0, body.hidden ? 1 : 0,
         published,
@@ -659,16 +682,21 @@ export async function handleApi(env, request, url, ctx) {
     const isHidden = body.hidden !== undefined ? (body.hidden ? 1 : 0) : p.hidden;
     const stampNow = nowISO();
     const published = publishedOf(p.published_at, isPrivate, stampNow);
+    // 正文没动就沿用上次的成品，省一次解析（编辑器每次保存都会把 content 带回来）
+    const html = content === p.content && p.html_content ? p.html_content : sanitizeHtml(renderBody(content));
+    const coverBody = bodyCoverFor(content);
 
     await db
       .prepare(
-        `UPDATE posts SET slug=?, title=?, content=?, cover=?, category=?, series=?, series_order=?, is_private=?, hidden=?, published_at=?, updated_at=?${sumSql} WHERE id=?`
+        `UPDATE posts SET slug=?, title=?, content=?, html_content=?, cover=?, cover_body=?, category=?, series=?, series_order=?, is_private=?, hidden=?, published_at=?, updated_at=?${sumSql} WHERE id=?`
       )
       .bind(
         slug,
         title,
         content,
+        html,
         cover,
+        coverBody,
         category,
         body.series !== undefined ? seriesOf(body) : p.series || '',
         body.series_order !== undefined ? seriesOrderOf(body) : p.series_order || 0,

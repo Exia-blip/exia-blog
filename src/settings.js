@@ -7,6 +7,17 @@ let cache = { at: 0, val: null };
 export const THEME_IDS = ['anzhiyu', 'paper', 'ink', 'forest', 'ocean', 'plum', 'mono'];
 export const MODE_IDS = ['auto', 'light', 'dark'];
 
+/* 主题样式表在 head 里直出时用的标签。
+   纸韵和安知鱼都编在主 style.css 里，不需要额外请求；其余五套各自一个文件。
+   以前这段是内联脚本里的 document.write —— 解析器得等它执行完才往下走，
+   插入的 link 又把渲染卡到 CSS 到手。直出之后浏览器解析到就并行下载。 */
+export function themeCssTag(theme, version = '') {
+  const id = normTheme(theme);
+  if (id === 'paper' || id === 'anzhiyu') return '';
+  const v = version ? `?v=${encodeURIComponent(version)}` : '';
+  return `<link id="tcss-default" rel="stylesheet" href="/theme/${id}.css${v}">`;
+}
+
 const normTheme = (v) => (THEME_IDS.includes(v) ? v : 'paper');
 const normMode = (v) => (MODE_IDS.includes(v) ? v : 'auto');
 

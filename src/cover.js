@@ -20,11 +20,20 @@ export { AUTO_COVER_COUNT } from '../public/cover.js';
  * 这种就直接放弃，退回预设图 —— 宁可统一，不要一列里混着清晰和糊的。
  */
 function bodyCoverOf(post) {
+  /* 保存 / 回填时算好落库了，直接读这一列。
+     列表查询因此可以把 content 整列裁掉 —— 一页 10 篇、每篇几千字，
+     为了算一张缩略图去读全部正文，是这个页面最不值的一次传输。 */
+  if (post && typeof post.cover_body === 'string') return usableCover(post.cover_body);
   const url = extractCover(post?.content || '');
   if (!url) return '';
   if (!usableCover(url)) return '';
   if (/(^|\/)(favicon|icon[-_.]|emoji)/i.test(url)) return '';
   return url;
+}
+
+/** 保存时用：返回该落库的 cover_body（已经是过滤后的结果，空串表示没有可用首图） */
+export function bodyCoverFor(content) {
+  return bodyCoverOf({ content });
 }
 
 /* SVG 不进封面位。它不是位图，没有固定的像素尺寸：塞进 108×78 的缩略图会按

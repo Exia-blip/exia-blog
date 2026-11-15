@@ -132,8 +132,17 @@ console.log(`\n${ORIGIN}\n`);
   const { body } = await get('/');
   const imgs = [...body.matchAll(/<img[^>]*>/g)].map((m) => m[0]);
   ok('列表图有 width/height', imgs.length > 0 && imgs.every((t) => /width="\d+"/.test(t) && /height="\d+"/.test(t)), `${imgs.length} 张`);
-  const pic = /<picture><source type="image\/avif"/.test(body);
-  ok('封面图有 avif/webp 协商', pic);
+  /* 预设封面（/thumbs/*.webp）本来就只有一份，没什么可协商的；要验的是
+     作者自己传的图有没有 avif/webp 候选。原来这条直接扫首页，等于赌「首页
+     恰好有一篇带配图的文章」—— 那篇被设成 hidden 或者掉到第二页，就是一条假红。
+     改成先问接口有没有 /img/ 封面，有才验。 */
+  const list = await (await fetch(ORIGIN + '/api/posts?page=1&size=50')).json();
+  const hasOwn = (list.posts || []).some((p) => /^\/img\//.test(p.cover || ''));
+  if (hasOwn) {
+    ok('自有封面走 avif/webp 协商', /<picture><source type="image\/avif"/.test(body));
+  } else {
+    ok('自有封面走 avif/webp 协商', true, '当前列表里没有 /img/ 封面的公开文章，跳过');
+  }
 
   // 缩略图缓存必须与「带版本号」对齐：带了 v 就该 immutable
   const thumb = (body.match(/["'](\/thumbs\/[^"']+)["']/) || [])[1];
@@ -166,6 +175,10 @@ console.log(`\n${ORIGIN}\n`);
     .map((t) => ({ tag: t, src: (t.match(/src=["']([^"']+)/) || [])[1] }));
   const blocking = scripts.filter((s) => !/\b(defer\b|\basync\b)/.test(s.tag) && !/type=["']module["']/.test(s.tag));
   ok('没有 parser-blocking 外链脚本', blocking.length === 0, blocking.map((b) => b.src).join(', '));
+  /* document.write 在解析期插入样式或脚本，解析器必须停下等它执行完 ——
+     它比普通阻塞脚本更糟：连后面的 HTML 都排不出来。主题样式表已经改成
+     服务端直出，这条断言防它被改回去。 */
+  ok('页面里没有 document.write', !/document\.write\s*\(/.test(body));
   ok('所有外链脚本都带版本号', scripts.every((s) => /\?v=/.test(s.src)), scripts.map((s) => s.src).join(', '));
 
   const third = [...body.matchAll(/(?:src|href)=["'](https?:\/\/[^"']+)/g)].map((m) => new URL(m[1]).host).filter((h) => !ORIGIN.includes(h));
