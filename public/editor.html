@@ -168,7 +168,7 @@
 
 <script type="module">
 import { api, esc, toast, fmtDate, me, bindCopyButtons } from '/app.js';
-import { renderMarkdown, extractTags, extractCover } from '/md.js';
+import { renderMarkdown, extractTags, extractCover, cleanAltName } from '/md.js';
 import { THEMES, initSwitcher } from '/theme.js';
 
 initSwitcher();
@@ -580,7 +580,10 @@ async function uploadFile(file) {
     if (conv.w && conv.h && !/[?&](?:amp;)?w=/.test(url)) {
       url += `${url.includes('?') ? '&' : '?'}w=${conv.w}&h=${conv.h}`;
     }
-    insertAtCursor(`\n![${file.name || 'image'}](${url})\n`);
+    /* 别把原始文件名塞进 alt：微信图片_20241221225808.jpg 这种会被读屏逐字念完。
+       清洗不出语义就留空 —— 空 alt 是「装饰图跳过」的合法语义。 */
+    const alt = cleanAltName(file.name || '');
+    insertAtCursor(`\n![${alt}](${url})\n`);
     toast('图片已插入');
     return url;
   } catch (e) {

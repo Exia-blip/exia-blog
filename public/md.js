@@ -135,10 +135,32 @@ function widthSrcset(url, ext, origW) {
    所以判据是「清洗之后还剩不剩人能读的词」，不是「能不能凑出一个字符串」。 */
 const ALT_NOISE = /(^|[\s_-])(img|image|photo|pic|picture|screenshot|screen|shot|upload|untitled|wechat|mmexport|微信图片)(?=[\s_-]|$)/gi;
 
-function autoAlt(rawUrl) {
-  const u = String(rawUrl).replace(/&amp;/g, '&').split('?')[0].split('#')[0];
-  const file = u.slice(u.lastIndexOf('/') + 1);
-  let s = file.replace(/\.[a-z0-9]+$/i, '');
+/* alt 是否只是上传器自动填的文件名，而不是作者写的描述。
+   注意文件名跟 URL 的 key 是两回事：编辑器把本地文件名（微信图片_xxx.jpg）
+   塞进 alt，R2 那边存的是随机 key（mvv7xrrwzzr5x3.jpg），两者对不上。
+   所以判据不能是「alt 等于 URL 文件名」，得看 alt 自己像不像文件名。
+
+   两条保守判据：带图片扩展名（人不会把描述写成 a.png）；
+   或者恰好等于 URL 的 key（上传器也可能直接填 key）。
+   手写的「架构图」两条都不沾，不会被误吞。 */
+function autoFilledAlt(alt, url) {
+  if (!alt) return true;
+  const a = String(alt).trim();
+  if (/\.(png|jpe?g|webp|gif|avif|svg|bmp)$/i.test(a)) return true;
+  const file = String(url).split('?')[0].split('#')[0].split('/').pop();
+  let base = file.replace(/\.[a-z0-9]+$/i, '');
+  try {
+    base = decodeURIComponent(base);
+  } catch {}
+  /* alt 在 esc(s) 之后拿到，含 & 的文件名会变成 &amp;，这里对齐一下 */
+  return a.replace(/&amp;/g, '&') === base;
+}
+
+/* 把任意文件名清洗成能当 alt 用的描述；清洗不出语义就返回空。
+   导出给编辑器用：上传时直接把清洗后的名字写进 markdown，
+   比先写原始文件名、再由渲染器识破兜底少绕一圈，也让正文数据本身是干净的。 */
+export function cleanAltName(raw) {
+  let s = String(raw).replace(/\.[a-z0-9]+$/i, '');
   try {
     s = decodeURIComponent(s);
   } catch {
@@ -156,6 +178,11 @@ function autoAlt(rawUrl) {
   // 单段、纯小写字母数字且够长 → 还是随机串（pipeline 这种会带空格或大小写，能留下）
   if (!/\s/.test(s) && /^[a-z0-9]{10,}$/.test(s)) return '';
   return s;
+}
+
+function autoAlt(rawUrl) {
+  const u = String(rawUrl).replace(/&amp;/g, '&').split('?')[0].split('#')[0];
+  return cleanAltName(u.slice(u.lastIndexOf('/') + 1));
 }
 
 function inline(line) {
@@ -176,8 +203,12 @@ function inline(line) {
     const dim = sz ? ` width="${sz.w}" height="${sz.h}"` : '';
     if (sz) url = sz.url;
     /* 作者没写 alt 时用文件名兜。兜不出有用的东西就保持空 —— 空 alt 在无障碍里
-       有明确含义（装饰图），比一段噪音好。 */
-    const altText = alt || esc(autoAlt(url));
+       有明确含义（装饰图），比一段噪音好。
+
+       还要认一种「假填写」：编辑器上传时把文件名原样塞进 alt（现有 9 张图全是
+       这样），那不是作者写的描述，只是自动填充。不识别的话，读屏会把
+       「微信图片_20241221225808.jpg」逐字念一遍 —— 正是兜底规则要消灭的东西。 */
+    const altText = autoFilledAlt(alt, url) ? esc(autoAlt(url)) : alt;
     const img = `<img src="${url}" alt="${altText}"${
       title ? ` title="${title}"` : ''
     }${dim} loading="lazy" decoding="async">`;

@@ -26,14 +26,14 @@ const t = (ok, name, extra = '') => {
 const html = (md) => renderBody(md);
 
 /* ---- 产出侧 ---- */
-const big = html('![a](/img/u/a.png?w=1600&h=900)');
+const big = html('![架构图](/img/u/a.png?w=1600&h=900)');
 t(/\.w480\.avif 480w/.test(big), '1600px 的图有 480 档');
 t(/\.w800\.avif 800w/.test(big), '有 800 档');
 t(/\.w1200\.avif 1200w/.test(big), '有 1200 档');
 t(/\/img\/u\/a\.png\.avif 1600w/.test(big), '最后一档是全尺寸，描述符是原图真实宽度');
 t((big.match(/ sizes=/g) || []).length === 2, 'avif 与 webp 两个 source 都带 sizes');
 t(/sizes="\(max-width: 780px\) calc\(100vw - 44px\), 716px"/.test(big), 'sizes 跟正文容器宽度对齐');
-t(/<img src="\/img\/u\/a\.png" alt="a" width="1600" height="900"/.test(big), 'img 仍带真实宽高（CLS 靠它）');
+t(/<img src="\/img\/u\/a\.png" alt="架构图" width="1600" height="900"/.test(big), 'img 仍带真实宽高（CLS 靠它）');
 t(!/w=[0-9]/.test(big), '宽高参数没有泄回地址（否则边缘缓存多一份分区）');
 
 const small = html('![b](/img/u/b.png?w=400&h=300)');

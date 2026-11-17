@@ -44,6 +44,24 @@ t(alt('![](/img/u/12345.png)') === '', '纯数字 → 空');
 t(alt('![手写的描述](/img/u/mvv7xrrwzzr5x3.jpg)') === '手写的描述', '有 alt 时不覆盖');
 t(alt('![a"b](/img/u/x.png)') === 'a&quot;b', '作者写的 alt 仍然转义（防属性逃逸）');
 
+/* ---- 自动填充的假 alt：现有文章的 9 张图全是这种 ---- */
+t(
+  alt('![微信图片_20241221225808.jpg](/img/u/mvv7xrrwzzr5x3.jpg?w=1080&h=1565)') === '',
+  'alt 等于文件名（带扩展名）→ 当成没写，清洗后无语义就空'
+);
+t(
+  alt('![mvv7xrrwzzr5x3](/img/u/mvv7xrrwzzr5x3.jpg)') === '',
+  'alt 等于文件名（不带扩展名）→ 同样当自动填充'
+);
+t(
+  alt('![架构图](/img/u/architecture-diagram.png)') === '架构图',
+  '作者手写的短描述不会被当成文件名吞掉'
+);
+t(
+  alt('![architecture-diagram.png](/img/u/architecture-diagram.png)') === 'architecture diagram',
+  '假 alt 被识破后走正常的兜底规则'
+);
+
 /* ---- 兜出来的内容也要转义 ---- */
 t(alt('![](/img/u/a%3Cb%3E.png)') === 'a&lt;b&gt;', '文件名带尖括号：转义后才进属性，破不了标签');
 
