@@ -1905,7 +1905,7 @@ const rfc822 = (v) => {
 
 async function serveRss(env, request) {
   const { results } = await env.DB.prepare(
-    `SELECT id, slug, title, content, html_content, summary, category, published_at, created_at, updated_at FROM posts
+    `SELECT id, slug, title, content, html_content, summary, category, cover, cover_body, published_at, created_at, updated_at FROM posts
      WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
      ORDER BY COALESCE(NULLIF(published_at, ''), created_at) DESC LIMIT 30`
   ).all();
@@ -1943,6 +1943,36 @@ async function serveRss(env, request) {
   });
 }
 
+/** RSS 封面映射到 MIME。type 必须按真实后缀给：站里 cover 大多是 /cards/*.png，
+ *  写死 image/webp 会让 reader 按错误 MIME 解析，部分客户端直接不显示卡片。 */
+const RSS_IMG_TYPES = {
+  webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg',
+  jpeg: 'image/jpeg', avif: 'image/avif', gif: 'image/gif',
+};
+
+/**
+ * 单个 <enclosure>：阅读器靠它出封面卡片。
+ * 用 coverOf 而不是 thumbOf —— 后者是 208×136 的列表缩略图，放阅读器卡片会糊，
+ * cover.js 里也明确写了「og:image / RSS 别用这个」。
+ * 没有真实封面（只剩 6 张通用预设图轮换）时不输出，符合「不输出空 enclosure」。
+ */
+export function rssEnclosure(post, origin) {
+  if (isAutoCover(post)) return '';
+  const raw = coverOf(post);
+  if (!raw) return '';
+  let u;
+  try {
+    u = new URL(raw, origin);
+  } catch {
+    return '';
+  }
+  if (u.origin !== new URL(origin).origin) return ''; // RSS 不留外链
+  const ext = (u.pathname.split('.').pop() || '').toLowerCase();
+  const type = RSS_IMG_TYPES[ext];
+  if (!type) return '';
+  return `      <enclosure url="${esc(u.href)}" length="0" type="${type}"/>`;
+}
+
 /**
  * 单个 <item>。作者署名两处都给：<author> 是 RSS 2.0 原生字段（规范建议写成
  * 「邮箱 (名字)」，但阅读器普遍当纯文本渲染），<dc:creator> 是 Feedly / Inoreader
@@ -1955,6 +1985,8 @@ export function rssItem({ origin, post, author, html }) {
   // CDATA 里唯一不能出现的就是 ]]>，它会把 CDATA 提前关掉、后面的正文变成裸 XML。
   // 拆成 ]]]]><![CDATA[> 还原后正文一个字都不差，交给 rssItem 自己做，别指望调用方记得。
   const safe = String(html ?? '').replace(/\]\]>/g, ']]]]><![CDATA[>');
+  const enclosure = rssEnclosure(post, origin);
+  const extraXml = [enclosure, catXml].filter(Boolean).join('\n');
   return `    <item>
       <title>${esc(post.title)}</title>
       <link>${link}</link>
@@ -1964,7 +1996,7 @@ export function rssItem({ origin, post, author, html }) {
       <dc:creator>${esc(author)}</dc:creator>
       <description>${esc(post.summary || extractExcerpt(post.content, 200))}</description>
       <content:encoded><![CDATA[${safe}]]></content:encoded>
-${catXml}
+${extraXml}
     </item>`;
 }
 

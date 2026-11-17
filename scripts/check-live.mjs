@@ -338,6 +338,16 @@ console.log(`\n${ORIGIN}\n`);
   ok('无标签无栏目文章不渲染相关推荐', !noTags.body.includes('class="post-related"'));
 }
 
+/* ---------- RSS 封面 enclosure ---------- */
+{
+  const rss = await get('/rss.xml?cb=' + Date.now());
+  const enc = [...rss.body.matchAll(/<enclosure url="([^"]+)" length="(\d+)" type="([^"]+)"\/>/g)];
+  ok('RSS item 带封面 enclosure', enc.length > 0, `${enc.length} 个`);
+  ok('enclosure URL 同源绝对地址', enc.length > 0 && enc.every((m) => m[1].startsWith(ORIGIN + '/')));
+  ok('enclosure type 是合法图片 MIME', enc.length > 0 && enc.every((m) => /^image\/(png|webp|jpeg|avif|gif)$/.test(m[3])));
+  ok('enclosure 不破坏原有 item 字段', rss.body.includes('<content:encoded>') && rss.body.includes('<dc:creator>'));
+}
+
 /* ---------- 10. 安全与缓存头 ---------- */
 {
   const { h } = await get('/');

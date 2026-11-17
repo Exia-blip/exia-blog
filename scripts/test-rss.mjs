@@ -94,6 +94,45 @@ t('item 的 author 为空时保留标签但不吞掉下面的字段', () => {
   assert.match(x, /<description>摘要<\/description>/);
 });
 
+/* ---------- 封面 enclosure ---------- */
+const covered = (over = {}) => item({ post: { ...post, cover: '/cards/demo.png', ...over } });
+
+t('有封面：输出 enclosure，URL 同源绝对，type 按真实后缀', () => {
+  const x = covered();
+  assert.match(x, /<enclosure url="https:\/\/exia\.de5\.net\/cards\/demo\.png" length="0" type="image\/png"\/>/);
+});
+
+t('webp 封面 → type image/webp', () => {
+  assert.match(covered({ cover: '/img/demo.webp' }), /<enclosure url="https:\/\/exia\.de5\.net\/img\/demo\.webp" length="0" type="image\/webp"\/>/);
+});
+
+t('没有真实封面（只剩通用预设图）→ 不输出空 enclosure', () => {
+  assert.doesNotMatch(item(), /<enclosure/);
+});
+
+t('正文首图（cover_body）也进 enclosure', () => {
+  const x = item({ post: { ...post, cover_body: '/img/u/demo.jpg' } });
+  assert.match(x, /<enclosure url="https:\/\/exia\.de5\.net\/img\/u\/demo\.jpg" length="0" type="image\/jpeg"\/>/);
+});
+
+t('外链封面不进 RSS', () => {
+  assert.doesNotMatch(covered({ cover: 'https://other.example/x.png' }), /<enclosure/);
+});
+
+t('封面 URL 里的 & 转义，不破坏 XML', () => {
+  const x = covered({ cover: '/cards/a&b.png' });
+  assert.match(x, /<enclosure url="https:\/\/exia\.de5\.net\/cards\/a&amp;b\.png"/);
+  assert.doesNotMatch(x, /url="[^"]*&(?!amp;)/);
+});
+
+t('enclosure 夹在 content:encoded 与 category 之间，不动原有字段', () => {
+  const block = covered({ tags: ['cloudflare'] }).split('<item>')[1];
+  assert.ok(block.indexOf('<content:encoded>') < block.indexOf('<enclosure'));
+  assert.ok(block.indexOf('<enclosure') < block.indexOf('<category>'));
+  assert.match(block, /<category>notes<\/category>/);
+  assert.match(block, /<dc:creator>Exia<\/dc:creator>/);
+});
+
 /* ---------- 整体 ---------- */
 t('整份 feed 的 & 全部是实体，没有裸的 &', () => {
   const x = doc({
