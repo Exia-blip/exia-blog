@@ -126,3 +126,8 @@ if (fixName && fixes.length) {
 } else if (empty.length || badName.length) {
   console.log('\n提示：alt 是给人听的图注。--fix-name 只能把文件名变干净，真正的描述还得你自己写。');
 }
+
+/* 空 alt / 文件名 alt 是硬失败：这个脚本以前只打印数字，
+   于是 9 张图全空的时候照样退出 0，没有任何自动化会报警 —— 退化无人知晓。
+   过长只是建议，不拦。 */
+if (empty.length || badName.length) process.exitCode = 1;
