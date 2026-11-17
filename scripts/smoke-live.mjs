@@ -36,6 +36,17 @@ const browser = await puppeteer.launch({
 
 try {
   const page = await browser.newPage();
+
+  /* 103 Early Hints：CDP 的 responseReceivedEarlyHints 才是真凭证。
+     Link 头只能证明「触发条件在」，不能证明 CF 的开关真开了、103 真发了 ——
+     这一条曾靠手动抓 CDP 验证，开关一关就会静默退化成普通 preload。 */
+  const cdp = await page.createCDPSession();
+  const earlyHints = [];
+  cdp.on('Network.responseReceivedEarlyHints', (e) => {
+    earlyHints.push((e && e.headers && e.headers.link) || '');
+  });
+  await cdp.send('Network.enable');
+
   const errors = [];
   const evCalls = [];
   page.on('console', (m) => {
@@ -80,6 +91,21 @@ try {
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await new Promise((r) => setTimeout(r, 1200));
   t(evCalls.length === 1, '重复滚动不会重发', `${evCalls.length} 次`);
+
+  /* 首访可能还没有 Early Hints 缓存（CF 要先见一次主响应才生成 103），
+     补打两次再判。带图文章那篇的 103 里应含首图 image preload。 */
+  for (let i = 0; i < 2; i++) {
+    await page.goto(`${ORIGIN}/p/post-brfy5?eh=${Date.now()}${i}`, {
+      waitUntil: 'domcontentloaded', timeout: 45000,
+    });
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  t(earlyHints.length > 0, '浏览器收到 103 Early Hints', `${earlyHints.length} 次`);
+  t(
+    earlyHints.some((h) => /rel=preload/.test(h) && /as=image/.test(h)),
+    '103 里带首图 preload（多档 imagesrcset）',
+    earlyHints.find((h) => h.includes('as=image'))?.slice(0, 120) || ''
+  );
 
   t(errors.length === 0, '控制台没有报错', errors.join(' | '));
 
