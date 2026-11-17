@@ -2,7 +2,7 @@ import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, l
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
 import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts } from './utils.js';
 import { checkFriends } from './cron.js';
-import { themeCssTag, themeCssPath, getSite } from './settings.js';
+import { themeCssTag, themeCssPath, routeCssPath, getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
 import { coverOf, autoThumb, isAutoCover, isCardCover, thumbOf } from './cover.js';
 import { avatarSrc } from '../public/avatar.js';
@@ -1668,8 +1668,16 @@ async function injectTheme(env, res, url) {
      解析到 link 就开始下载，跟后面的 style.css 并行。
      用户自己换过主题时，head 里那段脚本会把这个 link 的 href 改掉（见模板）。 */
   const themeCss = themeCssTag(s.theme, assetVersion(env));
+  /* 路由专属样式：编辑器/登录/友链/归档各自的小表。它们只在对应页面出现，
+     主表不再背着这些选择器 —— 首屏每个页面少下几 KB 用不到的 CSS。
+     路径和 103 预加载共用 routeCssPath()，不会一处改一处漏。 */
+  const routeCssHref = routeCssPath(url.pathname);
+  const av0 = assetVersion(env);
+  const routeCss = routeCssHref
+    ? `<link rel="stylesheet" href="${routeCssHref}${av0 ? `?v=${encodeURIComponent(av0)}` : ''}">`
+    : '';
   const inject =
-    `<script>window.__THEME_DEFAULT__=${cfg};window.__SITE__=${siteCfg};</script>${icon}${themeCss}`;
+    `<script>window.__THEME_DEFAULT__=${cfg};window.__SITE__=${siteCfg};</script>${icon}${themeCss}${routeCss}`;
 
   body = fillSeo(body, s, url).replace('<!--THEME-->', inject);
 
@@ -1721,6 +1729,9 @@ async function injectTheme(env, res, url) {
   const hints = [`</style.css${avq}>; rel=preload; as=style`];
   const themeHref = themeCssPath(s.theme);
   if (themeHref) hints.push(`<${themeHref}${avq}>; rel=preload; as=style`);
+  // 路由专属表也一样预加载，否则 head 里那行 <link> 要等 HTML 解析到才发车
+  const hintRouteCss = routeCssPath(url.pathname);
+  if (hintRouteCss) hints.push(`<${hintRouteCss}${avq}>; rel=preload; as=style`);
 
   /* 正文首图也预加载。这里跟 CSS 不一样：首图有 480/800/1200 多档，写死一个 URL
      等于替浏览器挑档 —— 手机会白下 1200 那张，或者 DPR=2 的桌面拿到 480 的糊图。

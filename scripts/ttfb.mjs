@@ -30,21 +30,26 @@ const ms = (v) => Math.round(v * 1000);
 function probe(url) {
   /* -w 里这五个时间的含义（都从请求开始算）：
      namelookup → connect → appconnect（TLS 完成）→ starttransfer（首字节）→ total。
-     真正「服务器在想什么」的是 starttransfer - appconnect，DNS 和 TLS 不算它的锅。 */
-  const out = execFileSync(
+     真正「服务器在想什么」的是 starttransfer - appconnect，DNS 和 TLS 不算它的锅。
+
+     %header{cf-cache-status} 跟在同一个请求里读，不能像以前那样另发一次 HEAD：
+     那条 HEAD 和真正计时的 GET 可能一次 HIT 一次 MISS —— 分组归错了，
+     HIT/MISS 的 P50 就全是噪声。用 | 做分隔符，因为 cf-cache-status 有时是空串。 */
+  const raw = execFileSync(
     'curl',
     [
       // Windows 自带的 curl.exe 不认 /dev/null，会当成文件名写出来
       '-s', '-o', devNull,
       '-H', 'cache-control: no-cache',
-      '-w', '%{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{http_code}',
+      '-w', '%{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{http_code}|%header{cf-cache-status}',
       '--max-time', '30',
       url,
     ],
     { encoding: 'utf8', shell: false }
-  ).trim().split(' ');
+  ).trim();
 
-  const [dns, conn, tls, ttfb, total, code] = out.map(Number);
+  const [timings, cache = ''] = raw.split('|');
+  const [dns, conn, tls, ttfb, total, code] = timings.trim().split(' ').map(Number);
   return {
     dns: ms(dns),
     // 没有 TLS 层（http）时 appconnect 是 0，退回 connect
@@ -52,54 +57,58 @@ function probe(url) {
     ttfb: ms(ttfb),
     total: ms(total),
     code,
+    cache: (cache.trim() || 'DYNAMIC').toUpperCase(),
   };
 }
 
-function cacheStatus(url) {
-  const h = execFileSync(
-    'curl',
-    ['-sI', '-H', 'cache-control: no-cache', '--max-time', '20', url],
-    { encoding: 'utf8', shell: false }
+function report(label, rows) {
+  const server = rows.map((r) => r.server);
+  const ttfb = rows.map((r) => r.ttfb);
+  const total = rows.map((r) => r.total);
+  const dns = rows.map((r) => r.dns);
+  console.log(`  [${label}] n=${rows.length}`);
+  console.log(
+    `    服务器处理  P50 ${pct(server, 50)}ms  P95 ${pct(server, 95)}ms  max ${Math.max(...server)}ms`
   );
-  const m = h.match(/cf-cache-status:\s*(\S+)/i);
-  return m ? m[1].toUpperCase() : '(无)';
+  console.log(`    TTFB        P50 ${pct(ttfb, 50)}ms  P95 ${pct(ttfb, 95)}ms  max ${Math.max(...ttfb)}ms`);
+  console.log(`    整条请求    P50 ${pct(total, 50)}ms  P95 ${pct(total, 95)}ms  max ${Math.max(...total)}ms`);
+  console.log(`    DNS         P50 ${pct(dns, 50)}ms（这一段是链路，不是 Worker）`);
 }
 
 console.log(`每项 ${N} 次，${FRESH ? '全部带随机参数（测 miss）' : '复用同一 URL（测 hit 路径）'}\n`);
 
 for (const base of targets) {
   const rows = [];
-  let status = '(未知)';
   for (let i = 0; i < N; i++) {
     const u = FRESH ? base + (base.includes('?') ? '&' : '?') + 'cb=' + Date.now() + i : base;
     try {
       rows.push(probe(u));
     } catch (e) {
-      rows.push({ dns: 0, server: 0, ttfb: 0, total: 0, code: 0, err: e.message.slice(0, 40) });
+      rows.push({ dns: 0, server: 0, ttfb: 0, total: 0, code: 0, cache: 'ERR', err: e.message.slice(0, 40) });
     }
   }
-  status = cacheStatus(base);
 
   const ok = rows.filter((r) => r.code === 200);
-  const server = ok.map((r) => r.server);
-  const ttfb = ok.map((r) => r.ttfb);
-  const total = ok.map((r) => r.total);
-  const dns = ok.map((r) => r.dns);
+  // 关键：按每次请求自己的 cf-cache-status 分组，不再混在一起算一个中位。
+  // HIT 慢是边缘链路问题（跟 Worker/D1 无关），MISS 慢才是回源渲染的锅。
+  const groups = new Map();
+  for (const r of ok) {
+    if (!groups.has(r.cache)) groups.set(r.cache, []);
+    groups.get(r.cache).push(r);
+  }
 
   console.log(base);
-  console.log(`  边缘缓存 ${status} · 成功 ${ok.length}/${rows.length}`);
-  console.log(
-    `  服务器处理  P50 ${pct(server, 50)}ms  P95 ${pct(server, 95)}ms  max ${Math.max(...server)}ms`
-  );
-  console.log(`  TTFB        P50 ${pct(ttfb, 50)}ms  P95 ${pct(ttfb, 95)}ms  max ${Math.max(...ttfb)}ms`);
-  console.log(`  整条请求    P50 ${pct(total, 50)}ms  P95 ${pct(total, 95)}ms  max ${Math.max(...total)}ms`);
-  console.log(`  DNS         P50 ${pct(dns, 50)}ms（这一段是链路，不是 Worker）`);
+  console.log(`  成功 ${ok.length}/${rows.length} · 缓存态: ${[...groups.keys()].join(', ')}`);
+  for (const [name, g] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    report(name, g);
+  }
   const failed = rows.filter((r) => r.code !== 200);
   if (failed.length) console.log('  异常：', failed.slice(0, 3).map((r) => r.code + (r.err ? ' ' + r.err : '')).join(', '));
   console.log('');
 }
 
 /* 判读方式写出来，省得下次又对着一个 4 秒发呆：
-   · server P95 在几十毫秒 → Worker 没问题，总时长全是链路（代理、跨国、TLS 重连）
-   · server P95 上几百毫秒、且 miss 明显高于 hit → 回源渲染 + D1 往返的成本，看 html_content 有没有命中
+   · HIT 的 server P95 还上百毫秒 → 边缘节点到客户端这段（代理/跨国/TLS），不是代码问题
+   · MISS 的 server P95 上几百毫秒、且明显高于 HIT → 回源渲染 + D1 往返，查 html_content / LRU 有没有命中
+   · HIT 快而 MISS 慢，但 MISS 占比很低 → 不用动 Worker，把 SWR / EDGE_TTL 调大更划算
    · 两者都正常但 total 高 → 客户端到边缘那一段，跟站点无关 */

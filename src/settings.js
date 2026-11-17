@@ -27,6 +27,22 @@ export function themeCssTag(theme, version = '') {
   return `<link id="tcss-default" rel="stylesheet" href="${href}${v}">`;
 }
 
+/* 路由专属样式表。这些样式原先都在 style.css 里全站加载，现在按路由拆出：
+   首页/文章页/分类页只带主表；编辑器、登录、友链、归档各自多带一个小文件。
+   路径跟 103 Early Hints 的预加载共用这一份来源，两处不会漂移。
+
+   只在确切的页面路径上命中。列表/标签/栏目页用的是首页模板，走主表即可；
+   /series 和 404 是 Worker 内联生成的 HTML（没有 <!--THEME--> 标记），
+   它们的样式本来就 redundantly 在主表里，不依赖这里。 */
+export function routeCssPath(pathname) {
+  const p = String(pathname || '').replace(/\/+$/, '') || '/';
+  if (p === '/editor') return '/css/editor.css';
+  if (p === '/login') return '/css/login.css';
+  if (p === '/friends') return '/css/friends.css';
+  if (p === '/archive' || /^\/archive\/\d{4}$/.test(p)) return '/css/archive.css';
+  return '';
+}
+
 const normTheme = (v) => (THEME_IDS.includes(v) ? v : 'paper');
 const normMode = (v) => (MODE_IDS.includes(v) ? v : 'auto');
 

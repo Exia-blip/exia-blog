@@ -9,7 +9,7 @@
     "db:init": "wrangler d1 execute blog-db --remote --file=./schema.sql",
     "db:init:local": "wrangler d1 execute blog-db --local --file=./schema.sql",
     "tail": "wrangler tail",
-    "test": "node scripts/test-md.mjs && node scripts/test-clean.mjs && node scripts/test-assets.mjs && node scripts/test-security.mjs && node scripts/test-antispam.mjs && node scripts/test-routes.mjs && node scripts/test-copy-notice.mjs && node scripts/verify-copy.mjs && node scripts/test-seo-series.mjs && node scripts/test-meta.mjs && node scripts/test-rss.mjs && node scripts/test-comment-ssr.mjs && node scripts/test-stats.mjs && node scripts/test-token.mjs && node scripts/test-webhook.mjs && node scripts/test-setup.mjs && node scripts/test-variants.mjs && node scripts/test-imgsize.mjs && node scripts/test-etag.mjs && node scripts/test-tz.mjs && node scripts/test-svg.mjs && node scripts/test-theme.mjs && node scripts/test-srcset.mjs && node scripts/test-alt.mjs",
+    "test": "node scripts/test-md.mjs && node scripts/test-clean.mjs && node scripts/test-assets.mjs && node scripts/test-security.mjs && node scripts/test-antispam.mjs && node scripts/test-routes.mjs && node scripts/test-copy-notice.mjs && node scripts/verify-copy.mjs && node scripts/test-seo-series.mjs && node scripts/test-meta.mjs && node scripts/test-rss.mjs && node scripts/test-comment-ssr.mjs && node scripts/test-stats.mjs && node scripts/test-token.mjs && node scripts/test-webhook.mjs && node scripts/test-setup.mjs && node scripts/test-variants.mjs && node scripts/test-imgsize.mjs && node scripts/test-etag.mjs && node scripts/test-tz.mjs && node scripts/test-svg.mjs && node scripts/test-theme.mjs && node scripts/test-route-css.mjs && node scripts/test-srcset.mjs && node scripts/test-alt.mjs",
     "cards": "node scripts/gen-cards.mjs",
     "shots": "node scripts/shot.mjs",
     "check:ld": "node scripts/check-ld.mjs",
@@ -38,6 +38,7 @@
     "vitals:mobile": "node scripts/perf-vitals.mjs https://exia.de5.net/ --mobile --runs=3",
     "cls": "node scripts/cls-dig.mjs",
     "check:live": "node scripts/check-live.mjs",
+    "check:css": "node scripts/check-route-css-live.mjs",
     "backfill:html": "node scripts/backfill-html.mjs",
     "ttfb": "node scripts/ttfb.mjs"
   },

@@ -1,0 +1,13 @@
+/* 从 style.css 拆出：login.css
+   路由专属样式，只有对应页面加载。共享规则（.field/.dot/.chi/.lnk 等）仍在主表。 */
+
+/* ============ 登录页 ============ */
+.login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.login-box { text-align: center; max-width: 340px; width: 100%; }
+.login-box h1 { font-family: var(--serif); font-size: 26px; margin: 0 0 8px; }
+.login-box p { color: var(--muted); font-size: 14px; margin: 0 0 26px; }
+.gh-btn {
+  display: inline-flex; align-items: center; gap: 9px; padding: 11px 22px;
+  border-radius: 10px; background: var(--fg); color: var(--bg); font-size: 14px; font-weight: 500;
+}
+.gh-btn:hover { opacity: 0.88; color: var(--bg); }
