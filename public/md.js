@@ -132,8 +132,11 @@ function widthSrcset(url, ext, origW) {
    R2 的 key 是随机串（mvv7xrrwzzr5x3），把它念出来比不念更糟：空 alt 的意思是
    「这是装饰图，读屏请跳过」，而一段乱码会被逐字符念完，比没有更吵。
 
-   所以判据是「清洗之后还剩不剩人能读的词」，不是「能不能凑出一个字符串」。 */
-const ALT_NOISE = /(^|[\s_-])(img|image|photo|pic|picture|screenshot|screen|shot|upload|untitled|wechat|mmexport|微信图片)(?=[\s_-]|$)/gi;
+   判据是「清洗之后还剩不剩人能读的词」，不是「能不能凑出一个字符串」。
+   注意 screenshot / 微信图片 这类词虽然泛，但对读屏用户仍然说明「这是什么」，
+   比空 alt 强 —— 上一版把它们跟 untitled 一起剥了，结果 7 张正文图全空，
+   老板验收直接打回。现在只剥真正的占位词。 */
+const ALT_NOISE = /(^|[\s_-])(img|image|untitled|upload|dsc|dscf)(?=[\s_-]|$)/gi;
 
 /* alt 是否只是上传器自动填的文件名，而不是作者写的描述。
    注意文件名跟 URL 的 key 是两回事：编辑器把本地文件名（微信图片_xxx.jpg）
@@ -169,14 +172,18 @@ export function cleanAltName(raw) {
   // 剥掉变体后缀（a.png.w800的 w800 段）和尺寸尾巴（xxx-1600x900）
   s = s.replace(/\.w\d{3,4}$/i, '').replace(/[-_]\d{2,4}x\d{2,4}$/i, '');
   s = s.replace(ALT_NOISE, ' ');
-  // 时间戳、随机 id：8 位以上的十六进制段（纯数字也算），大概率是上传时生成的
-  s = s.replace(/[\s_-]*\b[0-9a-f]{8,}\b[\s_-]*/gi, ' ');
+  /* 时间戳、随机 id：8 位以上的十六进制段（纯数字也算），大概率是上传时生成的。
+     不能用 \b —— 分隔符里含下划线，而 _ 属于 \w，`微信图片_2024...` 里
+     \b 在 _ 和数字之间不成立，14 位时间戳会整个留在 alt 里。 */
+  s = s.replace(/(?:^|[\s_-])[0-9a-f]{8,}(?=$|[\s_-])/gi, ' ');
   s = s.replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (s.length < 2 || s.length > 120) return '';
   // 清洗完只剩数字和符号 → 说明原文件名没有语义
   if (!/[A-Za-z\u4e00-\u9fff]/.test(s)) return '';
-  // 单段、纯小写字母数字且够长 → 还是随机串（pipeline 这种会带空格或大小写，能留下）
-  if (!/\s/.test(s) && /^[a-z0-9]{10,}$/.test(s)) return '';
+  /* 单段、纯小写且「字母数字混排」的长串 → 随机 key（mvv7xrrwzzr5x3）。
+     纯小写单词不能再一刀切掉：screenshot / pipeline 这种正好落在这个形状里，
+     它们虽然是泛词，但对读屏用户仍有意义，比空 alt 强。 */
+  if (!/\s/.test(s) && /^[a-z0-9]{10,}$/.test(s) && /\d/.test(s)) return '';
   return s;
 }
 
@@ -206,9 +213,12 @@ function inline(line) {
        有明确含义（装饰图），比一段噪音好。
 
        还要认一种「假填写」：编辑器上传时把文件名原样塞进 alt（现有 9 张图全是
-       这样），那不是作者写的描述，只是自动填充。不识别的话，读屏会把
-       「微信图片_20241221225808.jpg」逐字念一遍 —— 正是兜底规则要消灭的东西。 */
-    const altText = autoFilledAlt(alt, url) ? esc(autoAlt(url)) : alt;
+       这样）。这时候语义在 alt 自身的文件名里，不在 URL —— URL 是 R2 随机 key。
+       上一版洗错了对象，拿 mvv7xrrwzzr5x3 去兜，结果正文图全空。
+       现在洗 alt 本身：微信图片_20241221225808.jpg → 微信图片。 */
+    const altText = autoFilledAlt(alt, url)
+      ? esc(alt ? cleanAltName(alt) : autoAlt(url))
+      : alt;
     const img = `<img src="${url}" alt="${altText}"${
       title ? ` title="${title}"` : ''
     }${dim} loading="lazy" decoding="async">`;

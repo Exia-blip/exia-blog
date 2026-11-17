@@ -261,10 +261,29 @@ console.log(`\n${ORIGIN}\n`);
   let multi = null;
   for (const p of slugs) {
     const r = await get(`${p}?b=${Date.now()}${Math.random().toString(36).slice(2, 6)}`);
-    if (!linkHeader) linkHeader = r.h.get('link') || '';
+    const lh = r.h.get('link') || '';
     const m = [...new Set([...r.body.matchAll(/srcset="(\/img\/[^"]+?\.w\d{3,4}\.(?:avif|webp)) \d+w/g)].map((x) => x[1]))];
-    if (m.length && !multi) multi = { path: p, urls: m };
+    /* 只认纯 CSS 那份 link 头就错了：首图 preload 只在带图的文章上出现，
+       取到第一篇没图文章的头，会把「有多档 preload」误报成失败。 */
+    if (m.length && !multi) {
+      multi = { path: p, urls: m };
+      linkHeader = lh;
+    }
+    if (!linkHeader) linkHeader = lh;
     if (linkHeader && multi) break;
+  }
+
+  /* 公开文章里目前一张多档图都没有 —— 那批测试图所在的文章一篇是 hidden、
+     一篇是私密。hidden 那篇仍可直连访问，拿它当固定夹具；
+     哪天它被删了，这里会退回「跳过」而不是误报失败。
+     必须在断言之前探：首图 preload 只出现在带图的文章上。 */
+  if (!multi) {
+    const probe = await get(`/p/post-brfy5?b=${Date.now()}`);
+    const m = [...new Set([...probe.body.matchAll(/srcset="(\/img\/[^"]+?\.w\d{3,4}\.(?:avif|webp)) \d+w/g)].map((x) => x[1]))];
+    if (m.length) {
+      multi = { path: '/p/post-brfy5', urls: m };
+      linkHeader = probe.h.get('link') || linkHeader;
+    }
   }
 
   /* 103 的触发条件就是响应里这个头。没有它，Cloudflare 那边开不开 Early Hints 都一样 */
@@ -273,15 +292,17 @@ console.log(`\n${ORIGIN}\n`);
     /rel=preload/.test(linkHeader) && /style\.css/.test(linkHeader),
     linkHeader.slice(0, 90) || '(没有 link 头)'
   );
-
-  /* 公开文章里目前一张多档图都没有 —— 那批测试图所在的文章一篇是 hidden、
-     一篇是私密。hidden 那篇仍可直连访问，拿它当固定夹具；
-     哪天它被删了，这里会退回「跳过」而不是误报失败。 */
-  if (!multi) {
-    const probe = await get(`/p/post-brfy5?b=${Date.now()}`);
-    const m = [...new Set([...probe.body.matchAll(/srcset="(\/img\/[^"]+?\.w\d{3,4}\.(?:avif|webp)) \d+w/g)].map((x) => x[1]))];
-    if (m.length) multi = { path: '/p/post-brfy5', urls: m };
-  }
+  /* 首图的 preload 必须带 imagesrcset：只写死一个 URL 的话，手机会白下 1200 那张，
+     高 DPR 桌面会拿到 480 的糊图 —— 页面看着没问题，LCP 反而更差。 */
+  ok(
+    '首图 preload 带 imagesrcset/imagesizes 多档',
+    /rel=preload; as=image/.test(linkHeader) && /imagesrcset="[^"]+ \d+w/.test(linkHeader) && /imagesizes="[^"]+"/.test(linkHeader),
+    linkHeader.slice(0, 200)
+  );
+  /* 页面源码里不该出现 githubusercontent：可见 <img> 早就代理了，
+     漏的两次在 __SITE__.avatar 和 JSON-LD 的 author.image —— 都是看不见的地方。 */
+  const gh = [...(await get(`/?b=${Date.now()}`)).body.matchAll(/https:\/\/avatars\.githubusercontent\.com\/[^"\\ <]+/g)];
+  ok('页面源码无 githubusercontent 外链（含 __SITE__ 与 JSON-LD）', gh.length === 0, gh.slice(0, 2).join(' | '));
 
   if (!multi) {
     console.log('  --   当前公开文章里没有带宽度档的正文图，跳过 srcset 实物校验');

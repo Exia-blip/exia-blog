@@ -1647,11 +1647,13 @@ async function injectTheme(env, res, url) {
   const [s, counts, tags] = await Promise.all([siteP, catsP, tagsP]);
 
   const cfg = JSON.stringify({ theme: s.theme, mode: s.mode }).replace(/</g, '\\u003c');
-  // 站点头像与站名先落到 window.__SITE__，导航渲染时能立刻用
+  // 站点头像与站名先落到 window.__SITE__，导航渲染时能立刻用。
+  // avatar 这里就换成代理地址：前端 avatarSrc() 见到 /avatar 会原样用，
+  // 不会再套一层；而首屏源码里也就不再出现 githubusercontent。
   const siteCfg = JSON.stringify({
     name: s.name,
     desc: s.desc,
-    avatar: s.avatar,
+    avatar: avatarSrc(s.avatar, 128),
     // 只下发公开的 site key；secret 只在 Worker 里，永不进页面
     turnstile: env.TURNSTILE_SITE_KEY || '',
   }).replace(/</g, '\\u003c');
@@ -1719,6 +1721,22 @@ async function injectTheme(env, res, url) {
   const hints = [`</style.css${avq}>; rel=preload; as=style`];
   const themeHref = themeCssPath(s.theme);
   if (themeHref) hints.push(`<${themeHref}${avq}>; rel=preload; as=style`);
+
+  /* 正文首图也预加载。这里跟 CSS 不一样：首图有 480/800/1200 多档，写死一个 URL
+     等于替浏览器挑档 —— 手机会白下 1200 那张，或者 DPR=2 的桌面拿到 480 的糊图。
+     imagesrcset + imagesizes 让浏览器在收到 103 的那一刻就按自己的视口挑，
+     规则跟 <picture> 里的 source 完全一致（本来就是从那段 HTML 里提出来的）。
+
+     只认正文里带 srcset 的 picture：列表页的卡片封面是固定尺寸的缩略图，
+     preload 它反而抢走首屏 CSS 的带宽。 */
+  const lcp = body.match(
+    /<source type="image\/avif" srcset="([^"]+)" sizes="([^"]+)"/
+  );
+  if (lcp) {
+    const first = lcp[1].trim().split(/\s+/)[0];
+    // imagesrcset 里有逗号，必须用引号包住，否则 Link 会把它当成两条指令拆开
+    hints.push(`<${first}>; rel=preload; as=image; imagesrcset="${lcp[1]}"; imagesizes="${lcp[2]}"`);
+  }
   headers.set('link', hints.join(', '));
   return new Response(body, {
     status: res.status,

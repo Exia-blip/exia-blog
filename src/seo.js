@@ -91,7 +91,10 @@ export function postLd({ post, site, origin, url, image, words }) {
       '@type': 'Person',
       name: post.author || siteName,
       url: `${origin}/`,
-      image: abs(post.avatar, origin) || undefined,
+      // 跟 siteLd / 页面上的 <img> 走同一个代理。这里漏过的那次，
+      // JSON-LD 里就留了一个 githubusercontent 直链 —— 页面看不到，
+      // 但搜索引擎照样会去取，等于第三处外链没消掉。
+      image: post.avatar ? abs(avatarSrc(post.avatar, 128), origin) : undefined,
     },
     publisher: { '@id': `${origin}/#owner` },
     image: images,

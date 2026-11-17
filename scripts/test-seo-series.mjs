@@ -73,3 +73,16 @@ for (const [name, fn] of cases) {
 }
 console.log(`\n${cases.length - bad}/${cases.length} 通过`);
 process.exit(bad ? 1 : 0);
+
+/* 头像必须全链路走代理。JSON-LD 上的 githubusercontent 外链看不见摸不着，
+   但搜索引擎会真的去取 —— 页面上那两处 <img> 早就代理了，这里漏过一次。 */
+t('作者头像走 /avatar 代理，不让 githubusercontent 外链进 JSON-LD', () => {
+  const a = withSeries({ avatar: 'https://avatars.githubusercontent.com/u/191740539?v=4' })['@graph'][0];
+  assert.equal(a.author.image, `${origin}/avatar?u=${encodeURIComponent('https://avatars.githubusercontent.com/u/191740539?v=4')}&s=128`);
+  assert.ok(!String(a.author.image).includes('githubusercontent.com'));
+});
+
+t('作者没头像不出 image 字段，不塞 undefined 进 JSON', () => {
+  const a = withSeries({ avatar: '' })['@graph'][0];
+  assert.ok(!('image' in a.author));
+});

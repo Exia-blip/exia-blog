@@ -36,7 +36,7 @@ t(alt('![](/img/u/base-64-encode.png)') === 'base 64 encode', '数字段落保�
 /* ---- 不该兜的 ---- */
 t(alt('![](/img/u/mvv7xrrwzzr5x3.jpg)') === '', 'R2 随机 key → 保持空 alt');
 t(alt('![](/img/u/IMG_20241116_142233.jpg)') === '', '相机文件名去掉时间戳后没剩东西 → 空');
-t(alt('![](/img/u/screenshot.png)') === '', '纯 screenshot → 空（这个词没有描述性）');
+t(alt('![](/img/u/screenshot.png)') === 'screenshot', '纯 screenshot → 保留（说明这是截图，比空 alt 强）');
 t(alt('![](/img/u/a.png)') === '', '单字符文件名 → 空');
 t(alt('![](/img/u/12345.png)') === '', '纯数字 → 空');
 
@@ -46,12 +46,12 @@ t(alt('![a"b](/img/u/x.png)') === 'a&quot;b', '作者写的 alt 仍然转义（�
 
 /* ---- 自动填充的假 alt：现有文章的 9 张图全是这种 ---- */
 t(
-  alt('![微信图片_20241221225808.jpg](/img/u/mvv7xrrwzzr5x3.jpg?w=1080&h=1565)') === '',
-  'alt 等于文件名（带扩展名）→ 当成没写，清洗后无语义就空'
+  alt('![微信图片_20241221225808.jpg](/img/u/mvv7xrrwzzr5x3.jpg?w=1080&h=1565)') === '微信图片',
+  'alt 是自动填的文件名 → 洗掉时间戳，留下「微信图片」这种弱描述'
 );
 t(
   alt('![mvv7xrrwzzr5x3](/img/u/mvv7xrrwzzr5x3.jpg)') === '',
-  'alt 等于文件名（不带扩展名）→ 同样当自动填充'
+  'alt 等于随机 key → 洗完没词，保持空'
 );
 t(
   alt('![架构图](/img/u/architecture-diagram.png)') === '架构图',
