@@ -6,6 +6,7 @@ import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
 import { coverOf, autoThumb, isAutoCover, isCardCover, thumbOf } from './cover.js';
 import { avatarSrc } from '../public/avatar.js';
+import { rankRelated } from './related.js';
 import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders, obfuscateEmail } from './security.js';
 import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
@@ -894,6 +895,27 @@ function renderAdjacent(post, list, seriesList) {
   </nav>`;
 }
 
+/* 相关推荐：同标签 / 同栏目的 3 篇。空了整块不渲染（不留空壳占版面）。
+   排在上一篇/下一篇之上——先给横向的延伸阅读，再给纵向的时间序列。 */
+function renderRelated(post, list) {
+  if (!list || !list.length) return '';
+  const cells = list
+    .map((p) => {
+      const cname = p.category ? catName(p.category) : '';
+      const day = fmtDay(p.published_at || p.created_at);
+      const meta = [cname, day].filter(Boolean).join(' · ');
+      return `<a class="rel" href="/p/${encodeURIComponent(p.slug)}" rel="nofollow">
+        <span class="rel-t">${esc(p.title)}</span>
+        ${meta ? `<span class="rel-m">${esc(meta)}</span>` : ''}
+      </a>`;
+    })
+    .join('');
+  return `<section class="post-related" aria-label="相关文章">
+    <h2 class="rel-h">相关文章</h2>
+    <div class="rel-grid">${cells}</div>
+  </section>`;
+}
+
 async function servePostPage(env, request, slug) {
   const user = await currentUser(env, request);
 
@@ -937,17 +959,25 @@ async function servePostPage(env, request, slug) {
           )
             .bind(slug)
             .all(),
-          // 同栏目整份列表：一个栏目最多十来篇，比「查上一篇 + 查下一篇」
-          // 两条 SQL 便宜——D1 的成本主要在往返，不在这十几行数据。
-          // 顺带取 published_at / category：上下篇卡片要显示「日期 · 栏目」，
-          // 只查 slug/title 的话那行永远是空的。
+          // 同栏目整份列表 + 相关推荐候选，一条查询两用（D1 连接已用 5 条、上限 6，不再加）：
+          //   · 上下篇：只取 category 相同的行，按时间排（见下面 sameCat 的过滤）
+          //   · 相关推荐：取全部候选（同栏目 OR 有共同标签），在内存里按标签交集排序
+          // 带出 tag_str（char(31) 分隔）才能在内存算交集，避免为推荐单开一条查询。
           env.DB.prepare(
-            `SELECT slug, title, published_at, created_at, category FROM posts
-             WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
-               AND category = (SELECT category FROM posts WHERE slug = ?)
-             ORDER BY COALESCE(NULLIF(published_at, ''), created_at) ASC`
+            `SELECT p.slug, p.title, p.published_at, p.created_at, p.category,
+                    (SELECT GROUP_CONCAT(t.name, char(31)) FROM post_tags pt
+                     JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = p.id) AS tag_str
+             FROM posts p
+             WHERE p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}
+               AND (p.category = (SELECT category FROM posts WHERE slug = ?)
+                    OR EXISTS (
+                      SELECT 1 FROM post_tags a JOIN post_tags b ON a.tag_id = b.tag_id
+                      WHERE a.post_id = p.id
+                        AND b.post_id = (SELECT id FROM posts WHERE slug = ?)
+                    ))
+             ORDER BY COALESCE(NULLIF(p.published_at, ''), created_at) ASC`
           )
-            .bind(slug)
+            .bind(slug, slug)
             .all(),
         ]);
         const b = {
@@ -982,7 +1012,11 @@ async function servePostPage(env, request, slug) {
   const post = bundle.post ? { ...bundle.post } : null;
   const tagNames = bundle.tags;
   const seriesPosts = bundle.series.map((r) => ({ ...r }));
-  const sameCat = bundle.same.map((r) => ({ ...r }));
+  /* 同一份查询结果两用：上下篇只要同栏目的（按查询里的时间序，不能打乱）；
+     相关推荐吃全部候选（含跨栏目同标签的），由 rankRelated 重排。 */
+  const allCat = bundle.same.map((r) => ({ ...r }));
+  const sameCat = post ? allCat.filter((r) => r.category === post.category) : [];
+  const related = rankRelated(post, allCat);
 
   if (!post) return await notFoundPage(env, request, '页面走丢了');
   if (post.is_private && (!user || (user.id !== post.author_id && !user.is_admin))) {
@@ -1101,6 +1135,7 @@ async function servePostPage(env, request, slug) {
       ${renderSeries(post, seriesPosts)}
       <div class="md post-body">${bodyHtml}</div>
       <footer class="post-foot"><div class="tagbar" style="margin:0">${tagbar}</div></footer>
+      ${renderRelated(post, related)}
       ${renderAdjacent(post, sameCat, seriesPosts)}
       ${renderComments(cmtRows, cmtRows.length, user)}
       </div>

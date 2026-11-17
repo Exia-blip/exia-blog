@@ -323,6 +323,21 @@ console.log(`\n${ORIGIN}\n`);
   }
 }
 
+/* ---------- 相关推荐 ---------- */
+{
+  // 固定夹具：worker-cron-friend-check 有 4 标签、非系列，相关推荐与上下篇应共存；
+  // post-brfy5 无标签无栏目，整块不该渲染（空壳占版面是回归）。
+  const withTags = await get('/p/worker-cron-friend-check');
+  const cards = [...withTags.body.matchAll(/class="rel"[^>]*>/g)].map((_, i) => i);
+  ok('有标签文章渲染相关推荐区块', withTags.body.includes('class="post-related"'));
+  ok('相关推荐最多 3 张卡', cards.length > 0 && cards.length <= 3, `实际 ${cards.length} 张`);
+  const relHrefs = [...withTags.body.matchAll(/class="rel"[^>]*href="(\/p\/[^"]+)"/g)].map((m) => m[1]);
+  ok('相关推荐链接格式正确', relHrefs.length === cards.length && relHrefs.every((u) => /^\/p\/[^/]+$/.test(u)));
+  ok('相关推荐不含当前文章', !relHrefs.includes('/p/worker-cron-friend-check'));
+  const noTags = await get('/p/post-brfy5');
+  ok('无标签无栏目文章不渲染相关推荐', !noTags.body.includes('class="post-related"'));
+}
+
 /* ---------- 10. 安全与缓存头 ---------- */
 {
   const { h } = await get('/');
