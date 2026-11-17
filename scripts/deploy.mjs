@@ -26,3 +26,14 @@ try {
 const version = Date.now().toString(36);
 console.log(`[deploy] asset version = ${version}`);
 execSync(`npx wrangler deploy --var SITE_VERSION:${version}`, { stdio: 'inherit' });
+
+/* 部署后打线上体检（check-live 默认打 https://exia.de5.net）。
+   必须在部署后跑——部署前跑测的是旧版本，等于没测。
+   它覆盖响应头 / CSP / srcset / alt / 103 等线上才能验的项，是发版闭环的最后一环。
+   体检失败不回滚（回滚要另发一个版本），而是明确报错让人决定。 */
+try {
+  execSync('npm run check:live', { stdio: 'inherit', shell: true });
+} catch {
+  console.log('\n[deploy] ⚠️ 线上体检失败。代码已部署，请查看上面的失败项决定是否需要修复重发。');
+  process.exit(1);
+}
