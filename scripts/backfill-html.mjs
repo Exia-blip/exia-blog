@@ -9,7 +9,11 @@
 //   node scripts/backfill-html.mjs              只补 html_content 为空的行
 //   node scripts/backfill-html.mjs --all        全部重算（渲染逻辑改过之后用）
 //   node scripts/backfill-html.mjs --dry        只打印统计，不写库
+//   node scripts/backfill-html.mjs --check      只查线上有无空行，退出码 0=无需回填 / 1=需要
 //   node scripts/backfill-html.mjs --local      打本地库（wrangler dev 的 D1）
+//
+// 发布新文章不需要手动跑：src/api.js 写入时已落 html_content / cover_body。
+// --check 用于发布后按需确认；渲染逻辑（md.js / clean.js / cover.js）改动后用 --all 重算存量。
 
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, unlinkSync } from 'node:fs';
@@ -20,6 +24,7 @@ import { bodyCoverFor } from '../src/cover.js';
 const argv = new Set(process.argv.slice(2));
 const ALL = argv.has('--all');
 const DRY = argv.has('--dry');
+const CHECK = argv.has('--check');
 const LOCAL = argv.has('--local');
 const DB = 'blog-db';
 
@@ -31,12 +36,26 @@ import { dirname, join } from 'node:path';
 const require = createRequire(import.meta.url);
 const WRANGLER = join(dirname(require.resolve('wrangler/package.json')), 'bin', 'wrangler.js');
 
-const wrangler = (args) =>
+/* 代理偶发 `fetch failed`（这个环境里约 1/4 概率），重跑即通。
+   重试对读安全；写库也是 `SET 列=定值` 的幂等 UPDATE，重复执行不产生副作用。 */
+const wranglerOnce = (args) =>
   execFileSync(process.execPath, [WRANGLER, 'd1', 'execute', DB, ...args], {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+const wrangler = (args) => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return wranglerOnce(args);
+    } catch (e) {
+      const transient = /fetch failed|ETIMEDOUT|ECONNRESET/i.test(String(e.stderr || e.message));
+      if (!transient || attempt >= 3) throw e;
+      process.stderr.write(`  [重试 ${attempt}/3] D1 连接抖动，稍候再试…\n`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 600);
+    }
+  }
+};
 
 /* wrangler 会把日志和 JSON 混着打到 stdout，从第一个 [{ 开始截，
    再取 results。进度条那几行不管，JSON.parse 会自己抛。 */
@@ -49,7 +68,27 @@ function d1Json(args) {
 
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
-console.log(`目标库：${DB}${LOCAL ? '（本地）' : '（线上）'}${DRY ? ' · dry run' : ''}\n`);
+console.log(`目标库：${DB}${LOCAL ? '（本地）' : '（线上）'}${DRY ? ' · dry run' : ''}${CHECK ? ' · check' : ''}\n`);
+
+/* --check：一条聚合 SQL 就够，不拉全部正文。CI / 发布后按需确认用，
+   空行 > 0 时退出码 1，方便接 `&&` 或 CI 步骤。 */
+if (CHECK) {
+  const r = d1Json([
+    ...(LOCAL ? ['--local'] : ['--remote']),
+    '--json',
+    '--command',
+    "SELECT COUNT(*) AS total, SUM(CASE WHEN html_content IS NULL OR html_content='' THEN 1 ELSE 0 END) AS missing FROM posts",
+  ])[0].results[0];
+  const missing = r.missing ?? 0;
+  console.log(`共 ${r.total} 篇，html_content 空 ${missing} 篇`);
+  if (missing > 0) {
+    console.log('→ 有文章走读取侧现算兜底。跑 npm run backfill:html 补齐。');
+    process.exitCode = 1;
+  } else {
+    console.log('→ 全部已回填，读取侧兜底分支不会被触发。');
+  }
+  process.exit(process.exitCode || 0);
+}
 
 const rows = d1Json([
   ...(LOCAL ? ['--local'] : ['--remote']),

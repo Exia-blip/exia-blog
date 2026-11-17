@@ -12,6 +12,17 @@ if (pre.status !== 0) {
   process.exit(pre.status || 1);
 }
 
+/* 发版前先跑全量测试，顺序硬化在发版路径上，不靠人记。
+   图片安全 / srcset / alt / SVG CSP 这些管线的回归，线上体检未必抓得到
+   （比如某个入口的 CSP 只在单元测试里断言），测试是最后一道闸。
+   npm test 是本地单测，不依赖远程 D1，D1 抖动不会误伤发版。 */
+try {
+  execSync('npm test', { stdio: 'inherit', shell: true });
+} catch {
+  console.log('\n[deploy] 测试没过，已停下。修完再发版。');
+  process.exit(1);
+}
+
 const version = Date.now().toString(36);
 console.log(`[deploy] asset version = ${version}`);
 execSync(`npx wrangler deploy --var SITE_VERSION:${version}`, { stdio: 'inherit' });

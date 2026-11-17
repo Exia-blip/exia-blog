@@ -39,6 +39,7 @@
     "cls": "node scripts/cls-dig.mjs",
     "check:live": "node scripts/check-live.mjs",
     "backfill:html": "node scripts/backfill-html.mjs",
+    "backfill:check": "node scripts/backfill-html.mjs --check",
     "ttfb": "node scripts/ttfb.mjs"
   },
   "devDependencies": {
