@@ -10,6 +10,7 @@
 
 import { html, umamiOn } from './utils.js';
 import { requireAdmin } from './auth.js';
+import { postCacheStats } from './postcache.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ESC[ch]);
@@ -117,6 +118,88 @@ export async function recordPv(env, request, ctx) {
   return noContent;
 }
 
+/* ---------- 行为事件 ----------
+   三个事件：read（文章读到末尾）、img-error（正文图加载失败）、search（站内搜索）。
+
+   为什么不复用 pv 表：去重键不一样。pv 是「一人一天一页一条」，
+   而一个人可能一天内在同一页遇到三张图失败、搜五个词 —— 挤进 pv 会让
+   「今日浏览」被这些噪声撑大，两边数字都不能用了。
+
+   和 pv 一样，切到 umami 之后这条路整体关闭。 */
+export const EVENT_NAMES = new Set(['read', 'img-error', 'search']);
+
+/* 事件参数是客户端随便填的，跟 pv 的 path 一样必须先洗再存。
+   img-error 的 extra 是图片地址：只收站内路径。别家的 URL 一律丢 ——
+   否则这里就是个「任何人都能往我的库表里塞任意 URL」的免费存储。 */
+function cleanExtra(name, raw) {
+  const s = String(raw || '');
+  if (name === 'img-error') {
+    if (!s.startsWith('/')) return '';
+    return s.split('?')[0].replace(/[^\w\-./~%\u4e00-\u9fa5]/g, '').slice(0, 160);
+  }
+  if (name === 'search') {
+    /* 搜索词本身有分析价值（访客想找什么），但会带引号、换行甚至 HTML，
+       这些进报表页就是一次注入。只留可读字符。 */
+    return s.replace(/[\u0000-\u001f\u007f"<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+  }
+  return ''; // read 不带参数
+}
+
+export async function recordEvent(env, request, ctx) {
+  const ua = request.headers.get('user-agent') || '';
+  const noContent = new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+
+  if (umamiOn(env)) return noContent;
+  if (!ua || BOT_RE.test(ua)) return noContent;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return noContent;
+  }
+
+  const name = String(body?.n || '');
+  if (!EVENT_NAMES.has(name)) return noContent;
+
+  const path = String(body?.p || '')
+    .split('?')[0]
+    .replace(/[^\w\-./~%\u4e00-\u9fa5]/g, '')
+    .slice(0, 180);
+  if (!path.startsWith('/')) return noContent;
+  if (/^\/(editor|admin|login|auth)(\/|$)/.test(path)) return noContent;
+
+  const extra = cleanExtra(name, body?.x);
+  // img-error 没带图地址就没意义，别记一堆空行
+  if (name === 'img-error' && !extra) return noContent;
+
+  const day = dayCN();
+  const job = (async () => {
+    try {
+      const ip = await ipTag(env, request);
+      /* 同一个人同一天、同一页、同一件事只记一次。刷新十次不该变成十次
+         「读完」，那只会让完成率虚高到 100%。 */
+      const seen = await env.DB.prepare(
+        'SELECT 1 AS x FROM events WHERE day = ? AND ip = ? AND name = ? AND path = ? AND extra = ? LIMIT 1'
+      )
+        .bind(day, ip, name, path, extra)
+        .first();
+      if (seen) return;
+      await env.DB.prepare('INSERT INTO events (day, name, path, extra, ip, ts) VALUES (?,?,?,?,?,?)')
+        .bind(day, name, path, extra, ip, new Date().toISOString())
+        .run();
+    } catch (e) {
+      // 表没建、配额打满都只是少一条记录，绝不能让访客看到错误
+      console.error('event', e?.message || e);
+    }
+  })();
+
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(job);
+  else await job;
+
+  return noContent;
+}
+
 /* ---------- 报表 ---------- */
 
 const kvRow = (label, value, sub = '') =>
@@ -158,6 +241,9 @@ export async function statsPage(env, request) {
   const d30 = dayCN(29);
   const d14 = dayCN(13);
 
+  // 进程内文章缓存的自检数字：这个实例自己的，不跨实例
+  const pc = postCacheStats();
+
   const q = (sql, ...args) => db.prepare(sql).bind(...args).all();
   const one = (sql, ...args) => db.prepare(sql).bind(...args).first();
 
@@ -178,15 +264,65 @@ export async function statsPage(env, request) {
     one('SELECT COUNT(*) c, MIN(day) first FROM pv'),
   ]);
 
-  return html(renderStats({ user, t1, t7, t30, dailyRows: daily.results || [], top, refs, kinds, total }), 200, {
-    'cache-control': 'no-store',
-  });
+  /* 事件表可能还没建（迁移没跑过）。查不到就当空 —— 一个报表页不该
+     因为「少一张新表」整个 500，那样连旧数据都看不成了。 */
+  const evq = async (sql, ...args) => {
+    try {
+      return (await db.prepare(sql).bind(...args).all()).results || [];
+    } catch (e) {
+      console.error('events', e?.message || e);
+      return [];
+    }
+  };
+  const [evCounts, evImgs, evWords, evViews] = await Promise.all([
+    evq('SELECT name, COUNT(*) c FROM events WHERE day >= ? GROUP BY name', d7),
+    evq(
+      "SELECT extra, COUNT(*) c FROM events WHERE name = 'img-error' AND day >= ? GROUP BY extra ORDER BY c DESC LIMIT 8",
+      d7
+    ),
+    evq(
+      "SELECT extra, COUNT(*) c FROM events WHERE name = 'search' AND extra != '' AND day >= ? GROUP BY extra ORDER BY c DESC LIMIT 10",
+      d7
+    ),
+    // 完成率的分母：近 7 天文章页的浏览数。用 pv 不用 read —— 分子是事件、分母是浏览，才是「看完的比例」
+    one("SELECT COUNT(*) c FROM pv WHERE day >= ? AND path LIKE '/p/%'", d7)
+      .then((r) => r?.c || 0)
+      .catch(() => 0),
+  ]);
+
+  return html(
+    renderStats({
+      user,
+      t1,
+      t7,
+      t30,
+      dailyRows: daily.results || [],
+      top,
+      refs,
+      kinds,
+      total,
+      ev: { counts: evCounts, imgs: evImgs, words: evWords, views: evViews },
+      pc,
+    }),
+    200,
+    { 'cache-control': 'no-store' }
+  );
 }
 
 /** 纯渲染：只吃数据、不碰数据库。单测喂假数据就能验这一页没写错。 */
-export function renderStats({ user, t1, t7, t30, dailyRows = [], top, refs, kinds, total }) {
+export function renderStats({ user, t1, t7, t30, dailyRows = [], top, refs, kinds, total, ev = {}, pc = {} }) {
   const sum = (r) => r?.pv ?? 0;
   const uv = (r) => r?.uv ?? 0;
+
+  const evOf = (n) => (ev.counts || []).find((r) => r.name === n)?.c || 0;
+  // 缓存计数默认给 0：单测不喂这一块时不该出现 undefined
+  const cacheHit = pc.hit || 0;
+  const cacheMiss = pc.miss || 0;
+  const cacheSize = pc.size || 0;
+  const views = ev.views || 0;
+  const readN = evOf('read');
+  // 分母为 0 时不要算出 0%：那是「没数据」，不是「没人读完」
+  const readRate = views ? Math.round((readN / views) * 100) : 0;
 
   const body = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -211,11 +347,12 @@ h1{font-family:var(--serif);font-size:24px;margin:0 0 4px}
 .bar-d{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:5px;white-space:nowrap}
 section{margin:30px 0}
 h2{font-family:var(--serif);font-size:16px;margin:0 0 10px;color:var(--fg)}
+h3{font-size:13px;font-weight:500;color:var(--muted);margin:18px 0 8px}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th{text-align:left;font-weight:500;color:var(--muted);font-size:12px;padding:0 8px 6px 0;border-bottom:1px solid var(--line)}
 td{padding:7px 8px 7px 0;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);text-align:left}
 td:last-child,th:last-child{text-align:right;padding-right:0}
-td.p{font-family:var(--mono);font-size:12.5px;word-break:break-all}
+td.p,td.mono{font-family:var(--mono);font-size:12.5px;word-break:break-all}
 .empty{color:var(--muted);font-size:13px}
 .note{color:var(--muted);font-size:12px;line-height:1.7;margin-top:34px;border-top:1px solid var(--line);padding-top:14px}
 @media (max-width:560px){.kpis{grid-template-columns:1fr}.kpi-v{font-size:22px}}
@@ -262,6 +399,45 @@ td.p{font-family:var(--mono);font-size:12.5px;word-break:break-all}
   )}
 </section>
 
+<section>
+  <h2>文章热缓存（本实例）</h2>
+  <p class="sub">命中 ${cacheHit} · 未命中 ${cacheMiss} · 淘汰 ${pc.evicted || 0} · 命中率 ${(
+    (pc.rate || 0) * 100
+  ).toFixed(0)}% · 当前存 ${cacheSize} 篇<br>
+  这是处理本次请求的那个 Worker 实例的数字，不跨实例、冷启即清零，所以别当全站指标看 ——
+  它的用途是判断 45 秒的 TTL 该调长还是调短。</p>
+</section>
+
+<section>
+  <h2>行为事件（近 7 天）</h2>
+  <p class="sub">阅读完成 ${readN} 次 · 文章浏览 ${views} 次 · 完成率 ${
+    views ? readRate + '%' : '—'
+  }（读完的定义：正文尾部进入视口且停留超过 15 秒）</p>
+  ${
+    evOf('img-error') || evOf('search')
+      ? ''
+      : '<p class="empty">还没有事件。这两个埋点要访客真的滚到底 / 搜一次才会出现。</p>'
+  }
+  ${
+    (ev.imgs || []).length
+      ? `<h3>加载失败的图（${evOf('img-error')} 次）</h3>` +
+        table(
+          ['图片', '次数'],
+          ev.imgs.map((r) => [`<td class="mono">${esc(r.extra)}</td>`, `<td>${r.c}</td>`])
+        )
+      : ''
+  }
+  ${
+    (ev.words || []).length
+      ? `<h3>站内搜索词（${evOf('search')} 次）</h3>` +
+        table(
+          ['关键词', '次数'],
+          ev.words.map((r) => [`<td>${esc(r.extra)}</td>`, `<td>${r.c}</td>`])
+        )
+      : ''
+  }
+</section>
+
 <p class="note">IP 不落库，只存一份加盐摘要用于去重；不写 cookie，不跨站追踪，DNT/GPC 打开的访客完全不记。
 数据保留 90 天，由定时任务清理。</p>
 </main></body></html>`;
@@ -276,5 +452,11 @@ export async function prunePv(env) {
     await env.DB.prepare('DELETE FROM pv WHERE day < ?').bind(cut).run();
   } catch (e) {
     console.error('prune pv', e?.message || e);
+  }
+  /* 事件表同样的保留期。分开 try —— 表还没建时不该连带把 pv 的清理算失败 */
+  try {
+    await env.DB.prepare('DELETE FROM events WHERE day < ?').bind(cut).run();
+  } catch (e) {
+    console.error('prune events', e?.message || e);
   }
 }

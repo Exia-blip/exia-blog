@@ -153,6 +153,8 @@ if (currentCat) {
 }
 
 let ctrl = null;
+// 上一个已上报的搜索词：输入框防抖期间的同词不重复上报
+let lastQ = '';
 
 async function load() {
   // 连打关键词时只保留最后一次请求，避免旧结果盖住新结果
@@ -171,6 +173,14 @@ async function load() {
   try {
     const { posts, total, pages } = await api('/api/posts?' + params, { signal: mine.signal });
     if (mine !== ctrl) return;
+    /* 搜索埋点。只在第一页报，且同一个词只报一次 ——
+       输入框是 320ms 防抖的，一次「rust」会先后打出「r」「ru」「rus」，
+       全记下来得到的不是搜索意图，是打字速度。服务端另一头还有一层
+       同人同日同词去重，两道一起才干净。 */
+    if (currentQ && page === 1 && currentQ !== lastQ) {
+      lastQ = currentQ;
+      if (window.__ev) window.__ev('search', currentQ);
+    }
     if (!posts.length) {
       listEl.innerHTML = currentQ ? emptySearch() : `<div class="empty">还没有文章，去写第一篇吧</div>`;
       pagerEl.innerHTML = '';

@@ -172,6 +172,122 @@
     });
   }
 
+  /* ---------------- 行为事件 ----------------
+     三条事件共用一套口径：配了外部统计就不报（否则两边数字打架）、
+     DNT/GPC 一票否决、走 sendBeacon 不占关键路径、出错一律吞掉。
+     统计挂了不该在控制台留一片红字 —— 那会让人以为页面坏了。 */
+
+  function ev(name, extra) {
+    if (window.__PV_OFF__) return;
+    if (navigator.doNotTrack === '1' || window.doNotTrack === '1' || navigator.globalPrivacyControl) return;
+    var payload = JSON.stringify({ n: name, p: location.pathname + location.search, x: extra || '' });
+    try {
+      if (navigator.sendBeacon) {
+        // 带 type 的 Blob，服务端才能 request.json()
+        navigator.sendBeacon('/api/ev', new Blob([payload], { type: 'application/json' }));
+      } else {
+        fetch('/api/ev', {
+          method: 'POST',
+          body: payload,
+          headers: { 'content-type': 'application/json' },
+          keepalive: true,
+          credentials: 'omit',
+        }).catch(function () {});
+      }
+    } catch (e) {}
+  }
+  // 首页的搜索是内联脚本在处理，它需要这一份
+  window.__ev = ev;
+
+  /* 阅读完成的口径：正文尾部进入视口 且 从进页面算起停留超过 15 秒。
+
+     只看滚动位置不够 —— 有人一进来就按 End 找文末的链接；
+     只看时长也不够 —— 挂着标签页去吃饭，回来就算读完了。
+     两个条件同时成立才算，一篇只发一次。
+
+     15 秒是拍出来的：正文中位数约 2000 字，中文阅读速度 300-500 字/分钟，
+     读完短篇大概 4 分钟；但「读完」在数据上只需要区分「点进来看一眼就走」
+     和「真的在读」，15 秒足够分开这两拨人，又不会被正常的跳读误判成未完成。 */
+  function watchRead() {
+    var body = document.querySelector('.post-body');
+    if (!body) return;
+
+    var start = Date.now();
+    var sent = false;
+    var ticking = false;
+
+    function check() {
+      ticking = false;
+      if (sent) return;
+      var r = body.getBoundingClientRect();
+      var vh = window.innerHeight || 0;
+      // 留 80px 余量：别要求精确滚到最后一行，很多文章的末尾是脚注和标签
+      if (r.bottom > vh + 80) return;
+      if (Date.now() - start < 15000) return;
+      sent = true;
+      off();
+      ev('read');
+    }
+
+    function onScroll() {
+      if (ticking || sent) return;
+      ticking = true;
+      window.requestAnimationFrame ? window.requestAnimationFrame(check) : setTimeout(check, 16);
+    }
+
+    function off() {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    // 短文章一进来就到底了，之后再不会有滚动事件 —— 15 秒后自己补一次
+    setTimeout(check, 15500);
+  }
+
+  /* 图片加载失败。正文图走 /img/，而这张站有个坑：R2 里没有原图时
+     Worker 回的是 200 + 占位 SVG，不是 404 —— onerror 根本不会触发。
+     所以判据不能只有 error，还要在 load 之后看 naturalWidth：
+     占位图固定 320×180，对上了就是「这张图其实没有」。
+
+     两条一起收，才能同时抓住「网络断了」和「R2 里没这个对象」。 */
+  function watchImgs() {
+    var imgs = document.querySelectorAll('.post-body img');
+    for (var i = 0; i < imgs.length; i++) bind(imgs[i]);
+
+    function bind(img) {
+      var src = img.getAttribute('src') || '';
+      if (src.indexOf('/img/') !== 0) return; // 站外图、自动封面不归这里管
+
+      var done = false;
+      function report() {
+        if (done) return;
+        done = true;
+        // 报实际请求的那个地址（picture 选中后 currentSrc 才是真的）
+        var u = img.currentSrc || img.src || '';
+        u = u.split('?')[0];
+        if (u.indexOf(location.origin) === 0) u = u.slice(location.origin.length);
+        ev('img-error', u);
+      }
+
+      function checkSize() {
+        if (img.naturalWidth === 320 && img.naturalHeight === 180) report();
+      }
+
+      img.addEventListener('error', report);
+      img.addEventListener('load', checkSize);
+      // 已经加载完的（缓存命中）不会再发 load，这里补一次。
+      // complete 为真但 naturalWidth 为 0 的情况是「还没开始加载」，跳过。
+      if (img.complete && img.naturalWidth) checkSize();
+    }
+  }
+
+  if (document.querySelector('.post-body')) {
+    watchRead();
+    watchImgs();
+  }
+
   if (document.readyState === 'complete') scheduleTrack();
   else window.addEventListener('load', scheduleTrack, { once: true });
 })();

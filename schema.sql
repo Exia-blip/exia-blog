@@ -107,3 +107,18 @@ CREATE TABLE IF NOT EXISTS pv (
 );
 CREATE INDEX IF NOT EXISTS idx_pv_day  ON pv(day);
 CREATE INDEX IF NOT EXISTS idx_pv_path ON pv(day, path);
+
+-- 行为事件：阅读完成、图片加载失败、站内搜索。
+-- 和 pv 分表，因为这三个的写入时机、去重键、保留策略都不一样：
+-- pv 一人一天一页一条，事件可能一人一天多条（不同图失败、不同搜索词）。
+CREATE TABLE IF NOT EXISTS events (
+  id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  day   TEXT NOT NULL,
+  name  TEXT NOT NULL,
+  path  TEXT NOT NULL DEFAULT '',
+  extra TEXT NOT NULL DEFAULT '',
+  ip    TEXT NOT NULL,
+  ts    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_day  ON events(day);
+CREATE INDEX IF NOT EXISTS idx_events_name ON events(day, name);

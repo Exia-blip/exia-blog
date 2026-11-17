@@ -105,6 +105,59 @@ function imgSize(raw) {
   return { w, h, url: keep.length ? `${base}?${keep.join('&amp;')}` : base };
 }
 
+/* 图片宽度档位与正文容器宽度的约定。
+   .wrap 是 max-width:760px 减两侧 22px padding，内容宽 716px；窄屏是 100vw 减 44px。
+   sizes 把这个宽度提前告诉浏览器，它才能在下载前就决定拿哪一档 ——
+   少了 sizes，浏览器默认按 100vw 算，手机上会挑过大的档。改 CSS 要一起改这里。
+   档位由 scripts/make-variants.mjs 产出（WIDTH_STEPS 两边必须一致）。 */
+const IMG_SIZES = '(max-width: 780px) calc(100vw - 44px), 716px';
+const WIDTH_STEPS = [480, 800, 1200];
+
+/* 变体地址是「在扩展名后面插后缀」，不是简单拼接：
+   原地址可能带 ?v=3 这类查询串，直接拼 .w480 会拼到查询串尾巴上去。 */
+function variantUrl(url, suffix) {
+  const q = url.indexOf('?');
+  return q < 0 ? url + suffix : url.slice(0, q) + suffix + url.slice(q);
+}
+
+/* 多档 srcset。最后一档用原图真实宽度当描述符 —— 不写它的话，DPR=2 的屏幕
+   只能在前三档里挑最大的，1200 档在小图上等于白给一个模糊的候选。 */
+function widthSrcset(url, ext, origW) {
+  const parts = WIDTH_STEPS.filter((d) => d < origW).map((d) => `${variantUrl(url, `.w${d}.${ext}`)} ${d}w`);
+  parts.push(`${variantUrl(url, `.${ext}`)} ${origW}w`);
+  return parts.join(', ');
+}
+
+/* 没写 alt 时从文件名兜一手 —— 但只兜「文件名本身有信息量」的情况。
+   R2 的 key 是随机串（mvv7xrrwzzr5x3），把它念出来比不念更糟：空 alt 的意思是
+   「这是装饰图，读屏请跳过」，而一段乱码会被逐字符念完，比没有更吵。
+
+   所以判据是「清洗之后还剩不剩人能读的词」，不是「能不能凑出一个字符串」。 */
+const ALT_NOISE = /(^|[\s_-])(img|image|photo|pic|picture|screenshot|screen|shot|upload|untitled|wechat|mmexport|微信图片)(?=[\s_-]|$)/gi;
+
+function autoAlt(rawUrl) {
+  const u = String(rawUrl).replace(/&amp;/g, '&').split('?')[0].split('#')[0];
+  const file = u.slice(u.lastIndexOf('/') + 1);
+  let s = file.replace(/\.[a-z0-9]+$/i, '');
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    /* 编坏了就按原样看，下面清洗规则对 %E4 这种串也会判成无意义 */
+  }
+  // 剥掉变体后缀（a.png.w800的 w800 段）和尺寸尾巴（xxx-1600x900）
+  s = s.replace(/\.w\d{3,4}$/i, '').replace(/[-_]\d{2,4}x\d{2,4}$/i, '');
+  s = s.replace(ALT_NOISE, ' ');
+  // 时间戳、随机 id：8 位以上的十六进制段（纯数字也算），大概率是上传时生成的
+  s = s.replace(/[\s_-]*\b[0-9a-f]{8,}\b[\s_-]*/gi, ' ');
+  s = s.replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (s.length < 2 || s.length > 120) return '';
+  // 清洗完只剩数字和符号 → 说明原文件名没有语义
+  if (!/[A-Za-z\u4e00-\u9fff]/.test(s)) return '';
+  // 单段、纯小写字母数字且够长 → 还是随机串（pipeline 这种会带空格或大小写，能留下）
+  if (!/\s/.test(s) && /^[a-z0-9]{10,}$/.test(s)) return '';
+  return s;
+}
+
 function inline(line) {
   const codes = [];
   let s = String(line).replace(/`([^`\n]+)`/g, (_, c) => {
@@ -122,22 +175,39 @@ function inline(line) {
     const sz = imgSize(url);
     const dim = sz ? ` width="${sz.w}" height="${sz.h}"` : '';
     if (sz) url = sz.url;
-    const img = `<img src="${url}" alt="${alt}"${
+    /* 作者没写 alt 时用文件名兜。兜不出有用的东西就保持空 —— 空 alt 在无障碍里
+       有明确含义（装饰图），比一段噪音好。 */
+    const altText = alt || esc(autoAlt(url));
+    const img = `<img src="${url}" alt="${altText}"${
       title ? ` title="${title}"` : ''
     }${dim} loading="lazy" decoding="async">`;
     /* 站内上传的 png/jpg 额外给一份 avif / webp 候选。
        为什么用 <picture> 而不是在服务端按 Accept 协商：HTML 是边缘缓存的，
        同一份缓存要发给所有浏览器，按 Accept 分支会让缓存串味；
        URL 不同就没这个问题，由浏览器自己挑。
-       变体没转的图也不会裂 —— /img/ 那边有回退（见 serveImage）。 */
-    if (/^\/img\/[^?#]+\.(png|jpe?g)$/i.test(url)) {
-      return `<picture><source type="image/avif" srcset="${url}.avif"><source type="image/webp" srcset="${url}.webp">${img}</picture>`;
+       变体没转的图也不会裂 —— /img/ 那边有回退（见 serveImage）。
+
+       尺寸维度只有「已知原图宽度」时才展开。不知道宽度的老图只给格式变体：
+       瞎写一个 1200w 描述符，浏览器会按 1200 去排，实际发来一张 600px 的图，
+       结果是糊的 —— 猜错比不猜更糟。 */
+    const local = /^\/img\/[^?#]+\.(png|jpe?g|webp)(?:\?|$)/i.exec(url);
+    if (local && sz && sz.w > WIDTH_STEPS[0]) {
+      const src = (ext) => ` srcset="${widthSrcset(url, ext, sz.w)}" sizes="${IMG_SIZES}"`;
+      return local[1].toLowerCase() === 'webp'
+        ? `<picture><source type="image/avif"${src('avif')}>${img}</picture>`
+        : `<picture><source type="image/avif"${src('avif')}><source type="image/webp"${src('webp')}>${img}</picture>`;
     }
-    /* 编辑器上传前已经把 jpg/png 转成 webp 了，那类图的原图就是 webp，
-       只差一档 avif。再给一个 .webp 候选等于让浏览器在原图和自己之间二选一 ——
-       省不了字节，还多一次请求判断。 */
-    if (/^\/img\/[^?#]+\.webp$/i.test(url)) {
-      return `<picture><source type="image/avif" srcset="${url}.avif">${img}</picture>`;
+    if (local) {
+      /* 编辑器上传前已经把 jpg/png 转成 webp 了，那类图的原图就是 webp，
+         只差一档 avif。再给一个 .webp 候选等于让浏览器在原图和自己之间二选一 ——
+         省不了字节，还多一次请求判断。 */
+      const avif = variantUrl(url, '.avif');
+      return local[1].toLowerCase() === 'webp'
+        ? `<picture><source type="image/avif" srcset="${avif}">${img}</picture>`
+        : `<picture><source type="image/avif" srcset="${avif}"><source type="image/webp" srcset="${variantUrl(
+            url,
+            '.webp'
+          )}">${img}</picture>`;
     }
     return img;
   });

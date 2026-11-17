@@ -2,7 +2,7 @@ import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, l
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
 import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts } from './utils.js';
 import { checkFriends } from './cron.js';
-import { themeCssTag, getSite } from './settings.js';
+import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
 import { coverOf, autoThumb, isAutoCover, isCardCover, thumbOf } from './cover.js';
 import { avatarSrc } from '../public/avatar.js';
@@ -13,6 +13,7 @@ import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.
 import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
 import { normalizePagePath } from './routes.js';
 import { statsPage, prunePv } from './stats.js';
+import { postCacheGet, postCacheSet, postCacheDrop, postCacheStats } from './postcache.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ESC[c]);
@@ -141,6 +142,10 @@ function missingImage(reason = 'missing') {
     status: 200,
     headers: {
       'content-type': 'image/svg+xml; charset=utf-8',
+      /* 跟我们对待用户上传的 SVG 用的是同一套：不执行任何脚本、不加载任何外部资源、
+         关掉脚本上下文。占位图内容是自己写的，但一条规则覆盖所有 SVG 出口，
+         以后改这张图的人就不用再想一遍「这里要不要加」—— 策略统一比逐个推理可靠。 */
+      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
       'cache-control': broken ? 'no-store' : 'public, max-age=60, must-revalidate',
       'x-img-missing': '1',
       ...(broken ? { 'x-img-error': reason } : {}),
@@ -157,6 +162,40 @@ function missingImage(reason = 'missing') {
    真正缺图反而被噪音盖住。 */
 const BAD_KEY = /(^\/|\/\/|\\|\u0000|[\u0001-\u001f\u007f])/;
 const MAX_KEY = 512;
+
+/* 变体地址 → 回退链。抽成纯函数是为了能单独测：
+   这条链错一步的后果是「给不认 avif 的浏览器发 avif」，或者「永远退到原图、
+   变体等于白转」—— 两种都不报错，只能靠断言拦下来。
+
+   形状：<原Key>[.w<宽度>].<格式>
+     /a.png.avif        全尺寸 avif
+     /a.png.w800.webp   缩到 800 的 webp
+   原图本身是 .webp 的也认（a.webp.avif）—— 编辑器上传前就把 jpg/png 转 webp 了，
+   这类图只缺一档 avif。反过来说它们没有 a.webp.webp，候选里不能出现它：
+   每张图多一次必然落空的 R2 get，在冷 miss 上是实打实的一次往返。 */
+export function imgVariantChain(path) {
+  const m = /^(.*\.(?:png|jpe?g|webp))(?:\.w(\d{3,4}))?\.(avif|webp)$/i.exec(path);
+  if (!m) return null;
+  const base = m[1];
+  const width = m[2] || '';
+  const want = m[3].toLowerCase();
+  const isWebpSrc = /\.webp$/i.test(base);
+  /* 只降格式不升格式：浏览器请求 webp 说明它不认 avif，
+     塞一张 avif 过去等于发了个它可能解不开的文件。 */
+  const chain = [];
+  if (want === 'avif') {
+    // 同档降到另一格式：宽度对了、格式差一档，比给全尺寸 avif 省得多
+    if (width && !isWebpSrc) chain.push([`${base}.w${width}.webp`, 'avif-missing-served-webp']);
+    // 档位缺了就先上全尺寸，别为了省几十 KB 把图弄没
+    chain.push([`${base}.avif`, 'avif-missing-served-original']);
+    if (!isWebpSrc) chain.push([`${base}.webp`, 'avif-missing-served-original']);
+  } else if (!isWebpSrc) {
+    chain.push([`${base}.webp`, 'webp-missing-served-original']);
+  }
+  /* 去掉「自己」——请求的那个 key 已经在上面 get 过并落空了，
+     放进链里等于对同一个路径再发一次必然失败的 R2 get。 */
+  return { base, want, chain: chain.filter(([k]) => k !== path) };
+}
 
 async function serveImage(env, key) {
   let path;
@@ -181,30 +220,31 @@ async function serveImage(env, key) {
   }
   if (obj) return imageResponse(obj);
 
-  /* /img/a.png.webp、/img/a.png.avif：转码后的变体。
+  /* 变体地址有两种形状：
+       /img/a.png.webp           全尺寸换格式
+       /img/a.png.w800.webp      换格式 + 缩宽度
      不按 Accept 协商，是因为 HTML 和图片都在边缘缓存，接受头分支会让同一份缓存
      发给不支持的浏览器；变体做成了独立 URL，让 <picture> 在浏览器端挑。
-     变体还没转出来（新上传的图、批量脚本没跑过）时按 avif → webp → 原图逐级退。
+
+     回退不是「一级」而是「一条链」，因为两个维度都可能缺：格式缺、档位也可能缺
+     （老图没重转过宽度、新图刚传还没跑批量脚本）。顺序固定为
+     「同档降格式 → 全尺寸同格式 → 原图」，越靠后越浪费字节，但任何时候都不会裂图。
 
      为什么要退到 webp 而不是直接给原图：<picture> 只按 source 的 type 挑，
      浏览器支持 avif 就一定选 avif 那条，之后资源成不成立它不管 —— 实测删掉
      .avif 变体后，Chrome 依然死认 .avif 这个地址，收到 JPEG 也照渲染，
-     那个 webp 候选从头到尾没被请求过一次。不在这层补一刀，webp 等于白转。
-
-     原图本身是 .webp 的也要认：编辑器上传前就把 jpg/png 转成 webp 了，
-     那些图只缺一档 avif（a.webp.avif），漏掉的话新图永远拿不到 avif。 */
-  const m = path.match(/^(.*\.(?:png|jpe?g|webp))\.(avif|webp)$/i);
-  if (m) {
-    const want = m[2].toLowerCase();
+     那个 webp 候选从头到尾没被请求过一次。不在这层补一刀，webp 等于白转。 */
+  const v = imgVariantChain(path);
+  if (v) {
     try {
-      if (want === 'avif') {
-        const wp = await env.BUCKET.get(`${m[1]}.webp`);
-        if (wp) return imageResponse(wp, 'avif-missing-served-webp');
+      for (const [key, why] of v.chain) {
+        const obj2 = await env.BUCKET.get(key);
+        if (obj2) return imageResponse(obj2, why);
       }
-      const orig = await env.BUCKET.get(m[1]);
+      const orig = await env.BUCKET.get(v.base);
       /* 原图也没有、变体也没有 —— 这时候别再回 404 让页面裂图。
          注意这里跟上面不同：上面是有东西可给（原图），这里是真的什么都没有。 */
-      if (orig) return imageResponse(orig, `${want}-missing-served-original`);
+      if (orig) return imageResponse(orig, `${v.want}-missing-served-original`);
     } catch (e) {
       console.error('r2 fallback failed', path, e);
       return missingImage('r2-error');
@@ -862,24 +902,68 @@ async function servePostPage(env, request, slug) {
      而是"必须先拿到 id 才能查子表"——真正的串行段是 post → 子表这一跳。
      系列目录同理，用子查询按 slug 找同系列名，也进同一批。
      D1 单库单线程、单次调用最多 6 条连接，这里 5 条查询刚好卡在线上，
-     再加查询就得换成 batch() —— 别在这条路上继续加。 */
-  const [post, tagRes, cmtRes, seriesRes, catRes, site, tpl] = await Promise.all([
-    env.DB.prepare(
-      `SELECT p.*, u.name AS author_name, u.login, u.avatar,
-              COALESCE(NULLIF(p.published_at, ''), p.created_at) <= datetime('now') AS is_live
-       FROM posts p
-       LEFT JOIN users u ON u.id = p.author_id WHERE p.slug = ?`
-    )
-      .bind(slug)
-      .first(),
-    env.DB.prepare(
-      `SELECT t.name FROM tags t
-       JOIN post_tags pt ON pt.tag_id = t.id
-       JOIN posts p ON p.id = pt.post_id
-       WHERE p.slug = ? ORDER BY t.name`
-    )
-      .bind(slug)
-      .all(),
+     再加查询就得换成 batch() —— 别在这条路上继续加。
+
+     文章本体、标签、系列目录、同栏目列表这四份走实例内 LRU（见 src/postcache.js）：
+     它们只在改文/改栏目时变，而改文那一刻我们已经主动清了缓存。
+     评论不缓存 —— 页面上唯一会秒级变化的就是它。 */
+  const cached = postCacheGet(slug);
+  const bundleP = cached
+    ? Promise.resolve(cached)
+    : (async () => {
+        const [post, tagRes, seriesRes, catRes] = await Promise.all([
+          env.DB.prepare(
+            `SELECT p.*, u.name AS author_name, u.login, u.avatar,
+                    COALESCE(NULLIF(p.published_at, ''), p.created_at) <= datetime('now') AS is_live
+             FROM posts p
+             LEFT JOIN users u ON u.id = p.author_id WHERE p.slug = ?`
+          )
+            .bind(slug)
+            .first(),
+          env.DB.prepare(
+            `SELECT t.name FROM tags t
+             JOIN post_tags pt ON pt.tag_id = t.id
+             JOIN posts p ON p.id = pt.post_id
+             WHERE p.slug = ? ORDER BY t.name`
+          )
+            .bind(slug)
+            .all(),
+          env.DB.prepare(
+            `SELECT slug, title, series_order FROM posts
+             WHERE TRIM(COALESCE(series, '')) != ''
+               AND series = (SELECT series FROM posts WHERE slug = ?)
+               AND is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
+             ORDER BY series_order ASC, created_at ASC`
+          )
+            .bind(slug)
+            .all(),
+          // 同栏目整份列表：一个栏目最多十来篇，比「查上一篇 + 查下一篇」
+          // 两条 SQL 便宜——D1 的成本主要在往返，不在这十几行数据。
+          // 顺带取 published_at / category：上下篇卡片要显示「日期 · 栏目」，
+          // 只查 slug/title 的话那行永远是空的。
+          env.DB.prepare(
+            `SELECT slug, title, published_at, created_at, category FROM posts
+             WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
+               AND category = (SELECT category FROM posts WHERE slug = ?)
+             ORDER BY COALESCE(NULLIF(published_at, ''), created_at) ASC`
+          )
+            .bind(slug)
+            .all(),
+        ]);
+        const b = {
+          post,
+          tags: tagRes.results.map((r) => r.name),
+          series: seriesRes.results,
+          same: catRes.results,
+        };
+        /* 私有文章不进缓存：来访者本来就少，缓不缓存无所谓；
+           把私有正文在内存里多留 45 秒也没有必要。 */
+        if (post && !post.is_private) postCacheSet(slug, b);
+        return b;
+      })();
+
+  const [bundle, cmtRes, site, tpl] = await Promise.all([
+    bundleP,
     env.DB.prepare(
       // email 只有管理员会在页面上看到（见 commentActs 的 viewer 判断），
       // 匿名访客的 HTML 里不会出现这个字段
@@ -889,30 +973,16 @@ async function servePostPage(env, request, slug) {
     )
       .bind(slug)
       .all(),
-    env.DB.prepare(
-      `SELECT slug, title, series_order FROM posts
-       WHERE TRIM(COALESCE(series, '')) != ''
-         AND series = (SELECT series FROM posts WHERE slug = ?)
-         AND is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
-       ORDER BY series_order ASC, created_at ASC`
-    )
-      .bind(slug)
-      .all(),
-    // 同栏目整份列表：一个栏目最多十来篇，比「查上一篇 + 查下一篇」
-    // 两条 SQL 便宜——D1 的成本主要在往返，不在这十几行数据。
-    // 顺带取 published_at / category：上下篇卡片要显示「日期 · 栏目」，
-    // 只查 slug/title 的话那行永远是空的。
-    env.DB.prepare(
-      `SELECT slug, title, published_at, created_at, category FROM posts
-       WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
-         AND category = (SELECT category FROM posts WHERE slug = ?)
-       ORDER BY COALESCE(NULLIF(published_at, ''), created_at) ASC`
-    )
-      .bind(slug)
-      .all(),
     getSite(env),
     assetText(env, request, '/post'),
   ]);
+
+  /* 行是浅拷贝出来的：下面会往 post 上挂 tags / comments / 系列，
+     直接改缓存里那份，下一次读到的就带着上一次的评论数了。 */
+  const post = bundle.post ? { ...bundle.post } : null;
+  const tagNames = bundle.tags;
+  const seriesPosts = bundle.series.map((r) => ({ ...r }));
+  const sameCat = bundle.same.map((r) => ({ ...r }));
 
   if (!post) return await notFoundPage(env, request, '页面走丢了');
   if (post.is_private && (!user || (user.id !== post.author_id && !user.is_admin))) {
@@ -927,13 +997,11 @@ async function servePostPage(env, request, slug) {
 
   if (!tpl) return new Response('模板缺失', { status: 500 });
 
-  const tagRows = tagRes.results;
   const cmtRows = cmtRes.results;
-  post.tags = tagRows.map((r) => r.name);
+  post.tags = tagNames;
   post.comments = cmtRows.length;
 
   // 系列目录：同系列公开文章按序号排，当前这篇标出来，顺带算出上下篇
-  const seriesPosts = seriesRes.results;
   const siteName = site.name;
   const origin = new URL(request.url).origin;
   // canonical 必须和 sitemap / RSS 里给的地址一致，否则同一篇文章被收录两份
@@ -1033,7 +1101,7 @@ async function servePostPage(env, request, slug) {
       ${renderSeries(post, seriesPosts)}
       <div class="md post-body">${bodyHtml}</div>
       <footer class="post-foot"><div class="tagbar" style="margin:0">${tagbar}</div></footer>
-      ${renderAdjacent(post, catRes.results, seriesPosts)}
+      ${renderAdjacent(post, sameCat, seriesPosts)}
       ${renderComments(cmtRows, cmtRows.length, user)}
       </div>
     </article>`;
@@ -1112,6 +1180,9 @@ async function servePostPage(env, request, slug) {
   return html(stampAssets(injected, env), 200, {
     // 私密文章不进缓存；公开文章统一走 pageCacheControl（浏览器不缓存、边缘 300s + SWR 86400）
     'cache-control': post.is_private ? 'private, no-store' : pageCacheControl(),
+    // 自检用：这份 HTML 是命中进程内热缓存还是回源查的 D1。只在回源那一次有意义
+    //（edge cache 命中时根本走不到这里）
+    'x-post-cache': cached ? 'hit' : 'miss',
   });
 }
 
@@ -1631,6 +1702,24 @@ async function injectTheme(env, res, url) {
 
   const headers = new Headers(res.headers);
   headers.delete('content-length');
+  /* 103 Early Hints。Cloudflare 看到响应里的 Link: rel=preload，会在 HTML body
+     之前先发一个 103，浏览器收到就开始下 CSS —— 不用等 HTML 流解析到那一行。
+
+     它对 TTFB 没帮助（那时 TLS 和 Worker 都已经跑完了），省的是「HTML 开始到手」
+     到「CSS 开始下载」之间那段，也就是 LCP 前最后一道串行。
+
+     只放样式表，不放首图：首图走 <picture> + srcset，浏览器按 sizes 和 DPR
+     自己挑档位；Link 头只能写一个固定 URL，等于替浏览器做决定，挑错了就是先白下
+     一份再下正确的那份。CSS 没有维度、地址唯一，是唯一适合放进 103 的东西。
+
+     站上要开：Dashboard → Speed → Content Optimization → Early Hints。
+     不开也不会坏，这个头退化成普通响应头（浏览器照样当 preload 处理）。 */
+  const av = assetVersion(env);
+  const avq = av ? `?v=${encodeURIComponent(av)}` : '';
+  const hints = [`</style.css${avq}>; rel=preload; as=style`];
+  const themeHref = themeCssPath(s.theme);
+  if (themeHref) hints.push(`<${themeHref}${avq}>; rel=preload; as=style`);
+  headers.set('link', hints.join(', '));
   return new Response(body, {
     status: res.status,
     statusText: res.statusText,

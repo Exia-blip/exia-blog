@@ -10,7 +10,7 @@
 // 变体的 key 是原 key 加上 .webp / .avif（/img/u/x.png.webp），
 // Worker 的 serveImage 认这个后缀，缺失时回退原图，所以转与不转都不会裂。
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
@@ -111,12 +111,31 @@ async function purge(urls) {
   console.log(`\n已清缓存 ${ok}/${urls.length} 条。`);
 }
 
-/* 这张图需要哪些变体。原图已是 webp 的只需要 avif ——
-   拿同一份编码再产一个 .webp 变体没有意义，只多占一次上传。 */
-function targetsFor(key) {
+/* 这张图需要哪些变体。两个维度：格式 × 宽度。
+   宽度档位跟 public/md.js 的 WIDTH_STEPS 必须一致 —— 那边按这些数字拼 srcset，
+   这边不产，浏览器就会去要一个不存在的地址，全靠 serveImage 回退到全尺寸，
+   等于白写一遍 srcset。改了这里记得同步那边。
+   原图比档位还窄的不产：放大没有任何信息增益，只会让文件更大。 */
+const WIDTH_STEPS = [480, 800, 1200];
+
+/* 原图已是 webp 的只需要 avif —— 拿同一份编码再产一个 .webp 变体没有意义，
+   只多占一次上传。 */
+function targetsFor(key, origW) {
   const srcExt = (key.match(/\.([a-z0-9]+)$/i) || [, ''])[1].toLowerCase();
-  return srcExt === 'webp' ? ['avif'] : ['webp', 'avif'];
+  const exts = srcExt === 'webp' ? ['avif'] : ['webp', 'avif'];
+  const out = [];
+  for (const ext of exts) out.push({ ext, w: 0 });
+  for (const w of WIDTH_STEPS) {
+    if (w >= origW) continue;
+    for (const ext of exts) out.push({ ext, w });
+  }
+  return out;
 }
+
+/* 变体 key 的形状：a.png.avif（全尺寸）/ a.png.w800.avif（缩过宽度）。
+   serveImage 用同一个正则在线上解析，两处要一起改。 */
+const vKey = (key, ext, w) => (w ? `${key}.w${w}.${ext}` : `${key}.${ext}`);
+const vLabel = (t) => (t.w ? `${t.ext}@${t.w}` : t.ext);
 
 /* head() 用 HEAD 拿状态码、类型和图大小：check 模式只想知道「在不在」，
    把整张图 GET 下来只为了看一个状态码，在 200KB 的图上很浪费。
@@ -138,26 +157,53 @@ async function head(url) {
   };
 }
 
+/* 取原图并读出真实宽度。
+   为什么必须把原图拉下来：目标档位取决于原图宽度（比原图宽的档不产）。
+   早先的版本只用 HEAD 看状态码，那是「不知道宽度就假设全都要」——
+   在小图上会一直报「缺 1200 档」，而那个档本来就不该存在。
+   一张图几百 KB，被引用的图一共十来张，这点流量换掉一类误报，值。 */
+async function fetchOrig(key) {
+  let r;
+  try {
+    r = await fetch(SITE + '/img/' + key);
+  } catch (e) {
+    return { err: String(e.message || e).slice(0, 80) };
+  }
+  if (!r.ok) return { err: `HTTP ${r.status}` };
+  // 原图缺失时 Worker 回的是 200 + 占位 SVG，光看状态码会把「丢了」读成「在」
+  if (r.headers.has('x-img-missing')) return { err: 'R2 里没有这张原图（回的是占位图）' };
+  const buf = Buffer.from(await r.arrayBuffer());
+  try {
+    const meta = await sharp(buf, { failOn: 'none' }).metadata();
+    if (!meta.width) return { err: '读不出宽度（格式不认识）' };
+    return { buf, meta, size: buf.length };
+  } catch (e) {
+    return { err: `sharp 解不开：${String(e.message || e).slice(0, 60)}` };
+  }
+}
+
 if (checkOnly) {
-  console.log(`体检 ${keys.size} 张被引用的图（不下载、不转码）\n`);
+  console.log(`体检 ${keys.size} 张被引用的图（不转码、不上传）\n`);
   let missing = 0;
   let broken = 0;
   for (const [key, posts] of keys) {
-    const orig = await head(`${SITE}/img/${key}`);
-    if (!orig.ok) {
+    const src = await fetchOrig(key);
+    if (src.err) {
       broken++;
-      const why = orig.phantom ? '回的是占位图（x-img-missing），R2 里没有这张原图' : `原图 HTTP ${orig.status}`;
-      console.log(`  ✗ ${key}  ${why} —— 正文引用了但 R2 里没有（引用它的文章：${[...posts].join(',')}）`);
+      console.log(`  ✗ ${key}  ${src.err} —— 正文引用了但 R2 里没有（引用它的文章：${[...posts].join(',')}）`);
       continue;
     }
+    const want = targetsFor(key, src.meta.width);
+    const have = await Promise.all(want.map((t) => head(`${SITE}/img/${vKey(key, t.ext, t.w)}`)));
+    /* 不能只看 200：serveImage 在变体缺失时会回退成另一格式甚至原图，
+       回退响应的 Content-Type 就不是我们想要的 —— 那正是判据。 */
     const gaps = [];
-    for (const ext of targetsFor(key)) {
-      const v = await head(`${SITE}/img/${key}.${ext}`);
-      if (!variantOk(v, ext)) gaps.push(`${ext}（${whyNotVariant(v, ext)}）`);
-    }
+    want.forEach((t, i) => {
+      if (!variantOk(have[i], t.ext)) gaps.push(`${vLabel(t)}（${whyNotVariant(have[i], t.ext)}）`);
+    });
     if (gaps.length) {
       missing++;
-      console.log(`  · ${key}  原图 ${f(orig.len)}，缺 ${gaps.join(' / ')}`);
+      console.log(`  · ${key}  原图 ${src.meta.width}px / ${f(src.size)}，缺 ${gaps.join(' / ')}`);
     }
   }
   console.log('');
@@ -181,67 +227,68 @@ let savedAvif = 0;
 let skipped = 0;
 let missing = 0;
 let uptodate = 0;
+let produced = 0;
+
+/* 编码参数。effort 越高越慢但压得越小 —— 这是离线跑一次的事，
+   多花几秒换每个访客少下几十 KB，划算。 */
+const ENC = { webp: { quality: 78, effort: 5 }, avif: { quality: 55, effort: 4 } };
+const MIME = { webp: 'image/webp', avif: 'image/avif' };
+/* 全尺寸档的上限：再大的图放正文里也是缩到 716px 显示，
+   1600 已经够 2× DPR 用的了。 */
+const FULL_CAP = 1600;
 
 for (const key of keys.keys()) {
-  /* 默认只补缺的。原先每次跑都把 7 张全部下载重转重传 ——
-     单张 200KB 的图重转一遍要几百毫秒，跑一次全是无事发生的上传，
+  const src = await fetchOrig(key);
+  if (src.err) {
+    missing++;
+    console.log(`跳过 ${key}（${src.err}）`);
+    continue;
+  }
+  const origW = src.meta.width;
+  const want = targetsFor(key, origW);
+
+  /* 默认只补缺的。先问一遍哪些已经有了，缺的是空集就整张跳过 ——
+     重转一遍要几百毫秒且结果一字节不差，跑一次全是无事发生的上传，
      时间久了就会「反正也没输出，不用跑了」。--force 才是全量重转。 */
+  let todo = want;
   if (!force) {
-    const want = targetsFor(key);
-    const have = await Promise.all(want.map((ext) => head(`${SITE}/img/${key}.${ext}`)));
-    // 同样不能只看 200：回退的原图也是 200，会把「缺 avif」误判成已齐，
-    // 于是一张永远拿不到 avif 的图被永久跳过。
-    if (want.every((ext, i) => variantOk(have[i], ext))) {
+    const have = await Promise.all(want.map((t) => head(`${SITE}/img/${vKey(key, t.ext, t.w)}`)));
+    todo = want.filter((t, i) => !variantOk(have[i], t.ext));
+    if (!todo.length) {
       uptodate++;
       continue;
     }
   }
 
-  const local = join(tmp, key.replace(/[\\/]/g, '_'));
-  try {
-    // 走公网地址下载，不用 r2 object get：那条命令在 Windows 下 spawn 起来很别扭
-    const res = await fetch(SITE + '/img/' + key);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    writeFileSync(local, Buffer.from(await res.arrayBuffer()));
-  } catch (e) {
-    missing++;
-    console.log(`跳过 ${key}（R2 里没有：${String(e.stderr || e.message).split('\n')[0].slice(0, 80)}）`);
-    continue;
-  }
-
-  const before = statSync(local).size;
-  const img = sharp(local, { failOn: 'none' });
-  const meta = await img.metadata();
-  const base = img.resize({ width: Math.min(meta.width || 1600, 1600), withoutEnlargement: true });
-
-  /* 原图已经是 webp 的，不再产 webp 变体：内容是同一份编码，
-     转出来只会更小一点点，白占一次上传和一份存储。只补 avif。 */
-  const srcExt = (key.match(/\.([a-z0-9]+)$/i) || [, ''])[1].toLowerCase();
-
-  for (const [ext, opts] of [
-    ['webp', { quality: 78, effort: 5 }],
-    ['avif', { quality: 55, effort: 4 }],
-  ]) {
-    if (ext === 'webp' && srcExt === 'webp') continue;
-    const out = join(tmp, `o.${ext}`);
-    const buf = await base.clone().toFormat(ext, opts).toBuffer();
-    // 变体反而更大就跳过 —— 有些小图/线条图转完会涨，那种情况留着原图更好
-    if (buf.length >= before * 0.95) {
-      console.log(`  ${ext} 没省（${f(before)} → ${f(buf.length)}），跳过`);
+  const img = sharp(src.buf, { failOn: 'none' });
+  for (const t of todo) {
+    /* 全尺寸档限制在 FULL_CAP 以内；宽度档就是它自己那个数。
+       两者都带 withoutEnlargement，小图不会被拉大。 */
+    const resized = img.clone().resize({ width: t.w || Math.min(origW, FULL_CAP), withoutEnlargement: true });
+    const buf = await resized.toFormat(t.ext, ENC[t.ext]).toBuffer();
+    /* 变体反而更大就跳过 —— 小图/线条图转完会涨，那种情况留着原图更好。
+       宽度档不比原图大是常态，这条只是兜底。 */
+    if (buf.length >= src.size * 0.95 && !t.w) {
+      console.log(`  ${vLabel(t)} 没省（${f(src.size)} → ${f(buf.length)}），跳过`);
       skipped++;
       continue;
     }
+    const out = join(tmp, `o-${t.ext}-${t.w || 0}`);
     writeFileSync(out, buf); // 落盘再上传：put 读的是文件，不是内存里的 buffer
-    execFileSync(WR[0], [...WR[1], 'r2', 'object', 'put', `${BUCKET}/${key}.${ext}`, '--file', out,
-      '--content-type', ext === 'webp' ? 'image/webp' : 'image/avif', '--remote'], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-    if (ext === 'webp') saved += Math.max(0, before - buf.length);
-    if (ext === 'avif') savedAvif += Math.max(0, before - buf.length);
-    uploaded.push(`${SITE}/img/${key}.${ext}`);
-    console.log(`  ${key}.${ext}  ${f(before)} → ${f(buf.length)}`);
+    execFileSync(
+      WR[0],
+      [...WR[1], 'r2', 'object', 'put', `${BUCKET}/${vKey(key, t.ext, t.w)}`, '--file', out,
+        '--content-type', MIME[t.ext], '--remote'],
+      { stdio: ['ignore', 'ignore', 'pipe'] }
+    );
+    if (t.ext === 'webp') saved += Math.max(0, src.size - buf.length);
+    if (t.ext === 'avif') savedAvif += Math.max(0, src.size - buf.length);
+    uploaded.push(`${SITE}/img/${vKey(key, t.ext, t.w)}`);
+    produced++;
+    console.log(`  ${vKey(key, t.ext, t.w)}  ${t.w ? `${t.w}px ` : ''}${f(src.size)} → ${f(buf.length)}`);
     rmSync(out, { force: true });
   }
+  console.log(`  ${key}  原图 ${origW}px，本轮产出 ${todo.length} 个变体`);
 }
 
 /* Windows 上 sharp 有时还握着下载文件的句柄，rmSync 会 EBUSY ——
@@ -252,7 +299,7 @@ try {
   if (e.code !== 'EBUSY' && e.code !== 'EPERM') throw e;
 }
 await purge(uploaded);
-if (uptodate) console.log(`\n${uptodate} 张已有变体，跳过（要重转加 --force）。`);
-console.log(`\n完成。WebP 一项合计省 ${f(saved)}（AVIF 通常再小 20-30%）。`);
+if (uptodate) console.log(`\n${uptodate} 张已有全部变体，跳过（要重转加 --force）。`);
+console.log(`\n完成。本轮上传 ${produced} 个变体，WebP 一项合计省 ${f(saved)}（AVIF 通常再小 20-30%）。`);
 if (missing) console.log(`有 ${missing} 张原图在 R2 里找不到，已跳过 —— 跑 npm run make:variants -- --check 看是哪几张。`);
 if (skipped) console.log(`有 ${skipped} 个变体转完没省空间，保留原图。`);

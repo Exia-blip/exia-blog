@@ -237,6 +237,71 @@ console.log(`\n${ORIGIN}\n`);
   }
 }
 
+/* ---------- 9.6 资源提示与多档图片 ----------
+ * 这两块都是「改坏了也不报错、只是白做」的类型：
+ *   - Link: rel=preload 没了，页面照样能开，只是 103 永远不触发，CSS 晚几百毫秒才开下载
+ *   - srcset 里的档位地址不存在，浏览器会选中它然后靠 serveImage 回退到全尺寸，
+ *     页面不裂，但用户多下了几百 KB —— 从外面完全看不出来
+ */
+{
+  /* 样本要覆盖全部公开文章，不能只翻首页 —— 有正文图的往往是最早那几篇，
+     首页按时间倒序排在最后，翻不到就永远「跳过」，这条检查等于没写。 */
+  let slugs = [];
+  try {
+    const list = await (await fetch(`${ORIGIN}/api/posts?size=50`)).json();
+    slugs = (list.posts || []).map((x) => `/p/${encodeURIComponent(x.slug)}`);
+  } catch {}
+  if (!slugs.length) {
+    const home = (await get('/')).body;
+    slugs = [...new Set([...home.matchAll(/href="(\/p\/[^"]+)"/g)].map((m) => m[1]))];
+  }
+  ok('能取到文章样本（多档图片检查需要）', slugs.length > 0, `${slugs.length} 篇`);
+
+  let linkHeader = '';
+  let multi = null;
+  for (const p of slugs) {
+    const r = await get(`${p}?b=${Date.now()}${Math.random().toString(36).slice(2, 6)}`);
+    if (!linkHeader) linkHeader = r.h.get('link') || '';
+    const m = [...new Set([...r.body.matchAll(/srcset="(\/img\/[^"]+?\.w\d{3,4}\.(?:avif|webp)) \d+w/g)].map((x) => x[1]))];
+    if (m.length && !multi) multi = { path: p, urls: m };
+    if (linkHeader && multi) break;
+  }
+
+  /* 103 的触发条件就是响应里这个头。没有它，Cloudflare 那边开不开 Early Hints 都一样 */
+  ok(
+    '文章页带 Link 预加载头（103 的触发条件）',
+    /rel=preload/.test(linkHeader) && /style\.css/.test(linkHeader),
+    linkHeader.slice(0, 90) || '(没有 link 头)'
+  );
+
+  /* 公开文章里目前一张多档图都没有 —— 那批测试图所在的文章一篇是 hidden、
+     一篇是私密。hidden 那篇仍可直连访问，拿它当固定夹具；
+     哪天它被删了，这里会退回「跳过」而不是误报失败。 */
+  if (!multi) {
+    const probe = await get(`/p/post-brfy5?b=${Date.now()}`);
+    const m = [...new Set([...probe.body.matchAll(/srcset="(\/img\/[^"]+?\.w\d{3,4}\.(?:avif|webp)) \d+w/g)].map((x) => x[1]))];
+    if (m.length) multi = { path: '/p/post-brfy5', urls: m };
+  }
+
+  if (!multi) {
+    console.log('  --   当前公开文章里没有带宽度档的正文图，跳过 srcset 实物校验');
+  } else {
+    ok(`正文图有多档 srcset（${multi.path}）`, multi.urls.length >= 2);
+    /* 抽两个档位真发一次请求：地址写错、档位没产出，都会在这里露出来 */
+    const probes = multi.urls.slice(0, 2);
+    const bad = [];
+    for (const u of probes) {
+      const r = await fetch(ORIGIN + u);
+      const ct = (r.headers.get('content-type') || '').split(';')[0];
+      const want = /\.avif$/.test(u) ? 'image/avif' : 'image/webp';
+      /* 回退是允许的（老图没重转过），但至少要落到图片类型上而不是 404/HTML */
+      if (!/^image\//.test(ct)) bad.push(`${u} -> ${ct || '(空)'}`);
+      else if (ct !== want && !r.headers.get('x-img-fallback')) bad.push(`${u} -> ${ct}（既不是 ${want} 也没标回退）`);
+    }
+    ok('srcset 里的档位地址能取到图片', bad.length === 0, bad.join('; '));
+  }
+}
+
 /* ---------- 10. 安全与缓存头 ---------- */
 {
   const { h } = await get('/');

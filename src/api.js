@@ -11,7 +11,8 @@ import { notifyComment } from './webhook.js';
 import { checkFriends } from './cron.js';
 import { getSite, setSite, THEME_IDS, MODE_IDS } from './settings.js';
 import { refreshSummary, generateSummary, contentHash, hasAI } from './ai.js';
-import { recordPv } from './stats.js';
+import { recordPv, recordEvent } from './stats.js';
+import { postCacheDrop } from './postcache.js';
 
 /* 声明的 MIME 不可信：multipart 里的 file.type 就是客户端随手写的一个字符串，
    直传那条路的 Content-Type 更是完全由浏览器决定。用文件头再认一遍，两者打架时
@@ -56,6 +57,10 @@ async function seriesSiblingSlugs(db, series) {
 
 /* 发布 / 修改 / 删除后主动删掉边缘缓存：不用等 TTL 过期 */
 function bust(url, slugs = [], cats = []) {
+  /* 进程内那份一起清。按 slug 精准清是不够的 —— 缓存里除了文章本体，
+     还带着「同栏目列表」和「系列目录」，删掉一篇会影响别的文章那一块。
+     chunk 只有几十条，全清之后下次 miss 一次就回来了，比漏清安全得多。 */
+  postCacheDrop();
   const paths = ['/', '/archive', '/categories'];
   for (const c of cats.filter(Boolean)) paths.push(`/cat/${encodeURIComponent(c)}`);
   for (const s of slugs.filter(Boolean)) {
@@ -358,6 +363,8 @@ export async function handleApi(env, request, url, ctx) {
 
   /* ---- 访问统计上报（匿名，不走鉴权） ---- */
   if (path === '/pv' && method === 'POST') return await recordPv(env, request, ctx);
+  /* 行为事件：阅读完成 / 图片加载失败 / 站内搜索。和 pv 一样匿名、不走鉴权 */
+  if (path === '/ev' && method === 'POST') return await recordEvent(env, request, ctx);
 
   /* ---- 站点信息 ---- */
   if (path === '/site' && method === 'GET') {

@@ -10,12 +10,21 @@ export const MODE_IDS = ['auto', 'light', 'dark'];
 /* 主题样式表在 head 里直出时用的标签。
    纸韵和安知鱼都编在主 style.css 里，不需要额外请求；其余五套各自一个文件。
    以前这段是内联脚本里的 document.write —— 解析器得等它执行完才往下走，
-   插入的 link 又把渲染卡到 CSS 到手。直出之后浏览器解析到就并行下载。 */
-export function themeCssTag(theme, version = '') {
+   插入的 link 又把渲染卡到 CSS 到手。直出之后浏览器解析到就并行下载。
+
+   路径单独抽出来，是为了让 103 Early Hints 和 head 里的 <link> 用同一个来源：
+   两处各写一份判断，加主题时必然漏改一处，漏的那处表现为「preload 了一个
+   404 地址」，而且只在某个主题下出现，测不到。 */
+export function themeCssPath(theme) {
   const id = normTheme(theme);
-  if (id === 'paper' || id === 'anzhiyu') return '';
+  return id === 'paper' || id === 'anzhiyu' ? '' : `/theme/${id}.css`;
+}
+
+export function themeCssTag(theme, version = '') {
+  const href = themeCssPath(theme);
+  if (!href) return '';
   const v = version ? `?v=${encodeURIComponent(version)}` : '';
-  return `<link id="tcss-default" rel="stylesheet" href="/theme/${id}.css${v}">`;
+  return `<link id="tcss-default" rel="stylesheet" href="${href}${v}">`;
 }
 
 const normTheme = (v) => (THEME_IDS.includes(v) ? v : 'paper');
