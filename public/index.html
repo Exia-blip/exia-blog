@@ -144,7 +144,7 @@ if (currentCat) {
   }
 } else if (currentQ) {
   document.getElementById('hero-title').textContent = `搜索：${currentQ}`;
-  document.getElementById('hero-sub').textContent = '标题与正文关键词匹配';
+  document.getElementById('hero-sub').textContent = '标题、正文与标签关键词匹配';
   document.title = `${currentQ} · 搜索`;
 } else {
   document.getElementById('hero-title').textContent = SITE.name;
@@ -255,7 +255,7 @@ function card(p) {
         <span class="sep-dot">${p.reading} 分钟</span>
         ${p.comments ? `<span class="sep-dot">${p.comments} 条评论</span>` : ''}
         ${p.category ? `<span class="tag cat-chip">${esc(p.category_name || p.category)}</span>` : ''}
-        ${(p.tags || []).slice(0, 3).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}
+        ${(p.tags || []).slice(0, 3).map((t) => `<span class="tag">#${hl(t, currentQ)}</span>`).join('')}
       </div>
     </div>
   </a>`;
@@ -330,7 +330,7 @@ qInput.addEventListener('input', () => {
       page = 1;
       document.getElementById('hero-title').textContent = v ? `搜索：${v}` : SITE.name;
       document.getElementById('hero-sub').textContent = v
-        ? '标题与正文关键词匹配'
+        ? '标题、正文与标签关键词匹配'
         : SITE.desc || '记录思考、代码与生活。';
       load();
     }

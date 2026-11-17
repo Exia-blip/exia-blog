@@ -282,6 +282,19 @@ export async function friendsData(db) {
   return results;
 }
 
+/* 搜索匹配条件：标题 / 正文 / 标签名三路。
+   抽成纯函数，一是让单测不碰 D1 就能验证「三个 ? 各绑一个 %关键词%」，
+   二是 COUNT 与列表查询共用同一个 whereSql/args —— 占位符和参数数量一旦走偏，
+   线上表现是「搜得到但总数不对」或干脆报绑定数量不匹配。
+   标签那一路用 IN 子查询，口径与上面的 tag 过滤完全一致（post_tags.post_id）。 */
+export function searchMatch(q) {
+  const kw = `%${q}%`;
+  return {
+    sql: `(p.title LIKE ? OR p.content LIKE ? OR p.id IN (SELECT pt.post_id FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE t.name LIKE ?))`,
+    args: [kw, kw, kw],
+  };
+}
+
 /* ---------- 文章列表查询（接口与首页 SSR 共用，避免两份 SQL 走偏） ---------- */
 export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q = '' } = {}) {
   const offset = (page - 1) * size;
@@ -297,8 +310,9 @@ export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q
     args.push(cat);
   }
   if (q) {
-    where.push('(p.title LIKE ? OR p.content LIKE ?)');
-    args.push(`%${q}%`, `%${q}%`);
+    const m = searchMatch(q);
+    where.push(m.sql);
+    args.push(...m.args);
   }
 
   const whereSql = where.join(' AND ');
