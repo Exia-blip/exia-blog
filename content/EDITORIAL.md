@@ -29,7 +29,7 @@
 
 十二篇全部写完全文、入库，`hidden=0` + 未来 `published_at`，由 `src/api.js` 的 `liveSql()` 时间闸门到点自动上线，不需要 cron 或人工改状态。发布时刻统一为**北京时间 09:00**（库里存 UTC 01:00）。
 
-三篇 tools 新稿（相关推荐 / 搜索高亮 / RSS enclosure）由 `scripts/seed-23-24.mjs`、`scripts/seed-25-rss.mjs` 入库，INSERT 直接带 `html_content` + `cover_body`，与 `src/api.js` 新建路径同口径。01-27 是 1 月最后一周的空档周、02-24 是 2 月的，都不排新稿，所以接在 01-20 pillar 之后的是 02-03 / 02-10 / 02-17。目标查询词：`博客相关推荐 标签交集排序` / `搜索结果关键词高亮 防 XSS` / `RSS 阅读器 卡片封面 不显示`。
+三篇 tools 新稿（相关推荐 / 搜索高亮 / RSS enclosure）由 `scripts/seed-23-24.mjs`、`scripts/seed-25-rss.mjs` 入库，INSERT 直接带 `html_content` + `cover_body`，与 `src/api.js` 新建路径同口径。01-27 是 1 月最后一周的空档周、02-24 是 2 月的，都不排新稿，所以接在 01-20 pillar 之后的是 02-03 / 02-10 / 02-17。目标查询词：`博客相关推荐 标签交集排序` / `搜索结果关键词高亮` / `RSS 阅读器 卡片封面 不显示`。② 的辅词：`站内搜索 标签匹配`、`SQLite LIKE 子查询`——主词取短词承接通用前端需求，后端角度靠辅词和线上实测（`debugging` 4 篇全靠标签命中）撑。
 
 | 日期 | slug | 标题 | 栏目 | 系列 |
 |---|---|---|---|---|
