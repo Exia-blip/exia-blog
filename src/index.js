@@ -1011,6 +1011,11 @@ async function servePostPage(env, request, slug) {
      直接改缓存里那份，下一次读到的就带着上一次的评论数了。 */
   const post = bundle.post ? { ...bundle.post } : null;
   const tagNames = bundle.tags;
+  /* tags 必须在 rankRelated 之前挂上。posts 表没有 tags 列，它是独立查询出来的；
+     rankRelated 靠 post.tags 算共同标签数，晚一步赋值就全是 0，
+     排序退化成「同栏目 + 时间新」，跨栏目同标签的文章一条都进不来。
+     2026-11-18 实测线上就是这个问题，单测测不到（纯函数只验传进来的值）。 */
+  if (post) post.tags = tagNames;
   const seriesPosts = bundle.series.map((r) => ({ ...r }));
   /* 同一份查询结果两用：上下篇只要同栏目的（按查询里的时间序，不能打乱）；
      相关推荐吃全部候选（含跨栏目同标签的），由 rankRelated 重排。 */
@@ -1032,7 +1037,6 @@ async function servePostPage(env, request, slug) {
   if (!tpl) return new Response('模板缺失', { status: 500 });
 
   const cmtRows = cmtRes.results;
-  post.tags = tagNames;
   post.comments = cmtRows.length;
 
   // 系列目录：同系列公开文章按序号排，当前这篇标出来，顺带算出上下篇

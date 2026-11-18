@@ -334,6 +334,11 @@ console.log(`\n${ORIGIN}\n`);
   const relHrefs = [...withTags.body.matchAll(/class="rel"[^>]*href="(\/p\/[^"]+)"/g)].map((m) => m[1]);
   ok('相关推荐链接格式正确', relHrefs.length === cards.length && relHrefs.every((u) => /^\/p\/[^/]+$/.test(u)));
   ok('相关推荐不含当前文章', !relHrefs.includes('/p/worker-cron-friend-check'));
+  // 赋值顺序回归：worker-render-549-to-96 是 log 栏目，与本篇 4 个标签全中；
+  // 若 post.tags 没在 rankRelated 之前赋值，共同标签数恒为 0，跨栏目这篇进不来，
+  // 前三会退化成纯 tools 栏目文章。这条只有排序真按标签交集走才会过。
+  ok('跨栏目同标签文章排第一（标签交集真生效）',
+    relHrefs[0] === '/p/worker-render-549-to-96', `实际第一张 ${relHrefs[0]}`);
   const noTags = await get('/p/post-brfy5');
   ok('无标签无栏目文章不渲染相关推荐', !noTags.body.includes('class="post-related"'));
 }
