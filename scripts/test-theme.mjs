@@ -1,5 +1,6 @@
 // 主题样式表直出的边界：错一个字符就会让整站要么没样式、要么多一次阻塞请求。
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { themeCssTag } from '../src/settings.js';
 
 const cases = [];
@@ -36,6 +37,32 @@ t('七套主题里只有两套不发 link', () => {
   const all = ['anzhiyu', 'paper', 'ink', 'forest', 'ocean', 'plum', 'mono'];
   const withLink = all.filter((id) => themeCssTag(id) !== '');
   assert.deepEqual(withLink, ['ink', 'forest', 'ocean', 'plum', 'mono']);
+});
+
+const cssText = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
+
+t('回到顶部按钮七套通用：基础规则 display:grid，无主题限定覆写', () => {
+  const rule = cssText.match(/\.back-top\s*\{[^}]*\}/);
+  assert.ok(rule, '找不到 .back-top 基础规则');
+  assert.match(rule[0], /display:\s*grid/);
+  assert.doesNotMatch(cssText, /\[data-theme="anzhiyu"\]\s*\.back-top/);
+});
+
+t('正文图片 figure 覆盖浏览器默认左右边距', () => {
+  const rule = cssText.match(/\.md \.md-img\s*\{[^}]*\}/);
+  assert.ok(rule, '找不到 .md .md-img 规则');
+  assert.match(rule[0], /margin:\s*1\.7em 0/);
+  assert.ok(cssText.includes('.md .md-img figcaption'), '缺图注样式');
+});
+
+t('长表 sticky 表头有纵向滚动容器，打印时回退', () => {
+  const wrap = cssText.match(/\.md \.table-wrap\s*\{[^}]*\}/);
+  const th = cssText.match(/\.md th\s*\{[^}]*\}/);
+  assert.ok(wrap && th, '找不到表格规则');
+  assert.match(wrap[0], /max-height:\s*70vh/);
+  assert.match(th[0], /position:\s*sticky/);
+  assert.match(cssText, /@media print[\s\S]*?\.md \.table-wrap\s*\{ max-height: none/);
+  assert.match(cssText, /nth-child\(even\)\s+td/);
 });
 
 let pass = 0;

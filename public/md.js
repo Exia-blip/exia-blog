@@ -472,10 +472,13 @@ export function renderMarkdown(src = '') {
       continue;
     }
 
-    // 独立图片成段落（用于封面/居中）
-    if (new RegExp(String.raw`^!\[[^\]]*\]\((${URL_PART})\)$`).test(line.trim())) {
+    /* 独立图片成段落：包 figure，把作者写的 alt/title 落成可见图注。
+       只有独立成行才包 —— 行内混排的图片包 figure 会让浏览器自动闭合 <p>。 */
+    const im = line.trim().match(new RegExp(String.raw`^!\[([^\]]*)\]\((${URL_PART})(?:\s+"([^"]*)")?\)$`));
+    if (im) {
       flush();
-      out.push(`<p class="md-img">${inline(line.trim())}</p>`);
+      const cap = im[3] ? esc(im[3]) : im[1].trim() ? esc(cleanAltName(im[1])) : '';
+      out.push(`<figure class="md-img">${inline(line.trim())}${cap ? `<figcaption>${cap}</figcaption>` : ''}</figure>`);
       i++;
       continue;
     }

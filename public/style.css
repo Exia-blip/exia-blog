@@ -435,7 +435,13 @@ a.cat-chip:hover { filter: brightness(0.96); }
 /* <picture> 只是给浏览器挑格式的外壳，不该在布局里占位：
    display:contents 让里面的 img 直接参与原来的排版，居中与圆角都不用重写。 */
 .md picture { display: contents; }
-.md .md-img { text-align: center; }
+/* figure 默认带 40px 左右外边距，不覆盖会把正文图整体缩进 */
+.md .md-img { margin: 1.7em 0; text-align: center; }
+.md .md-img img { margin: 0; }
+.md .md-img figcaption {
+  margin-top: 10px; color: var(--muted);
+  font-size: 13px; line-height: 1.65;
+}
 .md code {
   font-family: var(--mono); font-size: 0.875em;
   background: var(--bg-soft); padding: 2px 6px; border-radius: 5px;
@@ -468,10 +474,17 @@ a.cat-chip:hover { filter: brightness(0.96); }
   background: transparent; color: var(--fg-soft);
 }
 .md pre.code-block code { background: none; padding: 0; color: inherit; font-size: inherit; }
-.md .table-wrap { overflow-x: auto; margin: 1.5em 0; }
+/* 表头要 sticky，容器就得自己在纵向滚动：只写 overflow-x:auto 时
+   浏览器的 overflow-y 会被算成 auto，但容器没有高度限制，表头永远粘不住。
+   短表格不受 max-height 影响，只有长表格才出现内部滚动条。 */
+.md .table-wrap { overflow: auto; max-height: 70vh; margin: 1.5em 0; }
 .md table { border-collapse: collapse; width: 100%; font-size: 15px; }
 .md th, .md td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; }
-.md th { background: var(--bg-soft); font-weight: 600; color: var(--fg); }
+.md th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg-soft); font-weight: 600; color: var(--fg);
+}
+.md tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-soft) 45%, transparent); }
 
 /* 高亮 token（随主题切换） */
 .tok-k { color: var(--tok-k); }
@@ -494,9 +507,28 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .cmt { display: flex; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); }
 .cmt:first-of-type { border-top: 0; }
 .cmt .ava {
+  --ava: #8695a8;
   width: 34px; height: 34px; flex: 0 0 34px; border-radius: 50%;
-  background: var(--bg-soft); display: grid; place-items: center;
-  font-size: 13px; color: var(--muted); font-weight: 600; border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ava) 26%, var(--bg-soft));
+  display: grid; place-items: center;
+  font-size: 13px; color: color-mix(in srgb, var(--ava) 78%, var(--fg));
+  font-weight: 600; border: 1px solid color-mix(in srgb, var(--ava) 35%, var(--line));
+}
+/* 昵称哈希到低饱和色：同一个人稳定同色，十档够用且不会花。
+   深浅两套分别混底和混字，避免在暗色主题里变成一块亮斑。 */
+.cmt .ava.ava-t0 { --ava: #6b8fb5; }
+.cmt .ava.ava-t1 { --ava: #7f9e86; }
+.cmt .ava.ava-t2 { --ava: #b58a6b; }
+.cmt .ava.ava-t3 { --ava: #9b7fb5; }
+.cmt .ava.ava-t4 { --ava: #b57f92; }
+.cmt .ava.ava-t5 { --ava: #6fa39b; }
+.cmt .ava.ava-t6 { --ava: #b3a06b; }
+.cmt .ava.ava-t7 { --ava: #8794b5; }
+.cmt .ava.ava-t8 { --ava: #a08a7f; }
+.cmt .ava.ava-t9 { --ava: #7fa0b5; }
+:root[data-mode="dark"] .cmt .ava {
+  background: color-mix(in srgb, var(--ava) 28%, #12161c);
+  color: color-mix(in srgb, var(--ava) 72%, #fff);
 }
 .cmt .main { flex: 1; min-width: 0; }
 .cmt .head { display: flex; gap: 8px; align-items: center; font-size: 13.5px; margin-bottom: 3px; flex-wrap: wrap; }
@@ -1345,11 +1377,11 @@ body { transition: background-color .26s ease, color .26s ease; }
 :root[data-theme="anzhiyu"] .post-body { font-size: 18px; line-height: 1.9; }
 :root[data-theme="anzhiyu"] .post-foot { border-top: 0; padding-top: 6px; }
 
-/* 回到顶部：圆形悬浮按钮，只在安知鱼下出现 */
+/* 回到顶部：圆形悬浮按钮，七套主题共用 */
 .back-top {
   position: fixed; right: 22px; bottom: 26px; z-index: 90;
   width: 42px; height: 42px; border-radius: 50%;
-  display: none; place-items: center;
+  display: grid; place-items: center;
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
   background: color-mix(in srgb, var(--card) 88%, transparent);
   backdrop-filter: blur(10px);
@@ -1359,7 +1391,6 @@ body { transition: background-color .26s ease, color .26s ease; }
   transition: opacity .22s, transform .22s, box-shadow .22s;
   box-shadow: 0 8px 24px -16px rgba(30, 50, 120, .6);
 }
-:root[data-theme="anzhiyu"] .back-top { display: grid; }
 .back-top.on { opacity: 1; transform: none; pointer-events: auto; }
 .back-top:hover { box-shadow: 0 12px 30px -14px rgba(66, 90, 239, .65); }
 .back-top svg { width: 17px; height: 17px; }
@@ -1781,6 +1812,9 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   .md pre.code-block > .gutter { background: #fafafa; }
   .md h2, .md h3 { page-break-after: avoid; break-after: avoid; }
   .md img, .md table, .md blockquote { page-break-inside: avoid; }
+  /* 打印没有滚动容器，限高会把长表格截掉 */
+  .md .table-wrap { max-height: none; overflow: visible; }
+  .md th { position: static; }
   .md .code-wrap { border-color: #d6d6d6; page-break-inside: avoid; }
   .post-lead { border: 1px solid #ddd; background: #fafafa; }
 }

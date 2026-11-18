@@ -138,6 +138,31 @@ t('链接文字里的粗体仍生效（没被整段占位吞掉）', () => {
   assert.ok(out.includes('<strong>粗</strong>'), out);
 });
 
+t('独立图片包 figure，作者写的 alt 进图注', () => {
+  const out = renderBody('![控制台截图](/a.png)');
+  assert.ok(out.includes('<figure class="md-img">'), out);
+  assert.ok(out.includes('<figcaption>控制台截图</figcaption>'), out);
+  assert.ok(!out.includes('<p class="md-img">'), out);
+});
+
+t('title 优先当图注，且尖括号与 & 被转义', () => {
+  const out = renderBody('![兜底 alt](/a.png "A<&B")');
+  assert.ok(out.includes('<figcaption>A&lt;&amp;B</figcaption>'), out);
+  assert.ok(!out.includes('<figcaption>兜底 alt</figcaption>'), out);
+});
+
+t('没有 alt/title 时只包 figure，不吐空图注', () => {
+  const out = renderBody('![](https://cdn.example.com/a.png)');
+  assert.ok(out.includes('<figure class="md-img">'), out);
+  assert.ok(!out.includes('<figcaption>'), out);
+});
+
+t('行内混排的图片不包 figure，避免浏览器拆掉外层 <p>', () => {
+  const out = renderBody('前文 ![图](/a.png) 后文');
+  assert.ok(!out.includes('<figure'), out);
+  assert.ok(out.includes('<p>前文'), out);
+});
+
 let pass = 0;
 for (const [name, fn] of cases) {
   try {

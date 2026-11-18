@@ -376,7 +376,7 @@ export function bindReadingProgress(root = document.querySelector('.post-body'))
   sync();
 }
 
-/* 回到顶部：安知鱼主题下的悬浮圆按钮，其它主题不显示 */(function mountBackTop() {
+/* 回到顶部：悬浮圆按钮，七套主题共用 */(function mountBackTop() {
   if (document.querySelector('.back-top')) return;
   const btn = document.createElement('button');
   btn.className = 'back-top';

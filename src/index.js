@@ -5,7 +5,7 @@ import { checkFriends } from './cron.js';
 import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
 import { coverOf, autoThumb, isAutoCover, isCardCover, thumbOf } from './cover.js';
-import { avatarSrc } from '../public/avatar.js';
+import { avatarSrc, avatarTone } from '../public/avatar.js';
 import { rankRelated } from './related.js';
 import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders, obfuscateEmail } from './security.js';
@@ -374,7 +374,7 @@ export function renderComment(c, isChild = false, viewer = null) {
   const mail = viewer && viewer.is_admin && c.email
     ? `<a class="cmt-mail" href="mailto:${esc(c.email)}" title="联系邮箱，仅管理员可见">${esc(c.email)}</a>`
     : '';
-  return `<div class="cmt" data-cid="${c.id}"><div class="ava">${avaText(c.name)}</div><div class="main"><div class="head"><b>${homepage}</b>${
+  return `<div class="cmt" data-cid="${c.id}"><div class="ava ${avatarTone(c.name)}">${avaText(c.name)}</div><div class="main"><div class="head"><b>${homepage}</b>${
     c.is_admin ? '<span class="badge-owner">博主</span>' : ''
   }<time class="when" datetime="${esc(sqlIso(c.created_at))}" data-t="${esc(String(c.created_at || ''))}">${esc(
     relTime(c.created_at)
@@ -1864,6 +1864,20 @@ async function notFoundPage(env, request, message = '页面走丢了') {
   const site = await getSite(env);
   const siteName = esc(site.name);
   const cfg = JSON.stringify({ theme: site.theme, mode: site.mode }).replace(/</g, '\\u003c');
+  /* 走错路的人多半是在找某篇文章。搜框之外再给几条最近的公开文章，
+     按 liveSql 走同一条时间闸门 —— 排期未到的文章不能在 404 页被剧透。
+     这条查询失败也不能把 404 页一起拖成 500。 */
+  const { results: recent = [] } = await env.DB.prepare(
+    `SELECT slug, title FROM posts WHERE is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
+     ORDER BY COALESCE(NULLIF(published_at, ''), created_at) DESC LIMIT 5`
+  )
+    .all()
+    .catch(() => ({ results: [] }));
+  const recentHtml = recent.length
+    ? `<div class="g404-recent"><div class="g404-hint">最近更新</div><ul>${recent
+        .map((p) => `<li><a href="/p/${encodeURIComponent(p.slug)}">${esc(p.title)}</a></li>`)
+        .join('')}</ul></div>`
+    : '';
   return html(
     `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1884,10 +1898,16 @@ async function notFoundPage(env, request, message = '页面走丢了') {
 .g404 input:focus{outline:2px solid var(--accent);outline-offset:1px}
 .g404 button{padding:10px 18px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--fg);font-size:14px;font-family:inherit;cursor:pointer}
 .g404 button:hover{border-color:var(--fg)}
+.g404-hint{color:var(--muted);font-size:13px;margin:0 0 8px}
+.g404-recent ul{list-style:none;padding:0;margin:0 0 22px;display:flex;flex-direction:column;gap:7px;max-width:380px}
+.g404-recent li{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g404-recent a{background:transparent;color:var(--accent);padding:0;font-size:14px;text-decoration:underline;text-underline-offset:3px}
+.g404-foot a{display:inline-block;margin:0 6px;padding:0;background:none;font-size:13px;color:var(--muted);text-decoration:underline}
+.g404-foot a:hover{color:var(--fg)}
 </style></head>
 <body><div class="g404"><div><h1>404</h1><p>${esc(message)}</p>
 <form action="/" method="get" role="search"><input type="search" name="q" placeholder="搜一下想找的内容…" aria-label="搜索文章"><button type="submit">搜索</button></form>
-<a href="/">回到首页</a></div></div></body></html>`,
+${recentHtml}<div class="g404-foot"><a href="/archive">全部文章</a><a href="/">回到首页</a></div></div></div></body></html>`,
     404,
     /* 404 页每访问一次就要查一次站点设置（D1）再拼一遍 HTML。
        爬虫扫废链的时候这是纯粹的负载：给它 60 秒边缘缓存，

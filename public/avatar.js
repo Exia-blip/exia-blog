@@ -16,3 +16,16 @@ export function avatarSrc(url, size = 96) {
   const s = Math.min(256, Math.max(32, Number(size) || 96));
   return `/avatar?u=${encodeURIComponent(u)}&s=${s}`;
 }
+
+/* 没头像的访客用昵称首字当占位。按昵称哈希取色，同一个人换设备/刷新都同色。
+   返回 class 而不是内联 style：颜色口径集中在 style.css，深浅主题各改一处即可。 */
+const TONES = 10;
+export function avatarTone(name = '') {
+  const s = String(name || '');
+  let h = 2166136261; // FNV-1a
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `ava-t${(h >>> 0) % TONES}`;
+}

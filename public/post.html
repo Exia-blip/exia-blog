@@ -22,6 +22,7 @@
 <script type="module">
 import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons, bindReadingProgress, bindCodeScroll, refreshRelTimes, enhanceComments } from '/app.js';
 import { bindCopyNotice } from '/copy-notice.js';
+import { avatarTone } from '/avatar.js';
 
 bindCopyButtons(document);
 // 复制正文自动附署名。只挂在文章页 —— 首页复制卡片摘要不需要这段
@@ -139,7 +140,7 @@ function renderCmt(c, isChild = false) {
 
   return `
   <div class="cmt" data-cid="${c.id}">
-    <div class="ava">${avatarText(c.name)}</div>
+    <div class="ava ${avatarTone(c.name)}">${avatarText(c.name)}</div>
     <div class="main">
       <div class="head">
         <b>${homepage}</b>

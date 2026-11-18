@@ -3,6 +3,7 @@
 // 结果就是"删评论按钮到底会不会漏给访客"从来没被验证过。
 import assert from 'node:assert/strict';
 import { renderComments, renderComment, commentActs } from '../src/index.js';
+import { avatarTone } from '../public/avatar.js';
 
 let pass = 0;
 const t = (name, fn) => {
@@ -87,6 +88,13 @@ t('回复按钮的 data-name 里双引号不会截断属性', () => {
   const h = renderComment(evil, false, null);
   assert.ok(!/data-name="a" onmouseover=/.test(h), '属性不能被提前闭合');
   assert.match(h, /data-name="a&quot; onmouseover=&quot;alert\(1\)"/);
+});
+
+t('头像按昵称哈希取稳定配色，服务端与客户端同一口径', () => {
+  const tone = avatarTone('访客');
+  assert.match(tone, /^ava-t\d$/);
+  assert.equal(tone, avatarTone('访客'), '同一昵称刷新后必须同色');
+  assert.match(renderComment(row, false, null), new RegExp(`class="ava ${tone}"`));
 });
 
 /* ---------- 表单 ---------- */
