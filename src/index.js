@@ -1820,7 +1820,13 @@ function analyticsTag(cfg) {
   );
 }
 
-async function harden(res, env) {
+/* 后台私有页：写作页与各管理页。这些页面不进边缘缓存——
+   否则部署后 CF 边缘还会吐最多 1 天的旧副本（s-maxage + swr），
+   表现为「明明部署了，刷新还是旧界面」。后台是单人用的，没有缓存价值。 */
+export const isAdminPath = (p) =>
+  p === '/editor' || p.startsWith('/editor/') || p.startsWith('/admin/');
+
+export async function harden(res, env, path = '') {
   // 配了 Turnstile 才在 CSP 里放行它的域名；没配就保持零第三方
   const tsOn = !!(env && env.TURNSTILE_SITE_KEY);
   const anCfg = analyticsCfg(env);
@@ -1853,8 +1859,14 @@ async function harden(res, env) {
   const cc = (headers.get('cache-control') || '').toLowerCase();
   const normal = res.status >= 200 && res.status < 400;
   if (normal) {
-    if (!cc.includes('no-store') && !cc.includes('private')) headers.set('cache-control', pageCacheControl());
-    headers.set('cdn-cache-control', `public, s-maxage=${EDGE_TTL}, stale-while-revalidate=${EDGE_SWR}`);
+    if (isAdminPath(path)) {
+      // 后台页：浏览器与 CF 边缘都不缓存，改完立刻可见
+      headers.set('cache-control', 'private, no-store');
+      headers.set('cdn-cache-control', 'private, no-store');
+    } else {
+      if (!cc.includes('no-store') && !cc.includes('private')) headers.set('cache-control', pageCacheControl());
+      headers.set('cdn-cache-control', `public, s-maxage=${EDGE_TTL}, stale-while-revalidate=${EDGE_SWR}`);
+    }
   } else if (!headers.has('cache-control') || cc === 'no-cache') {
     headers.set('cache-control', res.status === 404 ? 'public, max-age=0, s-maxage=60' : 'no-store');
   }
@@ -2530,7 +2542,7 @@ export default {
          跟着攻击者伪造的 Host 走。这里不动 edgeGet 的缓存键，只改派生来源。 */
       const seoUrl = new URL(url.pathname + url.search, siteOrigin(env, request));
       res = await injectTheme(env, res, seoUrl);
-      res = await harden(res, env);
+      res = await harden(res, env, url.pathname);
       res = await withEtag(res);
 
       /* 顺序很重要：先按 200 写边缘缓存，再决定要不要改回 304。

@@ -9,7 +9,7 @@
  * 不看命中率永远发现不了。
  */
 import { tagOf } from '../src/utils.js';
-import { etagHit, maybe304, serverErrorPage } from '../src/index.js';
+import { etagHit, maybe304, serverErrorPage, harden, isAdminPath } from '../src/index.js';
 
 let pass = 0;
 const fails = [];
@@ -92,6 +92,24 @@ t(/回到首页/.test(e500) && /href="\/"/.test(e500), '500 页有回首页入�
 t(!/\/style\.css|\/boot\.js/.test(e500), '500 页不依赖站内资源（静态资源可能正是故障源）');
 t(/prefers-color-scheme:\s*dark/.test(e500), '500 页跟随系统深色');
 t(/noindex/.test(e500), '500 页不让搜索引擎收录');
+
+/* ---- 后台页不进缓存：部署后必须立刻可见 ----
+   元凶是 harden() 给所有正常页套 cdn-cache-control（边缘 300s + swr 1 天），
+   后台页跟着被缓存，表现为「部署了刷新还是旧界面」。这些断言守住后台 no-store，
+   同时确认公开页缓存口径一字未动。 */
+t(isAdminPath('/editor') && isAdminPath('/admin/stats') && isAdminPath('/editor?x=1'.split('?')[0]),
+  '后台路径判定：editor / admin 都算');
+t(!isAdminPath('/') && !isAdminPath('/p/a') && !isAdminPath('/archive'), '公开路径不算后台');
+{
+  const html = new Response('<!doctype html><p>x</p>', { headers: { 'content-type': 'text/html' } });
+  const admin = await harden(html.clone(), {}, '/editor');
+  t(admin.headers.get('cache-control') === 'private, no-store', '后台页浏览器不缓存');
+  t(admin.headers.get('cdn-cache-control') === 'private, no-store', '后台页 CF 边缘不缓存（根治旧副本）');
+
+  const pub = await harden(html.clone(), {}, '/');
+  t(/s-maxage=/.test(pub.headers.get('cdn-cache-control') || ''), '公开页仍走边缘缓存（不受影响）');
+  t(/max-age=0/.test(pub.headers.get('cache-control') || ''), '公开页浏览器仍每次校验（不受影响）');
+}
 
 console.log(`\nETag / 304: ${pass} 通过${fails.length ? `，${fails.length} 失败` : ''}`);
 if (fails.length) process.exit(1);
