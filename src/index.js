@@ -1,11 +1,11 @@
 import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
-import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts } from './utils.js';
+import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin } from './utils.js';
 import { checkFriends } from './cron.js';
 import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
 import { coverOf, autoThumb, isAutoCover, isCardCover, thumbOf } from './cover.js';
-import { avatarSrc, avatarTone } from '../public/avatar.js';
+import { avatarSrc, avatarTone, safeWebsite } from '../public/avatar.js';
 import { rankRelated } from './related.js';
 import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders, obfuscateEmail } from './security.js';
@@ -368,8 +368,9 @@ export function commentActs(c, viewer) {
 }
 
 export function renderComment(c, isChild = false, viewer = null) {
-  const homepage = c.website
-    ? `<a href="${esc(c.website)}" target="_blank" rel="noopener nofollow noUGc" class="muted">${esc(c.name)}</a>`
+  const site = safeWebsite(c.website);
+  const homepage = site
+    ? `<a href="${esc(site)}" target="_blank" rel="noopener nofollow noUGc" class="muted">${esc(c.name)}</a>`
     : esc(c.name);
   const mail = viewer && viewer.is_admin && c.email
     ? `<a class="cmt-mail" href="mailto:${esc(c.email)}" title="联系邮箱，仅管理员可见">${esc(c.email)}</a>`
@@ -702,7 +703,7 @@ function seriesRows(rows) {
 
 async function serveSeriesPage(env, request, name) {
   const site = await getSite(env);
-  const origin = new URL(request.url).origin;
+  const origin = siteOrigin(env, request);
   const { results } = await env.DB.prepare(
     `SELECT slug, title, series_order, published_at, created_at FROM posts
      WHERE series = ? AND is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
@@ -766,7 +767,7 @@ async function serveSeriesPage(env, request, name) {
 
 async function serveSeriesIndex(env, request) {
   const site = await getSite(env);
-  const origin = new URL(request.url).origin;
+  const origin = siteOrigin(env, request);
   const { results } = await env.DB.prepare(
     `SELECT series AS name, COUNT(*) AS n, MAX(COALESCE(NULLIF(published_at, ''), created_at)) AS latest
      FROM posts
@@ -1041,16 +1042,17 @@ async function servePostPage(env, request, slug) {
 
   // 系列目录：同系列公开文章按序号排，当前这篇标出来，顺带算出上下篇
   const siteName = site.name;
-  const origin = new URL(request.url).origin;
+  const origin = siteOrigin(env, request);
   // canonical 必须和 sitemap / RSS 里给的地址一致，否则同一篇文章被收录两份
-  const canonical = new URL(`/p/${encodeURIComponent(post.slug)}`, request.url).toString();
+  // 三处都用可信源，不能从 request.url 派生（Host 头可控）
+  const canonical = new URL(`/p/${encodeURIComponent(post.slug)}`, origin).toString();
 
   const desc = metaDesc(post.summary || extractExcerpt(post.content, 260), site.desc || site.name);
   // 手填封面 → 正文首图 → 预设自动图，永远有值
   const cover = coverOf(post);
   // 封面 → 本站分享图。站点头像不参与：GitHub 头像只有 460px，社交卡片会糊成一团，
   // 而且外链域名不受自己控制（改天换图床就 404）。
-  const ogImage = new URL(cover, request.url).toString();
+  const ogImage = new URL(cover, origin).toString();
   /* og:image 的尺寸只标能确认的两种：预设图 1200×784 JPEG、标题卡 1200×630 PNG。
      作者自己传的图尺寸未知，标错了平台会按错的框去裁。 */
   const ogKind = isAutoCover(post)
@@ -1937,7 +1939,7 @@ async function serveRss(env, request) {
   // <category> 让聚合器按主题归类；栏目用中文名，标签原样
   await attachTags(env.DB, results);
 
-  const origin = new URL(request.url).origin;
+  const origin = siteOrigin(env, request);
   const site = await getSite(env);
   const items = results
     .map((p) =>
@@ -2055,7 +2057,7 @@ ${items}
 }
 
 async function serveSitemap(env, request) {
-  const origin = new URL(request.url).origin;
+  const origin = siteOrigin(env, request);
   const publicOnly = `p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}`;
   // 列表页也要 lastmod：一个栏目页的内容变了，是因为它下面某篇文章变了，
   // 所以取组内 MAX(updated_at)。以前只有文章页带，列表页对爬虫等于"从不更新"。
@@ -2182,8 +2184,8 @@ async function asset(env, request, url) {
 }
 
 /* ---------- robots.txt / manifest ---------- */
-function serveRobots(request) {
-  const origin = new URL(request.url).origin;
+function serveRobots(env, request) {
+  const origin = siteOrigin(env, request);
   const txt = `User-agent: *
 Allow: /
 Disallow: /editor
@@ -2360,7 +2362,7 @@ async function route(request, env, ctx) {
   if (path === '/avatar') return await serveAvatarProxy(env, url);
   if (path === '/rss.xml') return await serveRss(env, request);
   if (path === '/sitemap.xml') return await serveSitemap(env, request);
-  if (path === '/robots.txt') return serveRobots(request);
+  if (path === '/robots.txt') return serveRobots(env, request);
   if (path === '/manifest.webmanifest') return await serveManifest(env, request);
   if (path === '/admin/stats') return await statsPage(env, request);
 
@@ -2520,7 +2522,11 @@ export default {
       }
 
       let res = await route(request, env, ctx);
-      res = await injectTheme(env, res, url);
+      /* 注入 SEO / 分页链接时用一个把 host 换成可信主域的 url。
+         直接用路由的 url（源自 Host 头）会让 canonical / JSON-LD / sitemap
+         跟着攻击者伪造的 Host 走。这里不动 edgeGet 的缓存键，只改派生来源。 */
+      const seoUrl = new URL(url.pathname + url.search, siteOrigin(env, request));
+      res = await injectTheme(env, res, seoUrl);
       res = await harden(res, env);
       res = await withEtag(res);
 

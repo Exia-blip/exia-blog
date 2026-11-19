@@ -22,7 +22,7 @@
 <script type="module">
 import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons, bindReadingProgress, bindCodeScroll, refreshRelTimes, enhanceComments } from '/app.js';
 import { bindCopyNotice } from '/copy-notice.js';
-import { avatarTone } from '/avatar.js';
+import { avatarTone, safeWebsite } from '/avatar.js';
 
 bindCopyButtons(document);
 // 复制正文自动附署名。只挂在文章页 —— 首页复制卡片摘要不需要这段
@@ -131,8 +131,9 @@ function renderCmt(c, isChild = false) {
       ? `<button type="button" data-del="${c.id}">删除</button>` +
         `<button type="button" data-ban="${c.id}" class="cmt-ban" title="删掉这个来源的全部访客评论，并拉黑该 IP">封 IP</button>`
       : '');
-  const homepage = c.website
-    ? `<a href="${esc(c.website)}" target="_blank" rel="noopener nofollow noUGc" class="muted">${esc(c.name)}</a>`
+  const site = safeWebsite(c.website);
+  const homepage = site
+    ? `<a href="${esc(site)}" target="_blank" rel="noopener nofollow noUGc" class="muted">${esc(c.name)}</a>`
     : esc(c.name);
   const mail = admin && c.email
     ? `<a class="cmt-mail" href="mailto:${esc(c.email)}" title="联系邮箱，仅管理员可见">${esc(c.email)}</a>`

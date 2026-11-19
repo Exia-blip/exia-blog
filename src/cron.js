@@ -17,35 +17,100 @@ const TIMEOUT_MS = 8000;
 const PER_RUN = 40;
 const CONCURRENCY = 10;
 const SELF_HOSTS = new Set(['exia.de5.net', 'www.exia.de5.net', 'exia-blog.meitu.workers.dev']);
+const MAX_REDIRECTS = 5;
+
+/* 友链 URL 由管理员写入，但不该让 Worker 去打内网 / 回环 / 云元数据地址。
+   redirect:'follow' 会跟着 302 跳进内网（外部友链 → 内网），所以不能只校验
+   原始 URL —— 改成手动跟随，每一跳都过这个闸门。
+   只按 hostname 的字面量判断：Workers 没有 DNS 预解析 API，域名 A 记录指向
+   内网（DNS rebinding）挡不住；但触发前提是管理员，且响应体不回显（盲 SSRF），
+   所以字面量闸门 + 逐跳校验已把可利用面压到最低。导出供单测穷举。 */
+const PRIVATE_V4 = [
+  /^127\./,          // 回环 127.0.0.0/8
+  /^10\./,           // 私有 10/8
+  /^192\.168\./,     // 私有 192.168/16
+  /^172\.(1[6-9]|2\d|3[01])\./, // 私有 172.16/12
+  /^169\.254\./,     // 链路本地 + 云元数据 169.254.169.254
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // CGNAT 100.64/10
+  /^0\./,            // 「本网络」0.0.0.0/8
+  /^192\.0\.0\./, /^198\.(18|19)\./, /^203\.0\.113\./, // 文档保留段
+];
+
+export function isBlockedHost(rawHost) {
+  let h = String(rawHost || '').trim().toLowerCase();
+  // URL.hostname 对 IPv6 带方括号，如 [::1]；FQDN 可能带尾点
+  if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+  h = h.replace(/\.$/, '');
+  if (!h) return true;
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true;
+  // IPv4-mapped IPv6（::ffff:127.0.0.1）剥掉前缀再按 IPv4 判
+  const mapped = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) h = mapped[1];
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(h)) return PRIVATE_V4.some((re) => re.test(h));
+  // IPv6 回环 / 未指定 / 唯一本地 fc00::/7 / 链路本地 fe80::/10
+  if (h === '::' || h === '::1') return true;
+  if (/^f[cd][0-9a-f]/.test(h) || /^fe[89ab][0-9a-f]/.test(h)) return true;
+  return false;
+}
+
+/* 把 URL 规范化并做首跳校验；返回 target 或拒绝原因。 */
+function resolveTarget(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return { note: 'bad-url' };
+  const target = /^https?:\/\//i.test(s) ? s : `https://${s}`;
+  let u;
+  try {
+    u = new URL(target);
+  } catch {
+    return { note: 'bad-url' };
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { note: 'bad-url' };
+  const host = u.hostname;
+  if (SELF_HOSTS.has(host)) return { note: 'self' };
+  if (isBlockedHost(host)) return { note: 'blocked-host' };
+  return { target };
+}
 
 /* 0 挂 / 1 正常 / 2 有响应但状态异常 */
 async function probe(url) {
-  const target = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  const first = resolveTarget(url);
+  if (first.note === 'self') return { status: 1, code: 0, ms: 0, note: 'self' };
+  if (first.note) return { status: 0, code: 0, ms: 0, note: first.note };
 
-  try {
-    if (SELF_HOSTS.has(new URL(target).hostname)) return { status: 1, code: 0, ms: 0, note: 'self' };
-  } catch {
-    return { status: 0, code: 0, ms: 0, note: 'bad-url' };
-  }
-
+  let target = first.target;
   const t0 = Date.now();
+  // 全程一个 deadline：逐跳共享，不让 5 次跳转把 8s Timeout 放大成 40s。
+  const signal = AbortSignal.timeout(TIMEOUT_MS);
+
   try {
-    const res = await fetch(target, {
-      method: 'GET',
-      redirect: 'follow',
-      headers: { 'user-agent': UA, accept: 'text/html,*/*' },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    const ms = Date.now() - t0;
-    const code = res.status;
-    // 只要响应头，正文不要：cloudflare.com 首页 1.3MB，拉完纯属浪费出口流量。
-    // cancel 不能让这条 subrequest 少算一次，但能省传输。
-    if (res.body) await res.body.cancel().catch(() => {});
-    return { status: code >= 200 && code < 400 ? 1 : 2, code, ms };
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const res = await fetch(target, {
+        method: 'GET',
+        redirect: 'manual', // 自行跟随，每跳都能校验目标
+        headers: { 'user-agent': UA, accept: 'text/html,*/*' },
+        signal,
+      });
+      const ms = Date.now() - t0;
+      // 只要响应头，正文不要：cloudflare.com 首页 1.3MB，拉完纯属浪费出口流量。
+      // cancel 不能让这条 subrequest 少算一次，但能省传输。
+      if (res.body) await res.body.cancel().catch(() => {});
+
+      const code = res.status;
+      const isRedirect = code >= 300 && code < 400;
+      if (!isRedirect) return { status: code >= 200 && code < 400 ? 1 : 2, code, ms };
+
+      if (hop === MAX_REDIRECTS) return { status: 2, code, ms, note: 'too-many-redirects' };
+      const loc = res.headers.get('location');
+      if (!loc) return { status: 2, code, ms, note: 'redirect-no-location' };
+      const next = resolveTarget(new URL(loc, target).toString());
+      if (next.note) return { status: 2, code, ms, note: `redirect-${next.note}` };
+      target = next.target;
+    }
   } catch (e) {
     // TimeoutError / TypeError: fetch failed —— 网络层没通，才算挂
     return { status: 0, code: 0, ms: Date.now() - t0, note: e.name };
   }
+  return { status: 2, code: 0, ms: Date.now() - t0, note: 'unreachable' };
 }
 
 export async function checkFriends(env) {

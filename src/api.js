@@ -1,4 +1,4 @@
-import { json, err, pageParams, slugify, uniqueSlug, nowISO, setCookie, localParts } from './utils.js';
+import { json, err, pageParams, slugify, uniqueSlug, nowISO, setCookie, localParts, siteOrigin } from './utils.js';
 import { currentUser, requireUser, requireAdmin } from './auth.js';
 import { guard, record, banIp, verifyTurnstile, DID_MAX_AGE } from './antispam.js';
 import { renderBody, extractTags, extractCover, extractExcerpt, readingTime, searchSnippet } from '../public/md.js';
@@ -288,9 +288,13 @@ export async function friendsData(db) {
    线上表现是「搜得到但总数不对」或干脆报绑定数量不匹配。
    标签那一路用 IN 子查询，口径与上面的 tag 过滤完全一致（post_tags.post_id）。 */
 export function searchMatch(q) {
-  const kw = `%${q}%`;
+  // LIKE 里 % 与 _ 是通配符，\ 是转义符本身：三者都要转义，否则搜字面量
+  // 「100%」「a_b」会退化成全表匹配。ESCAPE '\' 只作用于这一条 LIKE 表达式，
+  // 三个分支都带上，避免 COUNT 与列表口径走偏。
+  const kw = `%${String(q).replace(/[\\%_]/g, '\\$&')}%`;
+  const ESC = " ESCAPE '\\'";
   return {
-    sql: `(p.title LIKE ? OR p.content LIKE ? OR p.id IN (SELECT pt.post_id FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE t.name LIKE ?))`,
+    sql: `(p.title LIKE ?${ESC} OR p.content LIKE ?${ESC} OR p.id IN (SELECT pt.post_id FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE t.name LIKE ?${ESC}))`,
     args: [kw, kw, kw],
   };
 }
@@ -906,7 +910,7 @@ export async function handleApi(env, request, url, ctx) {
       if (rate.fresh) headers['set-cookie'] = setCookie('cmt_did', rate.did, { maxAge: DID_MAX_AGE });
     }
 
-    const origin = url.origin;
+    const origin = siteOrigin(env, request);
     await notifyComment(env, {
       postTitle: p.title,
       postUrl: `${origin}/p/${p.slug}`,

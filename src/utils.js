@@ -57,6 +57,25 @@ export function html(body, status = 200, headers = {}) {
   });
 }
 
+/* 对外绝对 URL（canonical / og:url / sitemap / RSS / robots）必须用的可信源。
+   不能用 new URL(request.url).origin —— 那个 host 直接来自请求 Host 头：
+   zone 配了 wildcard、或有人带伪造 Host 打进来时，canonical 和 sitemap 会输出
+   攻击者域名，污染收录与聚合器。SITE_ORIGIN 是部署时写定的唯一可信来源；
+   没配（本地 wrangler dev）才回落到请求 origin，保证开发照常跑。
+   清洗规则与 auth.js 的 OAuth 回调用 origin 一致，避免两处口径走偏。 */
+export function siteOrigin(env, request) {
+  const reqOrigin = new URL(request.url).origin;
+  const raw = String(env?.SITE_ORIGIN || '').trim().replace(/\s+/g, '');
+  if (!raw) return reqOrigin;
+  try {
+    const u = new URL(raw);
+    if ((u.protocol === 'https:' || u.protocol === 'http:') && u.hostname) return u.origin;
+  } catch {
+    // 配错就回落，不让一篇 500 拖垮全站
+  }
+  return reqOrigin;
+}
+
 export function err(message, status = 400) {
   return json({ ok: false, error: message }, status);
 }

@@ -54,5 +54,24 @@ t('中文关键词原样保留，不转义不改写', () => {
   assert.equal(args[0], '%缓存%');
 });
 
+/* LIKE 通配符注入：% 与 _ 是通配符、\ 是转义符。不转义会让「100%」
+   变成全表匹配，也能被用来强制全表扫描。三分支都要带 ESCAPE。 */
+t('三个 LIKE 分支都带 ESCAPE 子句', () => {
+  const { sql } = searchMatch('x');
+  assert.equal((sql.match(/ESCAPE '/g) || []).length, 3, 'ESCAPE 数量应为 3');
+});
+
+t('百分号/下划线/反斜杠被转义成字面量', () => {
+  assert.equal(searchMatch('100%').args[0], '%100\\%%');
+  assert.equal(searchMatch('a_b').args[0], '%a\\_b%');
+  assert.equal(searchMatch('C:\\tmp').args[0], '%C:\\\\tmp%');
+});
+
+t('混合通配符的关键词三路参数一致', () => {
+  const { args, sql } = searchMatch('50%_x');
+  assert.deepEqual(args, ['%50\\%\\_x%', '%50\\%\\_x%', '%50\\%\\_x%']);
+  assert.equal((sql.match(/\?/g) || []).length, args.length);
+});
+
 console.log(`\n${pass} passed, ${fails.length} failed`);
 if (fails.length) process.exit(1);

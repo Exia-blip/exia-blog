@@ -17,6 +17,24 @@ export function avatarSrc(url, size = 96) {
   return `/avatar?u=${encodeURIComponent(u)}&s=${s}`;
 }
 
+/* 评论昵称外链只接受 http(s) 绝对地址。
+   esc() 能防属性逃逸，但挡不住 href="javascript:..." 这类伪协议——
+   现代 CSP 会拦执行，但协议本身不该进 DOM。宽松点：无协议的裸域名（example.com）
+   和协议相对（//example.com）按 https 补齐，其余 scheme 一律判无效。
+   存储层可能已有历史脏值，所以过滤放在渲染出口（SSR 与客户端共用）。 */
+export function safeWebsite(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(s) ? s : `https://${s.replace(/^\/\//, '')}`;
+  try {
+    const u = new URL(withScheme);
+    if (u.protocol === 'https:' || u.protocol === 'http:') return u.href;
+  } catch {
+    return '';
+  }
+  return '';
+}
+
 /* 没头像的访客用昵称首字当占位。按昵称哈希取色，同一个人换设备/刷新都同色。
    返回 class 而不是内联 style：颜色口径集中在 style.css，深浅主题各改一处即可。 */
 const TONES = 10;

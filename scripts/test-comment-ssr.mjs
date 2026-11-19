@@ -3,7 +3,7 @@
 // 结果就是"删评论按钮到底会不会漏给访客"从来没被验证过。
 import assert from 'node:assert/strict';
 import { renderComments, renderComment, commentActs } from '../src/index.js';
-import { avatarTone } from '../public/avatar.js';
+import { avatarTone, safeWebsite } from '../public/avatar.js';
 
 let pass = 0;
 const t = (name, fn) => {
@@ -95,6 +95,28 @@ t('头像按昵称哈希取稳定配色，服务端与客户端同一口径', ()
   assert.match(tone, /^ava-t\d$/);
   assert.equal(tone, avatarTone('访客'), '同一昵称刷新后必须同色');
   assert.match(renderComment(row, false, null), new RegExp(`class="ava ${tone}"`));
+});
+
+/* ---------- 昵称外链协议白名单 ---------- */
+t('safeWebsite：http(s) 原样放行，裸域名与 // 补 https', () => {
+  assert.equal(safeWebsite('https://example.com/a?b=1'), 'https://example.com/a?b=1');
+  assert.equal(safeWebsite('http://example.com'), 'http://example.com/');
+  assert.equal(safeWebsite('example.com'), 'https://example.com/');
+  assert.equal(safeWebsite('//example.com'), 'https://example.com/');
+});
+
+t('safeWebsite：javascript:/data:/vbscript: 等伪协议一律判无效', () => {
+  for (const bad of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html,<script>', 'vbscript:msgbox', 'file:///etc/passwd']) {
+    assert.equal(safeWebsite(bad), '', bad);
+  }
+});
+
+t('伪协议 website 不进 SSR 的 href，昵称退化为纯文本', () => {
+  const evil = { ...row, website: 'javascript:alert(document.domain)' };
+  const h = renderComment(evil, false, null);
+  assert.ok(!/href="javascript:/i.test(h), h);
+  assert.ok(!h.includes('class="muted"'), '伪协议不该生成外链 a 标签');
+  assert.ok(h.includes(evil.name), '昵称仍要以纯文本出现');
 });
 
 /* ---------- 表单 ---------- */

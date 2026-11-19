@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { obfuscateEmail, applyNonce, securityHeaders } from '../src/security.js';
 import { safeNext } from '../src/auth.js';
+import { siteOrigin } from '../src/utils.js';
 
 const cases = [];
 const t = (name, fn) => cases.push([name, fn]);
@@ -33,6 +34,24 @@ t('safeNext：URL 解析器吞掉控制字符后仍在本站才放行', () => {
   // new URL() 会剔除 tab/newline，'/\t/evil.com' 解析成 //evil.com → 必须拦
   assert.equal(safeNext('/\t/evil.com', ORIGIN), '/');
   assert.equal(safeNext('/\n/evil.com', ORIGIN), '/');
+});
+
+/* 对外绝对 URL 的可信源：Host 头可控，canonical/sitemap/RSS 不能用它 */
+t('siteOrigin：配了 SITE_ORIGIN 就忽略伪造的 Host', () => {
+  const req = (host) => new Request(`https://${host}/p/foo`);
+  assert.equal(siteOrigin({ SITE_ORIGIN: 'https://exia.de5.net' }, req('evil.example.com')), 'https://exia.de5.net');
+  assert.equal(siteOrigin({ SITE_ORIGIN: 'https://exia.de5.net/' }, req('foo.exia.de5.net')), 'https://exia.de5.net');
+});
+
+t('siteOrigin：未配置时回落请求 origin（本地 dev 仍能跑）', () => {
+  const req = new Request('http://localhost:8787/p/foo');
+  assert.equal(siteOrigin({}, req), 'http://localhost:8787');
+});
+
+t('siteOrigin：配错（非 http(s)）时回落，不让整站 500', () => {
+  const req = new Request('https://exia.de5.net/p/foo');
+  assert.equal(siteOrigin({ SITE_ORIGIN: 'javascript:alert(1)' }, req), 'https://exia.de5.net');
+  assert.equal(siteOrigin({ SITE_ORIGIN: 'not a url' }, req), 'https://exia.de5.net');
 });
 
 t('login.html 前端与后端同口径，且 location.replace 用的是过滤后的值', () => {
