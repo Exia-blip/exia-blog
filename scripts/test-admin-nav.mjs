@@ -36,25 +36,32 @@ assert.ok(stats.includes('renderAdminNav(\'stats\')'), 'stats.js 应复用共享
 assert.ok(!stats.includes('<span>返回首页</span>'), 'stats.js 仍有旧的内联菜单');
 ok('统计页复用共享菜单');
 
-// 4. 每个 panel 参数都能在 editor.html 里找到对应锚点，否则侧栏点了没反应
+// 4. 保留 ?panel= URL，服务端页（统计/健康/队列）点菜单可直接跳到对应视图
 for (const p of ['posts', 'checks', 'series', 'site']) {
-  assert.ok(new RegExp(`${p}: \\$\\('`).test(editor), `缺少 ?panel=${p} 的落点`);
+  assert.ok(editor.includes(`href="/editor?panel=${p}"`), `缺少 ?panel=${p} 入口`);
 }
-ok('文章列表/自检/系列/站点设置四个入口都有真实落点');
+ok('四个 ?panel= 入口 URL 保留，跨页跳转可直达视图');
 
-// 4b. 发布自检默认收起（details 无 open），且我的文章排在它前面直接显现
-assert.match(editor, /<details class="checks-fold" id="checks-fold">/, '自检应为可折叠块');
-assert.ok(!/<details class="checks-fold"[^>]*\bopen\b/.test(editor), '自检默认必须收起');
-assert.ok(editor.indexOf('id="cat-list"') < editor.indexOf('id="checks-fold"'), '我的文章应排在自检之前');
-assert.ok(editor.includes("checks: $('checks-fold')"), 'panel=checks 应指向折叠容器，点击才能展开');
-ok('发布自检默认收起，我的文章直接显现');
+// 4b. 五个主视图：点菜单整块切换，每个都像写作页一样独占主内容区
+const VIEWS = { write: 'view-write', posts: 'view-posts', checks: 'view-checks', series: 'view-series', site: 'site-box' };
+for (const [v, id] of Object.entries(VIEWS)) {
+  assert.ok(editor.includes(`data-view="${v}" id="${id}"`), `缺少 ${v} 视图容器`);
+  assert.ok(editor.includes(`data-view="${v}" id="nav-${v}"`), `缺少 ${v} 导航入口`);
+}
+assert.ok(editor.includes('function initViews()'), '缺少视图切换逻辑');
+assert.ok(!editor.includes('initSidePanel'), '不应保留旧的滚动定位逻辑');
+const at = (needle) => editor.indexOf(needle);
+assert.ok(at('id="view-posts"') < at('id="cat-list"') && at('id="cat-list"') < at('id="view-checks"'), '文章列表应在独立视图内');
+assert.ok(at('id="view-checks"') < at('id="checks"') && at('id="checks"') < at('id="view-series"'), '自检应在独立视图内');
+assert.ok(at('id="view-series"') < at('id="series-list"') && at('id="series-list"') < at('id="site-box"'), '系列应在独立视图内');
+assert.ok(at('id="site-box"') < at('id="site-name"'), '站点设置应在独立视图内');
+ok('五个主视图与导航一一对应，点菜单整块切换');
 
-// 4c. 侧栏常驻右侧：点菜单内容直接在右边显现，不再弹抽屉/遮罩
+// 4c. 不再有抽屉/遮罩，视图切换样式就位
 const css = readFileSync('public/style.css', 'utf8');
 assert.ok(css.includes('.side-toggle, .side-mask { display: none !important; }'), '抽屉按钮/遮罩必须隐藏');
-assert.ok(!/initSideDrawer|setOpen\(/.test(editor), 'editor.html 不应再保留抽屉开合逻辑');
-assert.ok(/\.editor-body \{ flex-direction: column;/.test(css), '窄屏应把侧栏堆到编辑区下方，而非抽屉');
-ok('侧栏常驻右侧，点菜单直接显现，不弹抽屉/遮罩');
+assert.ok(css.includes('.admin-main > .view.active { display: flex; }'), '视图切换 CSS 缺失');
+ok('无抽屉/遮罩，视图切换样式就位');
 
 // 5. 新页渲染：任何输入都不抛，且转义 HTML
 const hp = renderHealth({

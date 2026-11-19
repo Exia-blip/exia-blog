@@ -30,23 +30,23 @@
     <div class="admin-nav-wrap">
       <div class="admin-nav-label">后台管理</div>
       <nav class="admin-nav" aria-label="后台管理">
-        <a class="on" href="/editor" aria-current="page" id="nav-write">
+        <a class="on" href="/editor" aria-current="page" data-view="write" id="nav-write">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           <span>写作</span>
         </a>
-        <a href="/editor?panel=posts" id="nav-posts">
+        <a href="/editor?panel=posts" data-view="posts" id="nav-posts">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
           <span>文章列表</span>
         </a>
-        <a href="/editor?panel=checks" id="nav-checks">
+        <a href="/editor?panel=checks" data-view="checks" id="nav-checks">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 12 5 5L21 4"/></svg>
           <span>发布自检</span>
         </a>
-        <a href="/editor?panel=series" id="nav-series">
+        <a href="/editor?panel=series" data-view="series" id="nav-series">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg>
           <span>系列</span>
         </a>
-        <a href="/editor?panel=site" id="nav-site">
+        <a href="/editor?panel=site" data-view="site" id="nav-site">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l.06.06A1.7 1.7 0 0 0 19.4 9v.09A1.7 1.7 0 0 0 21 10.1H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>
           <span>站点设置</span>
         </a>
@@ -72,9 +72,10 @@
 
   <main class="admin-main">
     <header class="admin-head">
-      <h1>写作</h1>
+      <h1 id="view-title">写作</h1>
     </header>
 
+<section class="view active" data-view="write" id="view-write">
 <div class="publish-card">
   <div class="pub-head">
     <div class="pub-actions">
@@ -128,6 +129,10 @@
 
   <div class="pub-foot">
     <span class="save-state" id="state"><span class="pulse"></span><span id="state-text">已同步</span></span>
+    <span class="pub-foot-ops">
+      <a class="btn sm side-view" id="btn-view" href="#" target="_blank">预览</a>
+      <button class="btn sm danger" id="btn-del">删除</button>
+    </span>
   </div>
 </div>
 
@@ -162,8 +167,29 @@
     </div>
   </section>
 
-  <aside class="editor-side">
-    <div class="side-sec">文章信息</div>
+
+</div>
+</section>
+
+<section class="view view-card" data-view="posts" id="view-posts">
+  <div class="view-head"><span class="tiny muted">点标题继续编辑</span></div>
+  <div class="view-body">
+    <div class="cat-list" id="cat-list"></div>
+
+
+  </div>
+</section>
+
+<section class="view view-card" data-view="checks" id="view-checks">
+  <div class="view-head"><span class="ck-badge tiny" id="check-badge">—</span></div>
+  <div class="view-body">
+    <ul class="checklist" id="checks"></ul>
+  </div>
+</section>
+
+<section class="view view-card" data-view="series" id="view-series">
+  <div class="view-head"><span class="tiny muted">当前文章的系列归属</span></div>
+  <div class="view-body">
     <div class="field">
       <label>系列（可选）</label>
       <input type="text" id="series" list="series-options" placeholder="如 自建博客实录" maxlength="40" autocomplete="off">
@@ -176,26 +202,14 @@
       <span class="tiny muted">同系列自动生成目录与上下篇互链</span>
     </div>
 
-    <div class="field" style="margin-top:4px">
-      <label>我的文章</label>
-      <div class="cat-list" id="cat-list"></div>
-    </div>
 
-    <details class="checks-fold" id="checks-fold">
-      <summary><span class="ck-title">发布自检</span><span class="ck-badge tiny" id="check-badge">—</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></summary>
-      <ul class="checklist" id="checks"></ul>
-    </details>
+    <div class="series-list" id="series-list"></div>
+  </div>
+</section>
 
-    <div class="side-sec" id="site-sec" style="display:none">站点</div>
-
-    <details class="site-box" id="site-box" style="display:none">
-      <summary>
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09A1.7 1.7 0 0 0 21 10.1H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/>
-        </svg>
-        站点设置
-        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
-      </summary>
+<section class="view view-card" data-view="site" id="site-box">
+  <div class="view-head"><span class="tiny muted">仅管理员</span></div>
+  <div class="view-body">
       <div class="site-body">
         <div class="field">
           <label>站点名称</label>
@@ -245,14 +259,8 @@
         </div>
         <button class="btn sm primary side-save" id="btn-site-save">保存站点信息</button>
       </div>
-    </details>
-
-    <div class="side-foot">
-      <a class="btn sm side-view" id="btn-view" href="#" target="_blank">预览</a>
-      <button class="btn sm danger" id="btn-del">删除</button>
-    </div>
-  </aside>
-</div>
+  </div>
+</section>
   </main>
 </div>
 
@@ -277,19 +285,32 @@ const $ = (id) => document.getElementById(id);
   else $('brand-ava').style.display = 'none';
 })();
 
-/* 侧栏常驻右侧：点侧栏菜单用 ?panel= 直达对应区块，滚动定位即可，不再弹抽屉/遮罩 */
-(function initSidePanel() {
-  const panel = new URLSearchParams(location.search).get('panel');
-  const target = {
-    posts: $('cat-list'),
-    checks: $('checks-fold') || $('checks'),
-    series: $('series'),
-    site: $('site-box'),
-  }[panel];
-  if (!target) return;
-  // checks/site 是折叠块，先展开再滚动，否则滚到收起的一行上
-  if ((panel === 'checks' || panel === 'site') && target.tagName === 'DETAILS') target.open = true;
-  requestAnimationFrame(() => target.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+/* 侧栏点击切主视图：每个菜单项都像「写作」一样独占整块主内容区 */
+(function initViews() {
+  const TITLES = { write: '写作', posts: '文章列表', checks: '发布自检', series: '系列', site: '站点设置' };
+  const links = [...document.querySelectorAll('.admin-nav a[data-view]')];
+  function show(name, keepQuery, init) {
+    if (!TITLES[name]) name = 'write';
+    // 站点设置仅管理员可用：initSiteSettings 会给容器加 allowed。
+    // 首屏从 ?panel=site 进入时异步还没跑完，此处不拦，交给 initSiteSettings 自己处理。
+    if (!init && name === 'site' && $('site-box') && !$('site-box').classList.contains('allowed')) {
+      toast('站点设置仅管理员可用');
+      name = 'write';
+    }
+    for (const el of document.querySelectorAll('.admin-main > .view')) {
+      el.classList.toggle('active', el.dataset.view === name);
+    }
+    for (const a of links) {
+      const on = a.dataset.view === name;
+      a.classList.toggle('on', on);
+      if (on) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    }
+    $('view-title').textContent = TITLES[name];
+    if (!keepQuery) history.replaceState(null, '', name === 'write' ? '/editor' : '/editor?panel=' + name);
+  }
+  for (const a of links) a.addEventListener('click', (e) => { e.preventDefault(); show(a.dataset.view); });
+  show(new URLSearchParams(location.search).get('panel') || 'write', true, true);
 })();
 const titleEl = $('title');
 const inputEl = $('md-input');
@@ -962,8 +983,21 @@ async function loadSeriesOptions() {
     $('series-options').innerHTML = (series || [])
       .map((x) => `<option value="${esc(x.name)}">${x.count} 篇</option>`)
       .join('');
+    const list = $('series-list');
+    if (list) {
+      list.innerHTML = (series || []).length
+        ? series.map((x) => `<button type="button" class="series-chip" data-name="${esc(x.name)}">${esc(x.name)} <span class="tiny muted">${x.count} 篇</span></button>`).join('')
+        : '<span class="tiny muted">还没有系列，在上方填一个即可</span>';
+    }
   } catch {}
 }
+
+$('series-list').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-name]');
+  if (!chip) return;
+  seriesEl.value = chip.dataset.name;
+  seriesEl.focus();
+});
 
 function setCategory(v) {
   wantedCat = v || '';
@@ -1090,7 +1124,7 @@ function initAvatarField() {
   // 粘贴：只有站点设置抽屉展开、焦点在里面时才接管，别抢正文粘贴
   document.addEventListener('paste', (e) => {
     const box = $('site-box');
-    if (!box || !box.open || !box.contains(document.activeElement)) return;
+    if (!box || !box.classList.contains('active') || !box.contains(document.activeElement)) return;
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
     if (!item) return;
     const f = item.getAsFile();
@@ -1111,9 +1145,7 @@ function initAvatarField() {
 async function initSiteSettings() {
   const box = $('site-box');
   if (!box) return;
-  box.style.display = 'block';
-  const sec = $('site-sec');
-  if (sec) sec.style.display = 'flex';
+  box.classList.add('allowed');
 
   $('site-theme').innerHTML = THEMES.map((t) => `<option value="${t.id}">${t.name} · ${t.desc}</option>`).join('');
   initAvatarField();

@@ -812,6 +812,29 @@ html[data-mode="dark"] .checks-fold > summary .ck-badge.done { color: var(--acce
 .admin-main .editor-body {
   background: color-mix(in srgb, var(--fg) 3%, var(--card));
 }
+/* 后台多视图：侧栏点击整块切换主内容区，每个视图都像写作页一样占满 */
+.admin-main > .view { flex: 1; min-height: 0; display: none; flex-direction: column; }
+.admin-main > .view.active { display: flex; }
+.admin-main > .view-card { overflow: hidden; }
+.view-card .view-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--bg-soft);
+}
+.view-card .view-head h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.view-card .view-body {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.view-card .view-body > .field { max-width: 660px; }
+.view-card .site-body { padding: 0; gap: 14px; max-width: 760px; width: 100%; }
+.pub-foot-ops { display: flex; gap: 8px; }
+.series-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.series-chip {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 6px 11px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--bg); color: var(--fg); font-size: 12.5px;
+}
+.series-chip:hover { border-color: var(--accent); color: var(--accent); }
 .admin-main .preview:empty::before {
   content: '正文会在这里实时渲染'; display: block; margin-top: 38%;
   text-align: center; font-size: 13px; color: var(--muted); opacity: .55;
