@@ -653,8 +653,26 @@ a.cat-chip:hover { filter: brightness(0.96); }
   border-top: 1px solid var(--line);
 }
 .side-foot .side-view { flex: 1; justify-content: center; }
-/* 桌面不显示：抽屉开关与遮罩只在窄屏生效 */
-.side-toggle, .side-mask { display: none; }
+/* 设置侧栏：桌面与窄屏都收成抽屉，写作区只留编辑 + 预览两卡。
+   开合 JS 已通用（按钮 / 遮罩 / Esc），这里只放开 CSS 显示。 */
+.side-toggle { display: inline-flex; }
+.side-mask {
+  display: block; position: fixed; inset: 0; z-index: 125;
+  background: rgba(0, 0, 0, .36); opacity: 0; pointer-events: none; transition: opacity .2s;
+}
+.side-mask.on { opacity: 1; pointer-events: auto; }
+.editor-side {
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 130;
+  width: min(400px, 92vw); flex: 0 0 auto;
+  transform: translateX(-101%);
+  transition: transform .24s cubic-bezier(.4, 0, .2, 1);
+  box-shadow: 28px 0 70px -34px rgba(0, 0, 0, .6);
+  border: 0; border-right: 1px solid var(--line);
+  border-radius: 0 14px 14px 0;
+  padding-top: max(16px, env(safe-area-inset-top));
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+.editor-side.open { transform: none; }
 .switch { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; user-select: none; }
 .switch input { width: auto; margin: 0; accent-color: var(--accent); }
 .save-state { font-size: 12px; color: var(--muted); margin-left: auto; display: flex; align-items: center; gap: 6px; }
@@ -730,8 +748,7 @@ a.cat-chip:hover { filter: brightness(0.96); }
   gap: 12px; padding: 12px 14px 14px;
   background: color-mix(in srgb, var(--fg) 3%, var(--card));
 }
-.admin-main .editor-body > .pane,
-.admin-main .editor-body > .editor-side {
+.admin-main .editor-body > .pane {
   background: var(--card); border: 1px solid var(--line);
   border-radius: 12px; overflow: hidden;
 }
