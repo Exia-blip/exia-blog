@@ -23,7 +23,16 @@
   </div>
 </div>
 <script>
-  const next = new URLSearchParams(location.search).get('next') || '/';
+  // 与 src/auth.js 的 safeNext 同口径：只接受站内相对路径。
+  // '//evil.com' 和 '/\evil.com' 会被浏览器当协议相对 URL 跳到外域，必须挡掉。
+  function safeNext(raw) {
+    var s = typeof raw === 'string' ? raw : '';
+    if (!/^\/(?![\/\\])/.test(s)) return '/';
+    try { if (new URL(s, location.origin).origin !== location.origin) return '/'; }
+    catch (e) { return '/'; }
+    return s;
+  }
+  const next = safeNext(new URLSearchParams(location.search).get('next'));
   const link = document.getElementById('gh');
   link.href = '/auth/github?next=' + encodeURIComponent(next);
   // 已登录直接回去

@@ -1,10 +1,49 @@
 // 出口邮箱混淆回归：编码必须与 Cloudflare 的 data-cfemail 互通，且不能碰客户端模板。
 // 用法：node scripts/test-security.mjs
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { obfuscateEmail, applyNonce, securityHeaders } from '../src/security.js';
+import { safeNext } from '../src/auth.js';
 
 const cases = [];
 const t = (name, fn) => cases.push([name, fn]);
+
+/* ---------- 登录 next 开放重定向（CWE-601） ---------- */
+const ORIGIN = 'https://exia.de5.net';
+
+t('safeNext：正常站内路径原样放行', () => {
+  for (const p of ['/', '/editor', '/p/csp-nonce-cache?x=1#top', '/admin/stats']) {
+    assert.equal(safeNext(p, ORIGIN), p);
+  }
+});
+
+t('safeNext：挡住协议相对 URL（// 与 /\\ 两种写法）', () => {
+  for (const p of ['//evil.com', '/\\evil.com', '///evil.com', 'https://evil.com', 'http://evil.com/x']) {
+    assert.equal(safeNext(p, ORIGIN), '/', p);
+  }
+});
+
+t('safeNext：空值/非字符串/畸形值回落到 /', () => {
+  for (const p of ['', null, undefined, 123, 'editor', '?x=1', '\\evil.com']) {
+    assert.equal(safeNext(p, ORIGIN), '/', String(p));
+  }
+});
+
+t('safeNext：URL 解析器吞掉控制字符后仍在本站才放行', () => {
+  // new URL() 会剔除 tab/newline，'/\t/evil.com' 解析成 //evil.com → 必须拦
+  assert.equal(safeNext('/\t/evil.com', ORIGIN), '/');
+  assert.equal(safeNext('/\n/evil.com', ORIGIN), '/');
+});
+
+t('login.html 前端与后端同口径，且 location.replace 用的是过滤后的值', () => {
+  const html = readFileSync(new URL('../public/login.html', import.meta.url), 'utf8');
+  // 前端正则 /^\/(?![\/\\])/ 必须原样在文件里（JS 源码字面量，不需再转义）
+  assert.ok(html.includes("if (!/^\\/(?![\\/\\\\])/.test(s)) return '/';"), '前端首字符校验缺失或被改动');
+  assert.ok(html.includes('new URL(s, location.origin).origin !== location.origin'), '前端 origin 校验缺失');
+  assert.match(html, /location\.replace\(next\)/);
+  const nextDecl = html.match(/const next = safeNext\(([^)]*)\)/);
+  assert.ok(nextDecl, 'next 必须经过 safeNext 过滤');
+});
 
 const decodeCf = (hex) => {
   const key = parseInt(hex.slice(0, 2), 16);

@@ -28,6 +28,23 @@ function resolveOrigin(env, request) {
   }
 }
 
+/* 登录跳转目标只接受站内相对路径。
+   只判 startsWith('/') 不够：'//evil.com' 与 '/\\evil.com' 会被浏览器当成
+   协议相对 URL 解析到外域（开放重定向）。两道闸：
+     1) 单个 / 开头，紧随其后的字符不能是 / 或 \；
+     2) 用 origin 解析后必须仍在本站 —— 兜住 tab/换行等被 URL 解析器吞掉后拼出的 //evil。
+   返回 '/' 作为拒绝时的安全落点。导出供单测穷举绕过写法。 */
+export function safeNext(raw, origin) {
+  const s = typeof raw === 'string' ? raw : '';
+  if (!/^\/(?![\/\\])/.test(s)) return '/';
+  try {
+    if (new URL(s, origin).origin !== origin) return '/';
+  } catch {
+    return '/';
+  }
+  return s;
+}
+
 /* GitHub 回调地址：永远由主域拼出来，不接受手写的完整路径 */
 export function callbackUrl(env, request) {
   return `${resolveOrigin(env, request)}/auth/callback`;
@@ -102,7 +119,7 @@ GitHub 对无效 client_id 返回 404 —— 你刚才看到的就是这个。</
 export function loginRedirect(env, request) {
   const url = new URL(request.url);
   const origin = resolveOrigin(env, request);
-  const next = url.searchParams.get('next') || '/';
+  const next = safeNext(url.searchParams.get('next'), origin);
 
   // 从非主域进来（旧 workers.dev、备用域名）：先回主域再走 OAuth
   // 否则会话 cookie 会落在另一个 host 上，授权回来后台仍然是"未登录"
@@ -232,8 +249,8 @@ export async function handleCallback(env, request) {
 
   const token = await signToken(env.SESSION_SECRET, { uid: user.id, admin: user.is_admin }, 60 * 60 * 24 * 30);
 
-  const next = parseCookies(request).oauth_next || '/';
-  const headers = new Headers({ location: next.startsWith('/') ? next : '/' });
+  const next = safeNext(parseCookies(request).oauth_next, resolveOrigin(env, request));
+  const headers = new Headers({ location: next });
   headers.append('set-cookie', setCookie(COOKIE, token, { maxAge: 60 * 60 * 24 * 30 }));
   headers.append('set-cookie', 'oauth_state=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure');
   headers.append('set-cookie', 'oauth_next=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure');
