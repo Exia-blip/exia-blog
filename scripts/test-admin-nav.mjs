@@ -42,6 +42,13 @@ for (const p of ['posts', 'checks', 'series', 'site']) {
 }
 ok('文章列表/自检/系列/站点设置四个入口都有真实落点');
 
+// 4b. 发布自检默认收起（details 无 open），且我的文章排在它前面直接显现
+assert.match(editor, /<details class="checks-fold" id="checks-fold">/, '自检应为可折叠块');
+assert.ok(!/<details class="checks-fold"[^>]*\bopen\b/.test(editor), '自检默认必须收起');
+assert.ok(editor.indexOf('id="cat-list"') < editor.indexOf('id="checks-fold"'), '我的文章应排在自检之前');
+assert.ok(editor.includes("checks: $('checks-fold')"), 'panel=checks 应指向折叠容器，点击才能展开');
+ok('发布自检默认收起，我的文章直接显现');
+
 // 5. 新页渲染：任何输入都不抛，且转义 HTML
 const hp = renderHealth({
   site: { name: '<img>' },

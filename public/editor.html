@@ -177,15 +177,15 @@
       <span class="tiny muted">同系列自动生成目录与上下篇互链</span>
     </div>
 
-    <div class="field">
-      <label>发布自检 <span class="tiny muted">按栏目/标签/标题规范</span></label>
-      <ul class="checklist" id="checks"></ul>
-    </div>
-
     <div class="field" style="margin-top:4px">
       <label>我的文章</label>
       <div class="cat-list" id="cat-list"></div>
     </div>
+
+    <details class="checks-fold" id="checks-fold">
+      <summary><span class="ck-title">发布自检</span><span class="ck-badge tiny" id="check-badge">—</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></summary>
+      <ul class="checklist" id="checks"></ul>
+    </details>
 
     <div class="side-sec" id="site-sec" style="display:none">站点</div>
 
@@ -301,14 +301,15 @@ const $ = (id) => document.getElementById(id);
   const panel = new URLSearchParams(location.search).get('panel');
   const target = {
     posts: $('cat-list'),
-    checks: $('checks'),
+    checks: $('checks-fold') || $('checks'),
     series: $('series'),
     site: $('site-box'),
   }[panel];
   if (target) {
     setOpen(true);
+    // checks/site 是折叠块，先展开再滚动，否则滚到收起的一行上
+    if ((panel === 'checks' || panel === 'site') && target.tagName === 'DETAILS') target.open = true;
     requestAnimationFrame(() => target.scrollIntoView({ block: 'center', behavior: 'smooth' }));
-    if (panel === 'site' && target.tagName === 'DETAILS') target.open = true;
   }
 })();
 const titleEl = $('title');
@@ -1022,6 +1023,14 @@ function updateChecks() {
   el.innerHTML = rows
     .map(([ok, text]) => `<li class="${ok ? 'ok' : 'todo'}"><span class="ck">${ok ? '✓' : '!'}</span>${esc(text)}</li>`)
     .join('');
+  // 收起态只露一行摘要：达标数 / 总数，不用展开也能扫一眼
+  const done = rows.filter(([ok]) => ok).length;
+  const badge = $('check-badge');
+  if (badge) {
+    const left = rows.length - done;
+    badge.textContent = left ? `${done}/${rows.length} · ${left} 项待办` : `${done}/${rows.length} 全部达标`;
+    badge.classList.toggle('done', left === 0);
+  }
 }
 
 /* ---------- 站点头像：URL / 上传 / 拖拽 / 粘贴 ---------- */
