@@ -22,45 +22,29 @@ const ICON = {
 const svg = (name) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[name]}</svg>`;
 
-/* 分组与顺序是后台菜单的唯一事实来源。key 用于测试比对，href 是真实落点。 */
+/* 菜单唯一事实来源。单一分组平铺——和参考站一样，一组标签 + 一列入口，
+   不再按「内容管理/站点运维/其它」切成三段，避免侧栏被标签切碎。
+   key 用于测试比对，href 是真实落点。 */
 export const ADMIN_NAV = [
-  {
-    label: '内容管理',
-    items: [
-      { key: 'write', text: '写作', href: '/editor', icon: 'write', id: 'nav-write' },
-      { key: 'posts', text: '文章列表', href: '/editor?panel=posts', icon: 'list', id: 'nav-posts' },
-      { key: 'checks', text: '发布自检', href: '/editor?panel=checks', icon: 'check', id: 'nav-checks' },
-      { key: 'series', text: '系列', href: '/editor?panel=series', icon: 'layers', id: 'nav-series' },
-    ],
-  },
-  {
-    label: '站点运维',
-    items: [
-      { key: 'site', text: '站点设置', href: '/editor?panel=site', icon: 'gear', id: 'nav-site' },
-      { key: 'stats', text: '访问统计', href: '/admin/stats', icon: 'chart', id: 'nav-stats' },
-      { key: 'health', text: '健康检查', href: '/admin/health', icon: 'shield', id: 'nav-health' },
-      { key: 'queue', text: '定时队列', href: '/admin/queue', icon: 'clock', id: 'nav-queue' },
-    ],
-  },
-  {
-    label: '其它',
-    items: [{ key: 'home', text: '返回站点', href: '/', icon: 'home', id: 'nav-home' }],
-  },
+  { key: 'write', text: '写作', href: '/editor', icon: 'write', id: 'nav-write' },
+  { key: 'posts', text: '文章列表', href: '/editor?panel=posts', icon: 'list', id: 'nav-posts' },
+  { key: 'checks', text: '发布自检', href: '/editor?panel=checks', icon: 'check', id: 'nav-checks' },
+  { key: 'series', text: '系列', href: '/editor?panel=series', icon: 'layers', id: 'nav-series' },
+  { key: 'site', text: '站点设置', href: '/editor?panel=site', icon: 'gear', id: 'nav-site' },
+  { key: 'stats', text: '访问统计', href: '/admin/stats', icon: 'chart', id: 'nav-stats' },
+  { key: 'health', text: '健康检查', href: '/admin/health', icon: 'shield', id: 'nav-health' },
+  { key: 'queue', text: '定时队列', href: '/admin/queue', icon: 'clock', id: 'nav-queue' },
+  { key: 'home', text: '返回站点', href: '/', icon: 'home', id: 'nav-home' },
 ];
 
 export function renderAdminNav(active = '') {
-  return ADMIN_NAV.map(
-    (g) => `
-    <div class="admin-nav-label">${esc(g.label)}</div>
-    <nav class="admin-nav" aria-label="${esc(g.label)}">${g.items
-      .map((it) => {
-        const on = it.key === active;
-        return `<a${on ? ' class="on" aria-current="page"' : ''} href="${esc(it.href)}" id="${it.id}">${svg(
-          it.icon
-        )}<span>${esc(it.text)}</span></a>`;
-      })
-      .join('')}</nav>`
-  ).join('');
+  return `<div class="admin-nav-label">后台管理</div>
+    <nav class="admin-nav" aria-label="后台管理">${ADMIN_NAV.map((it) => {
+      const on = it.key === active;
+      return `<a${on ? ' class="on" aria-current="page"' : ''} href="${esc(it.href)}" id="${it.id}">${svg(
+        it.icon
+      )}<span>${esc(it.text)}</span></a>`;
+    }).join('')}</nav>`;
 }
 
 /** 服务端页面统一外壳。body 是 <main> 里的内容，不在这里转义。 */
@@ -76,15 +60,22 @@ export function renderAdminShell({ site = {}, active = '', eyebrow = '后台管�
 </head><body class="${esc(bodyClass || 'stat-page')}">
 <div class="admin-shell">
   <aside class="admin-rail">
-    <div class="admin-brand">
-      ${ava}
-      <span class="admin-brand-txt">
-        <strong>${esc(site.name || 'Exia Blog')}</strong>
-        <small>返回站点</small>
-      </span>
+    <div class="admin-rail-top">
+      <a class="admin-brand" href="/" title="返回站点">
+        ${ava}
+        <span class="admin-brand-txt">
+          <strong>${esc(site.name || 'Exia Blog')}</strong>
+          <small>返回站点</small>
+        </span>
+      </a>
+      <label class="nav-toggle" for="nav-toggle" title="展开菜单" aria-label="展开菜单">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </label>
     </div>
-    ${renderAdminNav(active)}
-    <div class="admin-rail-foot"><span class="tiny muted">私有管理工作区</span></div>
+    <input type="checkbox" id="nav-toggle" class="nav-cb" hidden>
+    <div class="admin-nav-wrap">
+      ${renderAdminNav(active)}
+    </div>
   </aside>
   <main class="admin-main">
     <header class="admin-head">

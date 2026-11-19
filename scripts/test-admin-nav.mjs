@@ -12,20 +12,24 @@ let pass = 0;
 const ok = (name) => { pass++; console.log(`  ok  ${name}`); };
 
 // 1. 每一项的 id / href / 文案在 editor.html 里都存在
-for (const g of ADMIN_NAV) {
-  for (const it of g.items) {
-    assert.ok(editor.includes(`id="${it.id}"`), `editor.html 缺少 ${it.id}`);
-    assert.ok(editor.includes(`href="${it.href}"`), `editor.html 缺少 ${it.href}`);
-    assert.ok(new RegExp(`<span>${it.text}</span>`).test(editor), `editor.html 缺少文案 ${it.text}`);
-  }
+for (const it of ADMIN_NAV) {
+  assert.ok(editor.includes(`id="${it.id}"`), `editor.html 缺少 ${it.id}`);
+  assert.ok(editor.includes(`href="${it.href}"`), `editor.html 缺少 ${it.href}`);
+  assert.ok(new RegExp(`<span>${it.text}</span>`).test(editor), `editor.html 缺少文案 ${it.text}`);
 }
 ok('editor.html 静态菜单与共享导航逐项一致');
 
 // 2. 服务端菜单渲染包含同一批 href，且当前项带 aria-current
 const nav = renderAdminNav('health');
-for (const g of ADMIN_NAV) for (const it of g.items) assert.ok(nav.includes(`href="${it.href}"`), `服务端菜单缺少 ${it.href}`);
+for (const it of ADMIN_NAV) assert.ok(nav.includes(`href="${it.href}"`), `服务端菜单缺少 ${it.href}`);
 assert.match(nav, /href="\/admin\/health"[^>]*aria-current|class="on" aria-current="page" href="\/admin\/health"/);
 ok('服务端菜单渲染同一批入口，当前项正确高亮');
+
+// 2b. 单一分组平铺：只允许一个 admin-nav-label，不再切成多段
+assert.equal((editor.match(/class="admin-nav-label"/g) || []).length, 1, 'editor.html 应只有一个分组标签');
+assert.equal((nav.match(/class="admin-nav-label"/g) || []).length, 1, '服务端菜单应只有一个分组标签');
+assert.equal((editor.match(/class="admin-nav"/g) || []).length, 1, 'editor.html 应只有一个 nav 容器');
+ok('侧栏单一分组平铺，无多段切分');
 
 // 3. stats.js 不再内联自己的菜单，避免两边漂移
 assert.ok(stats.includes('renderAdminNav(\'stats\')'), 'stats.js 应复用共享菜单');

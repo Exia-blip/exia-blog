@@ -365,15 +365,22 @@ td.p,td.mono{font-family:var(--mono);font-size:12.5px;word-break:break-all}
 <body class="stat-page">
 <div class="admin-shell">
   <aside class="admin-rail">
-    <div class="admin-brand">
-      ${site.avatar ? `<img class="admin-ava" src="${esc(avatarSrc(site.avatar, 96))}" alt="" width="48" height="48">` : ''}
-      <span class="admin-brand-txt">
-        <strong>${esc(site.name || 'Exia Blog')}</strong>
-        <small>返回站点</small>
-      </span>
+    <div class="admin-rail-top">
+      <a class="admin-brand" href="/" title="返回站点">
+        ${site.avatar ? `<img class="admin-ava" src="${esc(avatarSrc(site.avatar, 96))}" alt="" width="48" height="48">` : ''}
+        <span class="admin-brand-txt">
+          <strong>${esc(site.name || 'Exia Blog')}</strong>
+          <small>返回站点</small>
+        </span>
+      </a>
+      <label class="nav-toggle" for="nav-toggle" title="展开菜单" aria-label="展开菜单">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </label>
     </div>
-    ${renderAdminNav('stats')}
-    <div class="admin-rail-foot"><span class="tiny muted">私有管理工作区</span></div>
+    <input type="checkbox" id="nav-toggle" class="nav-cb" hidden>
+    <div class="admin-nav-wrap">
+      ${renderAdminNav('stats')}
+    </div>
   </aside>
   <main class="admin-main">
     <header class="admin-head">

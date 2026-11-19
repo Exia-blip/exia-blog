@@ -570,12 +570,7 @@ a.cat-chip:hover { filter: brightness(0.96); }
   border-bottom: 1px solid var(--line); background: var(--card);
   display: flex; flex-direction: column; gap: 13px;
 }
-.pub-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.pub-eyebrow {
-  font-size: 10px; font-weight: 600; letter-spacing: .18em;
-  text-transform: uppercase; color: var(--accent);
-}
-.pub-title { margin-top: 4px; font-size: 13px; font-weight: 600; color: var(--fg); }
+.pub-head { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .pub-actions { display: flex; align-items: center; gap: 8px; }
 .title-input {
   width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 10px;
@@ -754,6 +749,9 @@ a.cat-chip:hover { filter: brightness(0.96); }
   padding: 20px 14px 16px; display: flex; flex-direction: column; gap: 6px;
   box-shadow: 0 1px 2px rgba(0,0,0,.02); scrollbar-width: thin;
 }
+.admin-rail-top { display: flex; align-items: center; justify-content: space-between; }
+/* 汉堡只在窄屏出现，宽屏的侧栏本来就在左边 */
+.nav-toggle { display: none; }
 .admin-brand {
   display: flex; align-items: center; gap: 12px; padding: 6px 8px;
   border-radius: 14px; text-decoration: none; color: inherit;
@@ -771,41 +769,35 @@ a.cat-chip:hover { filter: brightness(0.96); }
 }
 .admin-brand-txt small { font-size: 12px; color: var(--muted); }
 .admin-nav-label {
-  margin: 20px 10px 8px; font-size: 12px; font-weight: 600;
+  margin: 18px 10px 8px; font-size: 12px; font-weight: 600;
   letter-spacing: .02em; color: var(--muted);
 }
-/* 紧跟品牌的第一组不用再留一段空；后面几组靠 margin 分开 */
-.admin-brand + .admin-nav-label { margin-top: 8px; }
-.admin-nav { display: flex; flex-direction: column; gap: 6px; }
-/* 三组菜单之间加一道淡分隔，避免连成一整块 */
-.admin-nav + .admin-nav-label {
-  padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
-}
+.admin-nav-wrap { display: flex; flex-direction: column; }
+.admin-nav { display: flex; flex-direction: column; gap: 4px; }
 .admin-nav a {
   display: flex; align-items: center; gap: 13px;
-  padding: 14px 16px; border-radius: 12px;
-  font-size: 14px; font-weight: 500; color: var(--fg);
+  padding: 11px 15px; border-radius: 11px;
+  font-size: 13.5px; font-weight: 500; color: var(--fg);
   text-decoration: none; transition: background .16s, color .16s;
 }
-.admin-nav a svg { width: 20px; height: 20px; flex: 0 0 20px; }
+.admin-nav a svg { width: 19px; height: 19px; flex: 0 0 19px; }
 .admin-nav a:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
 .admin-nav a.on, .admin-nav a[aria-current="page"] {
   background: var(--accent); color: #fff;
 }
-.admin-rail-foot { margin-top: auto; padding: 12px 10px 2px; }
 
 .admin-main {
   flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
   background: var(--card); border: 1px solid var(--line); border-radius: 16px;
   overflow: hidden;
 }
-.admin-head { flex: 0 0 auto; padding: 20px 24px 16px; border-bottom: 1px solid var(--line); }
+.admin-head { flex: 0 0 auto; padding: 18px 24px 15px; border-bottom: 1px solid var(--line); }
 .admin-eyebrow {
   font-size: 10px; font-weight: 600; letter-spacing: .18em;
   text-transform: uppercase; color: var(--accent);
 }
-.admin-head h1 { font-size: 26px; font-weight: 600; letter-spacing: -.03em; margin: 7px 0 5px; line-height: 1.15; }
-.admin-head p { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.6; }
+.admin-head h1 { font-size: 22px; font-weight: 600; letter-spacing: -.03em; margin: 0; line-height: 1.15; }
+.admin-head p { font-size: 13px; color: var(--muted); margin: 5px 0 0; line-height: 1.6; }
 /* 编辑区灰底托底；空预览给一句提示，避免大片死白 */
 .admin-main .editor-body {
   background: color-mix(in srgb, var(--fg) 3%, var(--card));
@@ -930,19 +922,30 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
 }
 @media (max-width: 860px) {
   .brand-desc { display: none; }
-  /* 后台外壳：宽屏的左栏折成顶部横条，保留导航但不再吃掉正文宽度 */
+  /* 后台外壳：窄屏左栏折成顶部条，导航收进汉堡下拉，不再横排截断 */
   .admin-shell { flex-direction: column; gap: 10px; padding: 10px; }
   .admin-rail {
-    flex: 0 0 auto; flex-direction: row; align-items: center; gap: 6px;
-    overflow-x: auto; padding: 8px 10px; border-radius: 12px;
+    position: relative; flex: 0 0 auto; overflow: visible; padding: 8px 12px; border-radius: 12px;
   }
-  .admin-nav-label, .admin-rail-foot { display: none; }
-  .admin-brand { padding: 3px 6px; }
-  .admin-ava { width: 32px; height: 32px; flex-basis: 32px; border-radius: 50%; }
+  .nav-toggle {
+    display: grid; place-items: center; width: 38px; height: 38px; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 10px; color: var(--fg);
+    background: var(--bg-soft);
+  }
+  .nav-toggle svg { width: 20px; height: 20px; }
+  .nav-cb:checked + .admin-nav-wrap { display: flex; }
+  .admin-nav-wrap {
+    display: none; position: absolute; z-index: 60;
+    left: 0; right: 0; top: calc(100% + 6px);
+    padding: 8px; border: 1px solid var(--line); border-radius: 12px;
+    background: var(--card); box-shadow: 0 16px 40px -18px rgba(0,0,0,.35);
+  }
+  .nav-cb:checked ~ .admin-nav-wrap { display: flex; }
+  .admin-nav-label { margin: 6px 10px 8px; }
+  .admin-ava { width: 38px; height: 38px; flex-basis: 38px; border-radius: 50%; }
+  .admin-brand { padding: 2px 4px; }
   .admin-brand-txt strong { font-size: 14px; }
   .admin-brand-txt small { display: none; }
-  .admin-nav { flex-direction: row; flex: 0 0 auto; }
-  .admin-nav a { padding: 8px 11px; white-space: nowrap; }
   .admin-head { padding: 14px 16px 12px; }
   .admin-head h1 { font-size: 21px; }
   .admin-main { border-radius: 12px; }
