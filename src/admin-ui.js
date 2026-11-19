@@ -1,0 +1,99 @@
+// 后台导航与外壳：服务端页面（统计 / 健康检查 / 定时队列）共用同一套侧栏。
+// editor.html 是静态资源，菜单内联在同一份里；test-admin-nav.mjs 会比对两边，
+// 防止改了一处忘了另一处。
+import { avatarSrc } from '../public/avatar.js';
+
+const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ESC[ch]);
+
+/* 图标全用线性 stroke，和参考站同一视觉语言；width/height 交给 CSS 统一控制。 */
+const ICON = {
+  write: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
+  check: '<path d="m3 12 5 5L21 4"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/>',
+  gear: '<circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09A1.7 1.7 0 0 0 21 10.1H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/>',
+  chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  home: '<path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/>',
+};
+
+const svg = (name) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[name]}</svg>`;
+
+/* 分组与顺序是后台菜单的唯一事实来源。key 用于测试比对，href 是真实落点。 */
+export const ADMIN_NAV = [
+  {
+    label: '内容管理',
+    items: [
+      { key: 'write', text: '写作', href: '/editor', icon: 'write', id: 'nav-write' },
+      { key: 'posts', text: '文章列表', href: '/editor?panel=posts', icon: 'list', id: 'nav-posts' },
+      { key: 'checks', text: '发布自检', href: '/editor?panel=checks', icon: 'check', id: 'nav-checks' },
+      { key: 'series', text: '系列', href: '/editor?panel=series', icon: 'layers', id: 'nav-series' },
+    ],
+  },
+  {
+    label: '站点运维',
+    items: [
+      { key: 'site', text: '站点设置', href: '/editor?panel=site', icon: 'gear', id: 'nav-site' },
+      { key: 'stats', text: '访问统计', href: '/admin/stats', icon: 'chart', id: 'nav-stats' },
+      { key: 'health', text: '健康检查', href: '/admin/health', icon: 'shield', id: 'nav-health' },
+      { key: 'queue', text: '定时队列', href: '/admin/queue', icon: 'clock', id: 'nav-queue' },
+    ],
+  },
+  {
+    label: '其它',
+    items: [{ key: 'home', text: '返回站点', href: '/', icon: 'home', id: 'nav-home' }],
+  },
+];
+
+export function renderAdminNav(active = '') {
+  return ADMIN_NAV.map(
+    (g) => `
+    <div class="admin-nav-label">${esc(g.label)}</div>
+    <nav class="admin-nav" aria-label="${esc(g.label)}">${g.items
+      .map((it) => {
+        const on = it.key === active;
+        return `<a${on ? ' class="on" aria-current="page"' : ''} href="${esc(it.href)}" id="${it.id}">${svg(
+          it.icon
+        )}<span>${esc(it.text)}</span></a>`;
+      })
+      .join('')}</nav>`
+  ).join('');
+}
+
+/** 服务端页面统一外壳。body 是 <main> 里的内容，不在这里转义。 */
+export function renderAdminShell({ site = {}, active = '', eyebrow = '后台管理', title, desc = '', body = '', bodyClass = '' }) {
+  const ava = site.avatar
+    ? `<img class="admin-ava" src="${esc(avatarSrc(site.avatar, 96))}" alt="" width="48" height="48">`
+    : '';
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)} · ${esc(site.name || 'Exia Blog')}</title>
+<meta name="robots" content="noindex,nofollow">
+<link rel="stylesheet" href="/style.css">
+</head><body class="${esc(bodyClass || 'stat-page')}">
+<div class="admin-shell">
+  <aside class="admin-rail">
+    <div class="admin-brand">
+      ${ava}
+      <span class="admin-brand-txt">
+        <strong>${esc(site.name || 'Exia Blog')}</strong>
+        <small>返回站点</small>
+      </span>
+    </div>
+    ${renderAdminNav(active)}
+    <div class="admin-rail-foot"><span class="tiny muted">私有管理工作区</span></div>
+  </aside>
+  <main class="admin-main">
+    <header class="admin-head">
+      <div class="admin-eyebrow">${esc(eyebrow)}</div>
+      <h1>${esc(title)}</h1>
+      <p>${desc}</p>
+    </header>
+    ${body}
+  </main>
+</div>
+</body></html>`;
+}

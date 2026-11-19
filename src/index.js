@@ -14,6 +14,7 @@ import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.
 import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
 import { normalizePagePath } from './routes.js';
 import { statsPage, prunePv } from './stats.js';
+import { healthPage, queuePage } from './admin-pages.js';
 import { postCacheGet, postCacheSet, postCacheDrop, postCacheStats } from './postcache.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -2365,6 +2366,8 @@ async function route(request, env, ctx) {
   if (path === '/robots.txt') return serveRobots(env, request);
   if (path === '/manifest.webmanifest') return await serveManifest(env, request);
   if (path === '/admin/stats') return await statsPage(env, request);
+  if (path === '/admin/health') return await healthPage(env, request);
+  if (path === '/admin/queue') return await queuePage(env, request);
 
   // 标签页 / 栏目页复用首页骨架，前端读路径
   if (path.startsWith('/tag/')) {

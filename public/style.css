@@ -771,10 +771,16 @@ a.cat-chip:hover { filter: brightness(0.96); }
 }
 .admin-brand-txt small { font-size: 12px; color: var(--muted); }
 .admin-nav-label {
-  margin: 26px 10px 10px; font-size: 12px; font-weight: 600;
+  margin: 20px 10px 8px; font-size: 12px; font-weight: 600;
   letter-spacing: .02em; color: var(--muted);
 }
+/* 紧跟品牌的第一组不用再留一段空；后面几组靠 margin 分开 */
+.admin-brand + .admin-nav-label { margin-top: 8px; }
 .admin-nav { display: flex; flex-direction: column; gap: 6px; }
+/* 三组菜单之间加一道淡分隔，避免连成一整块 */
+.admin-nav + .admin-nav-label {
+  padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
 .admin-nav a {
   display: flex; align-items: center; gap: 13px;
   padding: 14px 16px; border-radius: 12px;
