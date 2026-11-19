@@ -724,6 +724,32 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .admin-head p { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.6; }
 .admin-main .editor-top { border-bottom: 1px solid var(--line); }
 
+/* 写作区：灰底 + 三张独立卡（设置 / 编辑 / 预览）。
+   编辑与预览各带一个标签头，空预览给一句提示，避免大片死白。 */
+.admin-main .editor-body {
+  gap: 12px; padding: 12px 14px 14px;
+  background: color-mix(in srgb, var(--fg) 3%, var(--card));
+}
+.admin-main .editor-body > .pane,
+.admin-main .editor-body > .editor-side {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 12px; overflow: hidden;
+}
+.admin-main .editor-body > .pane::before {
+  content: '编辑 · MARKDOWN'; flex: 0 0 auto;
+  display: flex; align-items: center; height: 36px; padding: 0 16px;
+  font-size: 10px; font-weight: 600; letter-spacing: .15em;
+  color: var(--muted); background: var(--bg-soft);
+  border-bottom: 1px solid var(--line);
+}
+.admin-main .editor-body > .pane:not(.left)::before { content: '预览 · 实时'; }
+.admin-main #md-input { padding: 18px 20px; }
+.admin-main .preview { padding: 18px 20px; }
+.admin-main .preview:empty::before {
+  content: '正文会在这里实时渲染'; display: block; margin-top: 38%;
+  text-align: center; font-size: 13px; color: var(--muted); opacity: .55;
+}
+
 /* 统计页：body 也要进 flex 列，wrap-s 改成主卡内的滚动区 */
 body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 .stat-page .admin-main .wrap-s {
