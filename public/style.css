@@ -563,28 +563,88 @@ a.cat-chip:hover { filter: brightness(0.96); }
 
 /* ============ 编辑器 ============ */
 .editor-page { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-.editor-top {
-  display: flex; align-items: center; gap: 8px; padding: 9px 16px;
-  border-bottom: 1px solid var(--line); background: var(--card); flex: 0 0 auto; flex-wrap: wrap;
+
+/* 发布信息卡：标题 / 简介 / 别名 / 标签 / 开关全摊开，不用点开抽屉 */
+.publish-card {
+  flex: 0 0 auto; margin: 0; padding: 18px 22px;
+  border-bottom: 1px solid var(--line); background: var(--card);
+  display: flex; flex-direction: column; gap: 13px;
 }
-.editor-top .title-input {
-  flex: 1; min-width: 160px; border: 0; background: none; padding: 4px 2px;
-  font-size: 18px; font-weight: 600; font-family: var(--serif); letter-spacing: -0.01em;
+.pub-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pub-eyebrow {
+  font-size: 10px; font-weight: 600; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--accent);
 }
-.editor-top .title-input::placeholder { color: var(--muted); opacity: .6; font-weight: 500; }
-.editor-top .title-input:focus { box-shadow: none; border: 0; }
-.editor-top #btn-save { padding: 6px 16px; }
-.editor-body { flex: 1; display: flex; min-height: 0; }
-.pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.pane.left { border-right: 1px solid var(--line); }
+.pub-title { margin-top: 4px; font-size: 13px; font-weight: 600; color: var(--fg); }
+.pub-actions { display: flex; align-items: center; gap: 8px; }
+.title-input {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); padding: 11px 14px;
+  font-size: 16px; font-weight: 600; font-family: var(--serif); letter-spacing: -.01em;
+}
+.title-input::placeholder { color: var(--muted); opacity: .6; font-weight: 500; }
+.title-input:focus { border-color: var(--accent); }
+.pub-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 12px; align-items: start; }
+.publish-card textarea, .publish-card input[type="text"], .publish-card select {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); padding: 9px 12px; font-size: 13px; resize: vertical;
+}
+.publish-card textarea:focus, .publish-card input[type="text"]:focus, .publish-card select:focus { border-color: var(--accent); }
+.publish-card .field { gap: 6px; }
+.publish-card .field label { font-size: 11.5px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+.pub-mini-actions { display: flex; gap: 6px; }
+.publish-card .tagbar { margin: 0; }
+.publish-card .tagbar:empty::before {
+  content: '正文里写 #标签 自动识别'; font-size: 12px; color: var(--muted); opacity: .7;
+}
+.pub-switches { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 10px; }
+.pub-switch, .pub-time {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 3%, var(--card));
+  font-size: 12.5px; color: var(--fg);
+}
+.pub-switch input { width: auto; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.pub-time { flex-direction: column; align-items: flex-start; gap: 2px; }
+.pub-time > span:first-child { color: var(--muted); font-size: 11.5px; }
+.pub-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.publish-card .save-state { margin-left: 0; }
+
+/* 编辑器卡：单一宽面 + 顶部工具栏与标签 */
+.editor-body { flex: 1; display: flex; min-height: 0; padding: 12px 14px 14px; }
+.editor-card {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+}
+.ed-toolbar {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--bg-soft);
+}
+.ed-tabs { display: flex; gap: 2px; }
+.ed-tab {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  padding: 6px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 600;
+}
+.ed-tab:hover { color: var(--fg); }
+.ed-tab.on { background: var(--accent); color: #fff; }
+.ed-tools { display: flex; flex-wrap: wrap; gap: 2px; }
+.ed-tools button {
+  min-width: 30px; height: 30px; padding: 0 7px;
+  border: 1px solid transparent; border-radius: 7px; background: transparent;
+  color: var(--muted); font-size: 13px; cursor: pointer; line-height: 1;
+}
+.ed-tools button:hover { background: var(--card); border-color: var(--line); color: var(--fg); }
+.ed-panes { flex: 1; display: flex; min-height: 0; position: relative; }
+.ed-panes .pane { flex: 1; min-width: 0; display: none; }
+.ed-panes .pane.active { display: flex; flex-direction: column; }
 #md-input {
-  flex: 1; width: 100%; border: 0; border-radius: 0; resize: none; padding: 26px 32px;
-  font-family: var(--mono); font-size: 14.5px; line-height: 1.85; background: var(--bg); outline: none;
-  caret-color: var(--accent); tab-size: 2;
+  flex: 1; width: 100%; border: 0; border-radius: 0; resize: none;
+  padding: 22px 26px; font-family: var(--mono); font-size: 14.5px; line-height: 1.85;
+  background: var(--card); outline: none; caret-color: var(--accent); tab-size: 2;
 }
 #md-input::placeholder { color: color-mix(in srgb, var(--muted) 62%, transparent); }
 #md-input:focus { box-shadow: none; }
-.preview { flex: 1; overflow-y: auto; padding: 26px 32px; }
+.preview { flex: 1; overflow-y: auto; padding: 22px 26px; }
 
 /* 设置侧栏：靠左（DOM 顺序不变，用 order 把整列翻到最前） */
 .editor-side {
@@ -740,28 +800,10 @@ a.cat-chip:hover { filter: brightness(0.96); }
 }
 .admin-head h1 { font-size: 26px; font-weight: 600; letter-spacing: -.03em; margin: 7px 0 5px; line-height: 1.15; }
 .admin-head p { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.6; }
-.admin-main .editor-top { border-bottom: 1px solid var(--line); }
-
-/* 写作区：灰底 + 三张独立卡（设置 / 编辑 / 预览）。
-   编辑与预览各带一个标签头，空预览给一句提示，避免大片死白。 */
+/* 编辑区灰底托底；空预览给一句提示，避免大片死白 */
 .admin-main .editor-body {
-  gap: 12px; padding: 12px 14px 14px;
   background: color-mix(in srgb, var(--fg) 3%, var(--card));
 }
-.admin-main .editor-body > .pane {
-  background: var(--card); border: 1px solid var(--line);
-  border-radius: 12px; overflow: hidden;
-}
-.admin-main .editor-body > .pane::before {
-  content: '编辑 · MARKDOWN'; flex: 0 0 auto;
-  display: flex; align-items: center; height: 36px; padding: 0 16px;
-  font-size: 10px; font-weight: 600; letter-spacing: .15em;
-  color: var(--muted); background: var(--bg-soft);
-  border-bottom: 1px solid var(--line);
-}
-.admin-main .editor-body > .pane:not(.left)::before { content: '预览 · 实时'; }
-.admin-main #md-input { padding: 18px 20px; }
-.admin-main .preview { padding: 18px 20px; }
 .admin-main .preview:empty::before {
   content: '正文会在这里实时渲染'; display: block; margin-top: 38%;
   text-align: center; font-size: 13px; color: var(--muted); opacity: .55;
@@ -897,8 +939,13 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
   .admin-head { padding: 14px 16px 12px; }
   .admin-head h1 { font-size: 21px; }
   .admin-main { border-radius: 12px; }
-  .editor-body { flex-direction: column; }
-  .pane.left { border-right: 0; border-bottom: 1px solid var(--line); flex: 0 0 45%; }
+  /* 发布卡在窄屏堆叠字段，编辑区仍是单一宽面 + tab 切换 */
+  .publish-card { padding: 14px 16px; gap: 11px; }
+  .pub-grid, .pub-switches { grid-template-columns: 1fr; }
+  .ed-toolbar { flex-wrap: wrap; }
+  .ed-tools { overflow-x: auto; flex-wrap: nowrap; max-width: 100%; scrollbar-width: none; }
+  .ed-tools::-webkit-scrollbar { display: none; }
+  .ed-panes .pane { min-height: 0; }
   /* 侧栏改成抽屉，手机上也能改站点设置 */
   .editor-side {
     position: fixed; top: 0; bottom: 0; left: 0; z-index: 130;
@@ -959,8 +1006,9 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
   }
   nav.top .theme-btn svg { width: 17px; height: 17px; }
 
-  .editor-top { padding: 8px 12px; gap: 8px; }
+  .editor-body { padding: 10px; }
   #md-input, .preview { padding: 16px; }
+  .pub-actions .btn, .pub-actions .theme-btn { padding: 6px 10px; }
 }
 
 /* ============ 归档 / 时间线 ============ */

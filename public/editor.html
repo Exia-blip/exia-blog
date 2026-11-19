@@ -46,44 +46,100 @@
       <p>在一个独立的管理工作区中编写、编辑和发布内容。</p>
     </header>
 
-<div class="editor-top">
-  <a class="btn sm" href="/" title="返回首页">←</a>
-  <input class="title-input" id="title" placeholder="无标题" autocomplete="off">
-  <span class="save-state" id="state"><span class="pulse"></span><span id="state-text">已同步</span></span>
-  <button class="theme-btn" data-theme-btn type="button" aria-label="切换风格" aria-expanded="false" title="切换风格">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 3a9 9 0 1 0 0 18 2.2 2.2 0 0 0 1.7-3.6 2.2 2.2 0 0 1 1.7-3.6H18A3 3 0 0 0 21 10.8 9 9 0 0 0 12 3Z"/>
-      <circle cx="8" cy="9.2" r="1.1" fill="currentColor" stroke="none"/>
-      <circle cx="12.4" cy="7" r="1.1" fill="currentColor" stroke="none"/>
-      <circle cx="16.4" cy="9.4" r="1.1" fill="currentColor" stroke="none"/>
-    </svg>
-  </button>
-  <button class="btn sm side-toggle" id="btn-side" title="文章与站点设置">设置</button>
-  <button class="btn sm" id="btn-new" title="新建文章">新建</button>
-  <button class="btn primary sm" id="btn-save">保存</button>
-</div>
+<div class="publish-card">
+  <div class="pub-head">
+    <div>
+      <div class="pub-eyebrow">写作</div>
+      <div class="pub-title">发布</div>
+    </div>
+    <div class="pub-actions">
+      <button class="theme-btn" data-theme-btn type="button" aria-label="切换风格" aria-expanded="false" title="切换风格">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3a9 9 0 1 0 0 18 2.2 2.2 0 0 0 1.7-3.6 2.2 2.2 0 0 1 1.7-3.6H18A3 3 0 0 0 21 10.8 9 9 0 0 0 12 3Z"/>
+          <circle cx="8" cy="9.2" r="1.1" fill="currentColor" stroke="none"/>
+          <circle cx="12.4" cy="7" r="1.1" fill="currentColor" stroke="none"/>
+          <circle cx="16.4" cy="9.4" r="1.1" fill="currentColor" stroke="none"/>
+        </svg>
+      </button>
+      <button class="btn sm" id="btn-new" title="新建文章">新建</button>
+      <button class="btn primary" id="btn-save">发布</button>
+    </div>
+  </div>
 
-<div class="editor-body">
-  <div class="pane left">
-    <textarea id="md-input" placeholder="开始写作…&#10;&#10;支持 Markdown。拖拽或粘贴图片可直接上传。&#10;写 #标签 会自动归类。"></textarea>
-  </div>
-  <div class="pane">
-    <div class="preview md" id="preview"></div>
-  </div>
-  <aside class="editor-side">
-    <div class="side-sec">文章信息</div>
+  <input class="title-input" id="title" placeholder="标题" autocomplete="off">
+
+  <div class="pub-grid">
+    <div class="field">
+      <label>简介 <span class="tiny muted" id="sum-state"></span></label>
+      <textarea id="summary" rows="2" maxlength="400" placeholder="保存后自动生成，也可以自己改写"></textarea>
+      <div class="pub-mini-actions">
+        <button class="btn sm" id="btn-sum" type="button">重新生成</button>
+        <button class="btn sm" id="btn-sum-clear" type="button" title="清空，下次保存时重新生成">清空</button>
+      </div>
+    </div>
     <div class="field">
       <label>别名（访问路径）</label>
       <input type="text" id="slug" placeholder="如 about → /about" autocomplete="off">
       <span class="tiny muted" id="slug-hint"></span>
     </div>
-
     <div class="field">
-      <label>栏目 <span class="tiny muted">每篇必选其一</span></label>
+      <label>栏目 <span class="tiny muted">每篇必选</span></label>
       <select id="category"><option value="">未分类</option></select>
-      <span class="tiny muted" id="cat-hint">栏目回答「这是什么类型的东西」，标签回答「用什么做的 / 拆的是什么」</span>
+      <span class="tiny muted" id="cat-hint"></span>
     </div>
+  </div>
 
+  <div class="field">
+    <label>标签 <span class="tiny muted" id="tag-count"></span></label>
+    <div class="tagbar" id="tags"></div>
+    <datalist id="tag-options"></datalist>
+  </div>
+
+  <div class="pub-switches">
+    <label class="pub-switch"><span>仅自己可见</span><input type="checkbox" id="is_private"></label>
+    <label class="pub-switch"><span>列出在文章中</span><input type="checkbox" id="hidden"></label>
+    <div class="pub-time"><span>发布时间</span><span class="tiny muted" id="pub-state"></span></div>
+  </div>
+
+  <div class="pub-foot">
+    <span class="save-state" id="state"><span class="pulse"></span><span id="state-text">已同步</span></span>
+    <button class="btn sm side-toggle" id="btn-side" title="更多设置">更多设置</button>
+  </div>
+</div>
+
+<div class="editor-body">
+  <section class="editor-card">
+    <div class="ed-toolbar">
+      <div class="ed-tabs" role="tablist">
+        <button class="ed-tab on" type="button" data-tab="edit" role="tab" aria-selected="true">编辑</button>
+        <button class="ed-tab" type="button" data-tab="preview" role="tab" aria-selected="false">预览</button>
+      </div>
+      <div class="ed-tools">
+        <button type="button" data-cmd="h" title="标题">H</button>
+        <button type="button" data-cmd="b" title="加粗"><b>B</b></button>
+        <button type="button" data-cmd="i" title="斜体"><i>I</i></button>
+        <button type="button" data-cmd="link" title="链接">🔗</button>
+        <button type="button" data-cmd="img" title="图片">🖼</button>
+        <button type="button" data-cmd="quote" title="引用">❝</button>
+        <button type="button" data-cmd="ul" title="无序列表">•≡</button>
+        <button type="button" data-cmd="ol" title="有序列表">1≡</button>
+        <button type="button" data-cmd="code" title="行内代码">&lt;/&gt;</button>
+        <button type="button" data-cmd="codeblock" title="代码块">▣</button>
+        <button type="button" data-cmd="hr" title="分割线">—</button>
+      </div>
+    </div>
+    <div class="ed-panes">
+      <div class="pane left" data-pane="edit">
+        <textarea id="md-input" placeholder="开始写作…&#10;&#10;支持 Markdown。拖拽或粘贴图片可直接上传。&#10;写 #标签 会自动归类。"></textarea>
+      </div>
+      <div class="pane" data-pane="preview">
+        <div class="preview md" id="preview"></div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="editor-side">
+    <div class="side-sec">文章信息</div>
     <div class="field">
       <label>系列（可选）</label>
       <input type="text" id="series" list="series-options" placeholder="如 自建博客实录" maxlength="40" autocomplete="off">
@@ -94,28 +150,6 @@
         <span class="tiny muted">第几篇</span>
       </div>
       <span class="tiny muted">同系列自动生成目录与上下篇互链</span>
-    </div>
-
-    <div class="field">
-      <label>AI 摘要 <span class="tiny muted" id="sum-state"></span></label>
-      <textarea id="summary" rows="4" maxlength="400" placeholder="保存后自动生成，也可以自己改写"></textarea>
-      <div style="display:flex;gap:6px">
-        <button class="btn sm" id="btn-sum" style="flex:1;justify-content:center">重新生成</button>
-        <button class="btn sm" id="btn-sum-clear" title="清空，下次保存时重新生成">清空</button>
-      </div>
-    </div>
-
-    <div class="field">
-      <label>发布设置</label>
-      <label class="switch"><input type="checkbox" id="is_private"> 私密（仅自己可见，未登录 404）</label>
-      <label class="switch"><input type="checkbox" id="hidden"> 不列入首页（链接仍可直达）</label>
-      <span class="tiny muted" id="pub-state"></span>
-    </div>
-
-    <div class="field">
-      <label>自动标签 <span class="tiny muted" id="tag-count"></span></label>
-      <div class="tagbar" id="tags" style="margin:0"></div>
-      <datalist id="tag-options"></datalist>
     </div>
 
     <div class="field">
@@ -644,6 +678,67 @@ function insertAtCursor(text) {
   inputEl.focus();
   onInput();
 }
+
+/* Markdown 工具栏：包裹选中文本，没选中就插入占位符并把光标放进去 */
+(function initToolbar() {
+  const bar = document.querySelector('.ed-tools');
+  if (!bar) return;
+  const wrap = (before, after, placeholder) => {
+    const s = inputEl.selectionStart;
+    const e = inputEl.selectionEnd;
+    const sel = inputEl.value.slice(s, e);
+    const body = sel || placeholder;
+    inputEl.setRangeText(before + body + after, s, e, 'end');
+    if (!sel) {
+      const caret = s + before.length;
+      inputEl.setSelectionRange(caret, caret + placeholder.length);
+    }
+    inputEl.focus();
+    onInput();
+  };
+  const linePrefix = (prefix) => {
+    const s = inputEl.selectionStart;
+    const lineStart = inputEl.value.lastIndexOf('\n', s - 1) + 1;
+    inputEl.setRangeText(prefix, lineStart, lineStart, 'end');
+    inputEl.focus();
+    onInput();
+  };
+  const actions = {
+    h: () => linePrefix('## '),
+    b: () => wrap('**', '**', '加粗文字'),
+    i: () => wrap('*', '*', '斜体文字'),
+    link: () => wrap('[', '](https://)', '链接文字'),
+    img: () => wrap('![', '](图片地址)', '图片描述'),
+    quote: () => linePrefix('> '),
+    ul: () => linePrefix('- '),
+    ol: () => linePrefix('1. '),
+    code: () => wrap('`', '`', '代码'),
+    codeblock: () => wrap('\n```\n', '\n```\n', '代码'),
+    hr: () => insertAtCursor('\n---\n'),
+  };
+  bar.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-cmd]');
+    if (btn && actions[btn.dataset.cmd]) actions[btn.dataset.cmd]();
+  });
+})();
+
+/* 编辑 / 预览标签切换：单一宽面，同一时刻只显示一个 */
+(function initEditorTabs() {
+  const tabs = document.querySelectorAll('.ed-tab');
+  const panes = document.querySelectorAll('.ed-panes .pane');
+  if (!tabs.length) return;
+  const activate = (name) => {
+    tabs.forEach((t) => {
+      const on = t.dataset.tab === name;
+      t.classList.toggle('on', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    panes.forEach((p) => p.classList.toggle('active', p.dataset.pane === name));
+    if (name === 'preview') updatePreview();
+  };
+  tabs.forEach((t) => t.addEventListener('click', () => activate(t.dataset.tab)));
+  activate('edit');
+})();
 
 inputEl.addEventListener('paste', async (e) => {
   const items = [...(e.clipboardData?.items || [])];
