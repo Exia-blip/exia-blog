@@ -11,6 +11,8 @@
 import { html, umamiOn } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { postCacheStats } from './postcache.js';
+import { getSite } from './settings.js';
+import { avatarSrc } from '../public/avatar.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ESC[ch]);
@@ -290,9 +292,11 @@ export async function statsPage(env, request) {
       .catch(() => 0),
   ]);
 
+  const site = await getSite(env);
   return html(
     renderStats({
       user,
+      site,
       t1,
       t7,
       t30,
@@ -310,7 +314,7 @@ export async function statsPage(env, request) {
 }
 
 /** 纯渲染：只吃数据、不碰数据库。单测喂假数据就能验这一页没写错。 */
-export function renderStats({ user, t1, t7, t30, dailyRows = [], top, refs, kinds, total, ev = {}, pc = {} }) {
+export function renderStats({ user, site = {}, t1, t7, t30, dailyRows = [], top, refs, kinds, total, ev = {}, pc = {} }) {
   const sum = (r) => r?.pv ?? 0;
   const uv = (r) => r?.uv ?? 0;
 
@@ -357,9 +361,40 @@ td.p,td.mono{font-family:var(--mono);font-size:12.5px;word-break:break-all}
 .note{color:var(--muted);font-size:12px;line-height:1.7;margin-top:34px;border-top:1px solid var(--line);padding-top:14px}
 @media (max-width:560px){.kpis{grid-template-columns:1fr}.kpi-v{font-size:22px}}
 </style></head>
-<body class="stat-page"><main class="wrap-s">
-<h1>访问统计</h1>
-<p class="sub">按北京时间切日 · 同一人同一天同一页只记一次 · 累计 ${total?.c || 0} 条，起于 ${total?.first || '—'}</p>
+<body class="stat-page">
+<div class="admin-shell">
+  <aside class="admin-rail">
+    <div class="admin-brand">
+      ${site.avatar ? `<img class="admin-ava" src="${esc(avatarSrc(site.avatar, 96))}" alt="" width="48" height="48">` : ''}
+      <span class="admin-brand-txt">
+        <strong>${esc(site.name || 'Exia Blog')}</strong>
+        <small>返回站点</small>
+      </span>
+    </div>
+    <div class="admin-nav-label">后台管理</div>
+    <nav class="admin-nav">
+      <a href="/editor">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        <span>写作</span>
+      </a>
+      <a class="on" href="/admin/stats" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>
+        <span>访问统计</span>
+      </a>
+      <a href="/">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/></svg>
+        <span>返回首页</span>
+      </a>
+    </nav>
+    <div class="admin-rail-foot"><span class="tiny muted">私有管理工作区</span></div>
+  </aside>
+  <main class="admin-main">
+    <header class="admin-head">
+      <div class="admin-eyebrow">后台管理</div>
+      <h1>访问统计</h1>
+      <p>按北京时间切日 · 同一人同一天同一页只记一次 · 累计 ${total?.c || 0} 条，起于 ${total?.first || '—'}</p>
+    </header>
+    <div class="wrap-s">
 
 <div class="kpis">
   ${kvRow('今天', sum(t1), `独立访客 ${uv(t1)}`)}
@@ -440,7 +475,10 @@ td.p,td.mono{font-family:var(--mono);font-size:12.5px;word-break:break-all}
 
 <p class="note">IP 不落库，只存一份加盐摘要用于去重；不写 cookie，不跨站追踪，DNT/GPC 打开的访客完全不记。
 数据保留 90 天，由定时任务清理。</p>
-</main></body></html>`;
+    </div>
+  </main>
+</div>
+</body></html>`;
 
   return body;
 }

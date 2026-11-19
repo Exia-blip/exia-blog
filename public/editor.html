@@ -12,6 +12,40 @@
 </head>
 <body class="editor-page">
 
+<div class="admin-shell">
+  <aside class="admin-rail">
+    <a class="admin-brand" href="/" title="返回站点">
+      <img class="admin-ava" id="brand-ava" alt="" width="48" height="48">
+      <span class="admin-brand-txt">
+        <strong id="brand-name">Exia Blog</strong>
+        <small>返回站点</small>
+      </span>
+    </a>
+    <div class="admin-nav-label">后台管理</div>
+    <nav class="admin-nav">
+      <a class="on" href="/editor" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        <span>写作</span>
+      </a>
+      <a href="/admin/stats">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>
+        <span>访问统计</span>
+      </a>
+      <a href="/">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/></svg>
+        <span>返回首页</span>
+      </a>
+    </nav>
+    <div class="admin-rail-foot"><span class="tiny muted">私有管理工作区</span></div>
+  </aside>
+
+  <main class="admin-main">
+    <header class="admin-head">
+      <div class="admin-eyebrow">后台管理</div>
+      <h1>写作</h1>
+      <p>在一个独立的管理工作区中编写、编辑和发布内容。</p>
+    </header>
+
 <div class="editor-top">
   <a class="btn sm" href="/" title="返回首页">←</a>
   <input class="title-input" id="title" placeholder="无标题" autocomplete="off">
@@ -161,6 +195,8 @@
     </div>
   </aside>
 </div>
+  </main>
+</div>
 
 <div class="side-mask" id="side-mask"></div>
 
@@ -175,6 +211,15 @@ initSwitcher();
 bindCopyButtons(document.getElementById('preview'));
 
 const $ = (id) => document.getElementById(id);
+
+/* 后台左栏品牌：直接用 injectTheme 注入的 __SITE__，不发新请求；
+   头像已经是 /avatar 代理地址，原样用。 */
+(function adminBrand() {
+  const s = window.__SITE__ || {};
+  if (s.name) $('brand-name').textContent = s.name;
+  if (s.avatar) $('brand-ava').src = s.avatar;
+  else $('brand-ava').style.display = 'none';
+})();
 
 /* 窄屏：设置侧栏收成抽屉，顶部「设置」按钮开合 */
 (function initSideDrawer() {

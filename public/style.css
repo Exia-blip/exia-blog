@@ -663,6 +663,74 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .save-state.error .pulse { background: var(--red); }
 @keyframes pulse { 50% { opacity: 0.25; } }
 
+/* ============ 后台管理外壳 ============
+   只加一层导航卡 + 主卡，编辑器内部 DOM 与 id 一个不动。
+   浅灰底用 fg 混进 card 派生，明暗主题都自动成立，不写死颜色。 */
+.admin-shell {
+  flex: 1; min-height: 0; display: flex; gap: 18px;
+  padding: 18px; background: color-mix(in srgb, var(--fg) 4%, var(--card));
+}
+.admin-rail {
+  flex: 0 0 248px; align-self: stretch; min-height: 0; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+  padding: 18px 12px 14px; display: flex; flex-direction: column; gap: 4px;
+  scrollbar-width: thin;
+}
+.admin-brand {
+  display: flex; align-items: center; gap: 11px; padding: 6px 8px;
+  border-radius: 12px; text-decoration: none; color: inherit;
+  transition: background .16s;
+}
+.admin-brand:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.admin-ava {
+  width: 44px; height: 44px; flex: 0 0 44px; border-radius: 12px;
+  border: 1px solid var(--line); object-fit: cover; background: var(--bg-soft);
+}
+.admin-brand-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.admin-brand-txt strong {
+  font-size: 14px; font-weight: 600; letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.admin-brand-txt small { font-size: 12px; color: var(--muted); }
+.admin-nav-label {
+  margin: 22px 10px 8px; font-size: 10px; font-weight: 600;
+  letter-spacing: .18em; text-transform: uppercase; color: var(--muted);
+}
+.admin-nav { display: flex; flex-direction: column; gap: 3px; }
+.admin-nav a {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 14px; border-radius: 10px;
+  font-size: 13.5px; font-weight: 500; color: var(--fg);
+  text-decoration: none; transition: background .16s, color .16s;
+}
+.admin-nav a svg { width: 17px; height: 17px; flex: 0 0 17px; }
+.admin-nav a:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.admin-nav a.on, .admin-nav a[aria-current="page"] {
+  background: var(--accent); color: #fff;
+}
+.admin-rail-foot { margin-top: auto; padding: 12px 10px 2px; }
+
+.admin-main {
+  flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+  overflow: hidden;
+}
+.admin-head { flex: 0 0 auto; padding: 20px 24px 16px; border-bottom: 1px solid var(--line); }
+.admin-eyebrow {
+  font-size: 10px; font-weight: 600; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--accent);
+}
+.admin-head h1 { font-size: 26px; font-weight: 600; letter-spacing: -.03em; margin: 7px 0 5px; line-height: 1.15; }
+.admin-head p { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.6; }
+.admin-main .editor-top { border-bottom: 1px solid var(--line); }
+
+/* 统计页：body 也要进 flex 列，wrap-s 改成主卡内的滚动区 */
+body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.stat-page .admin-main .wrap-s {
+  flex: 1; min-height: 0; overflow-y: auto; max-width: none;
+  padding: 20px 24px 40px; scrollbar-width: thin;
+}
+
 .drop-hint {
   position: fixed; inset: 0; z-index: 200; display: none; place-items: center;
   background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(3px);
@@ -771,6 +839,21 @@ a.cat-chip:hover { filter: brightness(0.96); }
 }
 @media (max-width: 860px) {
   .brand-desc { display: none; }
+  /* 后台外壳：宽屏的左栏折成顶部横条，保留导航但不再吃掉正文宽度 */
+  .admin-shell { flex-direction: column; gap: 10px; padding: 10px; }
+  .admin-rail {
+    flex: 0 0 auto; flex-direction: row; align-items: center; gap: 6px;
+    overflow-x: auto; padding: 8px 10px; border-radius: 12px;
+  }
+  .admin-nav-label, .admin-rail-foot { display: none; }
+  .admin-brand { padding: 3px 6px; }
+  .admin-ava { width: 32px; height: 32px; flex-basis: 32px; border-radius: 8px; }
+  .admin-brand-txt small { display: none; }
+  .admin-nav { flex-direction: row; flex: 0 0 auto; }
+  .admin-nav a { padding: 8px 11px; white-space: nowrap; }
+  .admin-head { padding: 14px 16px 12px; }
+  .admin-head h1 { font-size: 21px; }
+  .admin-main { border-radius: 12px; }
   .editor-body { flex-direction: column; }
   .pane.left { border-right: 0; border-bottom: 1px solid var(--line); flex: 0 0 45%; }
   /* 侧栏改成抽屉，手机上也能改站点设置 */
