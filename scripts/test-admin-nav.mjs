@@ -49,6 +49,13 @@ assert.ok(editor.indexOf('id="cat-list"') < editor.indexOf('id="checks-fold"'), 
 assert.ok(editor.includes("checks: $('checks-fold')"), 'panel=checks 应指向折叠容器，点击才能展开');
 ok('发布自检默认收起，我的文章直接显现');
 
+// 4c. 侧栏常驻右侧：点菜单内容直接在右边显现，不再弹抽屉/遮罩
+const css = readFileSync('public/style.css', 'utf8');
+assert.ok(css.includes('.side-toggle, .side-mask { display: none !important; }'), '抽屉按钮/遮罩必须隐藏');
+assert.ok(!/initSideDrawer|setOpen\(/.test(editor), 'editor.html 不应再保留抽屉开合逻辑');
+assert.ok(/\.editor-body \{ flex-direction: column;/.test(css), '窄屏应把侧栏堆到编辑区下方，而非抽屉');
+ok('侧栏常驻右侧，点菜单直接显现，不弹抽屉/遮罩');
+
 // 5. 新页渲染：任何输入都不抛，且转义 HTML
 const hp = renderHealth({
   site: { name: '<img>' },

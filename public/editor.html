@@ -128,7 +128,6 @@
 
   <div class="pub-foot">
     <span class="save-state" id="state"><span class="pulse"></span><span id="state-text">已同步</span></span>
-    <button class="btn sm side-toggle" id="btn-side" title="更多设置">更多设置</button>
   </div>
 </div>
 
@@ -257,8 +256,6 @@
   </main>
 </div>
 
-<div class="side-mask" id="side-mask"></div>
-
 <div class="drop-hint" id="drop-hint">松开上传图片</div>
 
 <script type="module">
@@ -280,24 +277,8 @@ const $ = (id) => document.getElementById(id);
   else $('brand-ava').style.display = 'none';
 })();
 
-/* 窄屏：设置侧栏收成抽屉，顶部「设置」按钮开合 */
-(function initSideDrawer() {
-  const side = document.querySelector('.editor-side');
-  const mask = $('side-mask');
-  const btn = $('btn-side');
-  if (!side || !mask || !btn) return;
-  const setOpen = (open) => {
-    side.classList.toggle('open', open);
-    mask.classList.toggle('on', open);
-  };
-  btn.addEventListener('click', () => setOpen(!side.classList.contains('open')));
-  mask.addEventListener('click', () => setOpen(false));
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') setOpen(false);
-  });
-  /* 侧栏「文章列表 / 发布自检 / 系列 / 站点设置」用 ?panel= 直达对应区块。
-     只开抽屉 + 滚动定位，不碰任何字段值；站点设置只有管理员才存在，
-     非管理员点它时 box 仍隐藏，不会露空面板。 */
+/* 侧栏常驻右侧：点侧栏菜单用 ?panel= 直达对应区块，滚动定位即可，不再弹抽屉/遮罩 */
+(function initSidePanel() {
   const panel = new URLSearchParams(location.search).get('panel');
   const target = {
     posts: $('cat-list'),
@@ -305,12 +286,10 @@ const $ = (id) => document.getElementById(id);
     series: $('series'),
     site: $('site-box'),
   }[panel];
-  if (target) {
-    setOpen(true);
-    // checks/site 是折叠块，先展开再滚动，否则滚到收起的一行上
-    if ((panel === 'checks' || panel === 'site') && target.tagName === 'DETAILS') target.open = true;
-    requestAnimationFrame(() => target.scrollIntoView({ block: 'center', behavior: 'smooth' }));
-  }
+  if (!target) return;
+  // checks/site 是折叠块，先展开再滚动，否则滚到收起的一行上
+  if ((panel === 'checks' || panel === 'site') && target.tagName === 'DETAILS') target.open = true;
+  requestAnimationFrame(() => target.scrollIntoView({ block: 'center', behavior: 'smooth' }));
 })();
 const titleEl = $('title');
 const inputEl = $('md-input');

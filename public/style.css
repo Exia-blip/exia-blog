@@ -641,12 +641,13 @@ a.cat-chip:hover { filter: brightness(0.96); }
 #md-input:focus { box-shadow: none; }
 .preview { flex: 1; overflow-y: auto; padding: 22px 26px; }
 
-/* 设置侧栏：靠左（DOM 顺序不变，用 order 把整列翻到最前） */
+/* 设置侧栏：常驻写作区右侧（点菜单直接显现，不再弹抽屉/遮罩） */
 .editor-side {
-  order: -1;
+  order: 0;
   flex: 0 0 292px;
-  border-left: 0;
-  border-right: 1px solid var(--line);
+  margin-left: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   background: var(--card);
   padding: 16px 14px 16px;
   overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
@@ -735,26 +736,8 @@ html[data-mode="dark"] .checks-fold > summary .ck-badge.done { color: var(--acce
   border-top: 1px solid var(--line);
 }
 .side-foot .side-view { flex: 1; justify-content: center; }
-/* 设置侧栏：桌面与窄屏都收成抽屉，写作区只留编辑 + 预览两卡。
-   开合 JS 已通用（按钮 / 遮罩 / Esc），这里只放开 CSS 显示。 */
-.side-toggle { display: inline-flex; }
-.side-mask {
-  display: block; position: fixed; inset: 0; z-index: 125;
-  background: rgba(0, 0, 0, .36); opacity: 0; pointer-events: none; transition: opacity .2s;
-}
-.side-mask.on { opacity: 1; pointer-events: auto; }
-.editor-side {
-  position: fixed; top: 0; bottom: 0; left: 0; z-index: 130;
-  width: min(400px, 92vw); flex: 0 0 auto;
-  transform: translateX(-101%);
-  transition: transform .24s cubic-bezier(.4, 0, .2, 1);
-  box-shadow: 28px 0 70px -34px rgba(0, 0, 0, .6);
-  border: 0; border-right: 1px solid var(--line);
-  border-radius: 0 14px 14px 0;
-  padding-top: max(16px, env(safe-area-inset-top));
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
-}
-.editor-side.open { transform: none; }
+/* 侧栏常驻右侧：抽屉按钮与遮罩不再需要，彻底隐藏 */
+.side-toggle, .side-mask { display: none !important; }
 .switch { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; user-select: none; }
 .switch input { width: auto; margin: 0; accent-color: var(--accent); }
 .save-state { font-size: 12px; color: var(--muted); margin-left: auto; display: flex; align-items: center; gap: 6px; }
@@ -983,23 +966,15 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
   .ed-tools { overflow-x: auto; flex-wrap: nowrap; max-width: 100%; scrollbar-width: none; }
   .ed-tools::-webkit-scrollbar { display: none; }
   .ed-panes .pane { min-height: 0; }
-  /* 侧栏改成抽屉，手机上也能改站点设置 */
+  /* 窄屏：侧栏堆到编辑区下方，整页滚动，不再抽屉/遮罩 */
+  .admin-main { overflow-y: auto; }
+  .editor-body { flex-direction: column; flex: 0 0 auto; height: auto; }
+  .editor-card { flex: 0 0 auto; min-height: 62vh; }
   .editor-side {
-    position: fixed; top: 0; bottom: 0; left: 0; z-index: 130;
-    width: min(86vw, 330px); flex: 0 0 auto;
-    transform: translateX(-101%);
-    transition: transform .24s cubic-bezier(.4, 0, .2, 1);
-    box-shadow: 28px 0 70px -34px rgba(0, 0, 0, .6);
-    padding-top: max(16px, env(safe-area-inset-top));
-    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    flex: 0 0 auto; width: auto; max-height: none; margin: 10px 0 0;
+    border: 1px solid var(--line); overflow-y: visible;
+    padding: 14px 12px;
   }
-  .editor-side.open { transform: none; }
-  .side-mask {
-    display: block; position: fixed; inset: 0; z-index: 125;
-    background: rgba(0, 0, 0, .36); opacity: 0; pointer-events: none; transition: opacity .2s;
-  }
-  .side-mask.on { opacity: 1; pointer-events: auto; }
-  .side-toggle { display: inline-flex; }
 }
 @media (max-width: 640px) {
   body { font-size: 16px; }
