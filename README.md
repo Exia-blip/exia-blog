@@ -418,6 +418,19 @@ curl -sD - -o /dev/null https://exia.de5.net/cdn-cgi/trace | grep -iE 'x-content
 
 第三方核验（2026-11-08，securityheaders.com）：**A+**，六项全 present（HSTS / CSP / Permissions-Policy / Referrer-Policy / X-Content-Type-Options / X-Frame-Options）。所以如果某个工具说这几个头缺失，先怀疑工具或缓存，别改代码——用上面两条命令复现一次。
 
+### 输入与出站防护
+
+响应头管的是「浏览器怎么对待页面」，这一组管的是「不可信输入怎么被使用」。审计出的四项，都已修：
+
+| 位置 | 攻击面 | 修法 |
+|---|---|---|
+| `src/auth.js` `safeNext()` | 登录 `?next=` 开放重定向（CWE-601） | 只接受以单个 `/` 开头、且 `new URL(s, origin).origin` 等于本站的路径；`//evil.com`、`/\evil.com`、控制字符、畸形值一律回落 `/`。OAuth 回调、服务端跳转、登录页客户端三处共用同一守卫 |
+| `public/avatar.js` `safeWebsite()` | 评论 website 填 `javascript:` 伪协议 | 无协议补 `https:` 并剥掉前导 `//`，只放行 http/https，其余 scheme 回落空串。SSR 与浏览器共用一份 |
+| `src/utils.js` `siteOrigin()` | 拿请求的 `Host` 直接拼 canonical / og / RSS / sitemap | 一律以 `SITE_ORIGIN`（校验过 scheme + hostname）为准，配错才回落请求 origin。canonical、og:image、RSS、sitemap、robots 全部改从它派生 |
+| `src/api.js` `searchMatch()` | 搜索关键词里的 `%` `_` `\` 被当成 LIKE 通配符，「100%」变全表匹配 | 三字符转义 + 三路 SQL 都带 `ESCAPE '\'`（标题/正文/标签子查询口径一致，COUNT 与列表不会走偏） |
+
+`safeWebsite()` / `siteOrigin()` 是前后端共享函数：改它们要同时过 SSR 与客户端两条路径，别只改一边。
+
 ## 本地开发
 
 ```bash
@@ -523,7 +536,7 @@ D1 里所有时间都是 **UTC 裸字符串**（`nowISO()` 写进去的就是 UT
 ### 线上体检
 
 ```bash
-npm run check:live             # 一次性过 38 项硬指标
+npm run check:live             # 一次性过 53 项硬指标
 ```
 
 只打 HTTP，不跑浏览器，验证那些「用户不会报障但坏了很难察觉」的东西：编码声明、404 语义与缓存、时区显示、HEAD 与 GET 的 ETag 是否一致、缩略图缓存策略、阻塞脚本、CSP/HSTS。
@@ -701,7 +714,11 @@ npm run assets:check    # 比对体积预算，超了 exit 1
 | 系列徽章 | 文章头部 `series-chip`：`OAuth 授权流程拆解 · 第 3/4 篇` | 点进去跳到系列目录 |
 | 阅读进度 | 顶部细线 `.read-bar` + 右侧百分比 `.read-pct` | 两者共用一次 rAF 与同一份 rect；百分比 ≥1280px 才出现，2%–99% 之间显示，读完自动撤掉，`pointer-events: none` 不挡选中 |
 | 上下篇 | `.post-adjacent`，同栏目前后各一篇；系列文不显示（顶部已有跳转） | 卡片带「日期 · 栏目」，箭头随方向位移（`prefers-reduced-motion` 下不动） |
-| 打印 | `@media print`：隐藏导航/目录/评论框，正文全宽，代码块保留底色，外链后缀显示 URL | 二三十行的量，存 PDF 时不至于把导航栏也印上去 |
+| 复制本文链接 | 文章头部 `.copy-link`，只读 `<link rel="canonical">` 的 URL + 复用现有 toast | 纯客户端注入，不进 SSR 输出（ETag 不受影响）；无社交分享、无第三方脚本 |
+| 正文图片灯箱 | 点独立成行的 `.md-img` 图放大，ESC / 点蒙层 / 移动端上滑关闭 | 浮层首次点击才 `createElement`、`hidden` 复用；图走 `currentSrc` 现有 R2 链路不多一次回源；行内图不触发；无图集无手势缩放；`prefers-reduced-motion` 关动画 |
+| 阅读进度位置 | 头部按钮三态循环：顶部 → 底部 → 关闭，偏好存 `localStorage(x_readbar)` | 白名单拒绝脏值；关闭时 `display:none` 且跳过每帧几何计算；打印仍隐藏 |
+| 主题切换过渡 | 切换瞬间给 `<html>` 挂临时 `.theme-transition`，只过渡 color / background-color | `transitionend`（只认 ROOT 自身颜色属性）+ 400ms 定时兜底双保险；静态无 transition 不引 CLS；`prefers-reduced-motion` 直接跳过 |
+| 打印 | `@media print`：隐藏导航/目录/评论框，正文全宽，代码块折叠块强制展开，外链后缀显示 URL | 二三十行的量，存 PDF 时不至于把导航栏也印上去 |
 
 > 没有小标题（不足 3 个 h2）的文章不出目录，但**空 `<aside class="post-toc">` 必须留**：`.post-article` 是两列 grid，第一个子元素落在 232px 那一列，少了 aside，正文就被挤进目录列——整篇压成 180px 宽，页面上什么都不报错，只是「看着很窄」。CSS 里另外用 `grid-column` 写死列位置兜第二层。
 
@@ -710,6 +727,7 @@ npm run assets:check    # 比对体积预算，超了 exit 1
 | 能力 | 行为 |
 |---|---|
 | 搜索高亮 | 命中词包在 `<mark>` 里（语义元素，屏幕阅读器会念），英文大小写不敏感，`c++`、`a.b` 这类含正则元字符的关键词不会抛错 |
+| 搜索快捷键 | `/` 聚焦搜索框（排除输入框 / 文本域 / contentEditable / 修饰键 / 输入法状态），非空的清除按钮复用 `applyQuery()` 不清空 D1 查询口径 |
 | 搜索摘要 | 命中落在正文深处时，摘要改成「关键词前后那一段」而不是开头 140 字，否则高亮标不出东西 |
 | 空结果 | 回显关键词 + 两条出口（全部文章 / 按时间归档），不再是一句「没有找到」 |
 | 评论时间 | `刚刚 / N 分钟前 / N 小时前 / N 天前 / N 个月前 / N 年前`，SSR 与客户端同一套刻度；`<time data-t>` 在页面加载后重算一次（边缘缓存最多 5 分钟，不重算就会一直显示「刚刚」），`title` 给准确到分钟的绝对时间 |
@@ -793,6 +811,10 @@ npm run setup:umami -- https://cloud.umami.is/script.js 1f2e3d4c-5b6a-4978-8c9d-
 | `cf: { cacheTtl: 0 }` | **不绕缓存**，仍 `cf-cache-status: HIT` |
 
 超过 40 条友链时不存游标，用 `ORDER BY COALESCE(NULLIF(checked_at,''),'') ASC LIMIT 40` 让最久没检的排前面，跑完自动轮转。
+
+**出站 SSRF 防护**：友链 URL 是用户填的，Cron 会主动去请求它——这是个天然的 SSRF 口子。`src/cron.js` 的 `resolveTarget()` 在首跳和**每一次跳转**后都过 `isBlockedHost()`，拦截：回环 / 私有段（`10/8`、`192.168/16`、`172.16/12`）、链路本地与云元数据（`169.254/16`，含 `169.254.169.254`）、CGNAT（`100.64/10`）、`0/8`、文档保留段、`localhost`/`.local`/`.internal`、IPv6 回环与未指定地址、ULA（`fc00::/7`）、链路本地（`fe80::/10`）、IPv4-mapped IPv6（`::ffff:127.0.0.1` 剥前缀再判）；域名带尾点、IPv6 带方括号都先归一化。跳转用 `redirect: 'manual'` 自行跟随、上限 5 跳，全程共享一个 8s `AbortSignal`（不让 5 跳把超时放大成 40s），响应只要头——`res.body.cancel()` 立刻断流，不拉正文（cloudflare.com 首页 1.3MB，纯属浪费出口流量）。
+
+**已知残余**：DNS rebinding——域名 A 记录先指公网过校验、再改指内网，Worker 侧挡不住。触发前提是管理员身份填的友链，且探测结果不回显响应体（盲 SSRF），风险有限，代码注释里如实标注。
 
 对应文章：`/p/worker-cron-friend-check`（正文在 `content/07-worker-cron-friend-check.md`）。
 
