@@ -63,7 +63,14 @@ assert.ok(css.includes('.side-toggle, .side-mask { display: none !important; }')
 assert.ok(css.includes('.admin-main > .view.active { display: flex; }'), '视图切换 CSS 缺失');
 // 文章页的系列目录样式必须限定在 .series 里，否则后台的系列胶囊会被拉成整行
 assert.ok(css.includes('.series .series-list'), '系列目录样式应限定在文章页 .series 内');
-ok('无抽屉/遮罩，视图切换样式就位');
+// 移动端菜单展开只保留一条规则（~ 容错更强）；两条 +/~ 并存是冗余
+assert.equal((css.match(/\.nav-cb:checked\s*[+~]\s*\.admin-nav-wrap/g) || []).length, 1, '移动端菜单展开规则重复');
+assert.ok(css.includes('.nav-cb:checked ~ .admin-nav-wrap'), '应保留 ~ 兄弟选择器');
+// 未保存的新文章点预览：占位 # 要被拦截，不能新标签打开编辑器副本
+assert.ok(editor.includes("$('btn-view').addEventListener('click'"), '预览按钮缺点击拦截');
+assert.ok(editor.includes("$('btn-view').getAttribute('href') || '') === '#'"), '拦截条件应检查 href=#');
+assert.ok(editor.includes('先保存文章，再点预览'), '缺预览拦截提示');
+ok('无抽屉/遮罩，视图切换样式就位；预览占位拦截 + 菜单规则去重');
 
 // 4d. 视图头：标题只由 admin-head 承担，说明 + 元信息各就各位
 assert.ok(editor.includes('id="view-desc"'), '缺少视图说明位');

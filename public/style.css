@@ -1141,7 +1141,6 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
     background: var(--bg-soft);
   }
   .nav-toggle svg { width: 20px; height: 20px; }
-  .nav-cb:checked + .admin-nav-wrap { display: flex; }
   .admin-nav-wrap {
     display: none; position: absolute; z-index: 60;
     left: 0; right: 0; top: calc(100% + 6px);

@@ -895,6 +895,15 @@ $('btn-new').onclick = () => {
 
 $('btn-save').onclick = () => saveNow(true);
 
+// 新文章还没保存时预览地址是占位的 #，直接点会新标签打开编辑器自己——
+// 拦下来给句提示，别让人以为是预览坏了。纯客户端，不碰保存流程。
+$('btn-view').addEventListener('click', (e) => {
+  if (($('btn-view').getAttribute('href') || '') === '#') {
+    e.preventDefault();
+    toast('先保存文章，再点预览');
+  }
+});
+
 $('btn-del').onclick = async () => {
   if (!postId) return toast('还没保存，无需删除');
   if (!confirm('删除这篇文章？不可恢复。')) return;
