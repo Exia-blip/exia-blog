@@ -86,6 +86,37 @@ const hp = renderHealth({
 assert.ok(hp.includes('健康检查'));
 assert.ok(hp.includes('&lt;script&gt;'), '用户输入的标签必须转义为实体');
 assert.ok(hp.includes('&lt;img&gt;'), '站名必须转义');
+
+// 5b. 健康总览：一眼看整体，且分级/计数跟运行状态一致
+const badHealth = renderHealth({
+  checks: [
+    { label: 'D1', value: '正常', state: 'ok' },
+    { label: '会话密钥', value: '缺失', state: 'bad' },
+  ],
+});
+assert.ok(badHealth.includes('sv-summary bad'), '有故障时必须按 bad 呈现总览');
+assert.ok(
+  badHealth.includes('有故障需要处理') &&
+    badHealth.includes('<b class="n-ok">1</b> 通过') &&
+    badHealth.includes('<b class="n-bad">1</b> 故障'),
+  '总览文案/计数不对'
+);
+const allOk = renderHealth({ checks: [{ label: 'D1', value: '正常', state: 'ok' }] });
+assert.ok(allOk.includes('sv-summary ok') && allOk.includes('全部正常'), '全通过应是绿');
+const half = renderHealth({
+  checks: [
+    { label: 'a', value: 'ok', state: 'ok' },
+    { label: 'b', value: '半配', state: 'warn' },
+  ],
+});
+assert.ok(half.includes('sv-summary warn') && half.includes('部分项需关注'), '有半配无故障应是黄');
+// 友链 0 值不该带告警色（旧代码把「探测失败 0」也标红）
+const zeroFriend = renderHealth({ checks: [], friend: { up: 0, degraded: 0, down: 0, checkedAt: '' } });
+assert.ok(!zeroFriend.includes('探测失败</span><span class="kv-v bad"'), '探测失败为 0 不应标红');
+assert.ok(!zeroFriend.includes('有响应但状态异常</span><span class="kv-v warn"'), '状态异常为 0 不应标黄');
+assert.ok(zeroFriend.includes('探测失败</span><span class="kv-v ">'), '零值应保持无色');
+ok('健康总览分级/计数正确，友链零值不再误标色');
+
 const qp = renderQueue({ site: { name: 'X' }, rows: [{ id: 1, title: '<b>hi</b>', published_at: '2027-03-03 01:00:00' }] });
 assert.ok(qp.includes('定时队列'));
 assert.ok(!qp.includes('<b>hi</b>'), '文章标题必须转义');

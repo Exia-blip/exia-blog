@@ -962,6 +962,25 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
 .stat-page .sv-pill.warn { color: var(--tok-n); background: color-mix(in srgb, var(--tok-n) 15%, transparent); }
 .stat-page .sv-pill.bad { color: var(--red); background: color-mix(in srgb, var(--red) 13%, transparent); }
 .stat-page .sv-note { color: var(--muted); font-size: 12.5px; line-height: 1.7; margin: 0; }
+/* 健康检查总览：一句结论 + 三色计数，颜色全走主题变量，暗色自动适配 */
+.stat-page .sv-summary {
+  display: flex; align-items: center; gap: 14px;
+  padding: 15px 17px; border: 1px solid var(--line); border-radius: 10px;
+  background: color-mix(in srgb, var(--card) 92%, var(--bg));
+}
+.stat-page .sv-summary-dot {
+  flex: 0 0 auto; width: 11px; height: 11px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 0 5px color-mix(in srgb, var(--green) 14%, transparent);
+}
+.stat-page .sv-summary.warn .sv-summary-dot { background: var(--tok-n); box-shadow: 0 0 0 5px color-mix(in srgb, var(--tok-n) 15%, transparent); }
+.stat-page .sv-summary.bad .sv-summary-dot { background: var(--red); box-shadow: 0 0 0 5px color-mix(in srgb, var(--red) 14%, transparent); }
+.stat-page .sv-summary-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.stat-page .sv-summary-main strong { font-size: 15px; font-weight: 600; color: var(--fg); }
+.stat-page .sv-summary-main > span { font-size: 12px; color: var(--muted); }
+.stat-page .sv-summary b { font-family: var(--mono); font-weight: 600; }
+.stat-page .sv-summary .n-ok { color: var(--green); }
+.stat-page .sv-summary .n-warn { color: var(--tok-n); }
+.stat-page .sv-summary .n-bad { color: var(--red); }
 /* 定时队列表格 */
 .stat-page .sv-table-wrap { border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
 .stat-page .sv-table { width: 100%; border-collapse: collapse; font-size: 13px; }

@@ -36,6 +36,22 @@ export function renderHealth({ site = {}, checks = [], friend = {}, pc = {} }) {
         }</span><span class="kv-v"><span class="sv-pill ${esc(c.state)}">${esc(c.value)}</span></span></div>`
     )
     .join('');
+  /* 顶部一句结论：不用逐行读六项才知道整体好不好。只要有一项故障就按故障算，
+     否则有半配就按半配，全通过才绿。计数只统计运行状态这一组（友链/缓存各自成组）。 */
+  const tally = { ok: 0, warn: 0, bad: 0 };
+  for (const c of checks) if (c.state in tally) tally[c.state]++;
+  const level = tally.bad ? 'bad' : tally.warn ? 'warn' : 'ok';
+  const verdict = level === 'bad' ? '有故障需要处理' : level === 'warn' ? '部分项需关注' : '全部正常';
+  const summary = `<div class="sv-summary ${level}">
+  <span class="sv-summary-dot"></span>
+  <div class="sv-summary-main">
+    <strong>${verdict}</strong>
+    <span><b class="n-ok">${tally.ok}</b> 通过 · <b class="n-warn">${tally.warn}</b> 半配 · <b class="n-bad">${tally.bad}</b> 故障（运行状态）</span>
+  </div>
+</div>`;
+  // 友链数值只在真的非 0 时才上告警色：原来「探测失败 0」也标红，会把干净状态看成故障。
+  const down = friend.down || 0;
+  const degraded = friend.degraded || 0;
   const body = `<div class="wrap-s">
 <div class="admin-view-card">
   <div class="admin-view-head">
@@ -43,14 +59,15 @@ export function renderHealth({ site = {}, checks = [], friend = {}, pc = {} }) {
     <span class="view-tag">绿=通过 · 黄=半配 · 红=故障</span>
   </div>
   <div class="admin-view-body">
+    ${summary}
     <div class="form-sec">运行状态</div>
     <div class="kv-list">${list}</div>
 
     <div class="form-sec">友链存活</div>
     <div class="kv-list">
-${row('可访问', String(friend.up ?? 0), 'ok')}
-${row('有响应但状态异常', String(friend.degraded ?? 0), 'warn')}
-${row('探测失败', String(friend.down ?? 0), 'bad')}
+${row('可访问', String(friend.up ?? 0), friend.up > 0 ? 'ok' : '')}
+${row('有响应但状态异常', String(degraded), degraded > 0 ? 'warn' : '')}
+${row('探测失败', String(down), down > 0 ? 'bad' : '')}
 ${row('最近一轮检测', esc(friend.checkedAt || '尚未检测'))}
     </div>
 
