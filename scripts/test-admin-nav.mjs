@@ -2,7 +2,7 @@
 // 不一致时表现为「写作页能看到新入口，统计页看不到」，人工很难发现。
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
-import { ADMIN_NAV, renderAdminNav } from '../src/admin-ui.js';
+import { ADMIN_NAV, renderAdminNav, renderAdminShell } from '../src/admin-ui.js';
 import { renderHealth, renderQueue } from '../src/admin-pages.js';
 
 const editor = readFileSync('public/editor.html', 'utf8');
@@ -90,5 +90,27 @@ const qp = renderQueue({ site: { name: 'X' }, rows: [{ id: 1, title: '<b>hi</b>'
 assert.ok(qp.includes('定时队列'));
 assert.ok(!qp.includes('<b>hi</b>'), '文章标题必须转义');
 ok('健康检查 / 定时队列渲染正确且转义');
+
+// 6. 服务端页与 editor 视图同构：统一样式口径，别再各写一套
+const pages = readFileSync('src/admin-pages.js', 'utf8');
+const statShell = renderAdminShell({ title: 'X', body: '' });
+assert.ok(statShell.includes('class="stat-page"'), '服务端页应复用 stat-page 外壳');
+for (const [name, html] of [['健康检查', hp], ['定时队列', qp]]) {
+  assert.ok(html.includes('class="wrap-s"'), `${name} 缺滚动容器`);
+  assert.ok(html.includes('admin-view-card'), `${name} 未用统一视图卡`);
+  assert.ok(html.includes('admin-view-head'), `${name} 未用统一视图头`);
+  assert.ok(html.includes('admin-view-body'), `${name} 未用统一视图体`);
+  assert.ok(html.includes('form-sec'), `${name} 未用统一分组标题`);
+  assert.ok(!html.includes('<style'), `${name} 仍有内联样式`);
+  assert.ok(!/<h2[\s>]/.test(html), `${name} 仍用旧 h2 章节标题`);
+}
+assert.ok(!pages.includes('const PAGE_STYLE'), '内联 PAGE_STYLE 应已删除');
+assert.ok(!/#1a7f37|#b7791f|#c0392b/.test(pages), '状态色不应硬编码，须走 CSS 变量');
+for (const cls of ['admin-view-card', 'kv-row', 'sv-pill', 'sv-table', 'form-sec']) {
+  assert.ok(css.includes(`.stat-page .${cls}`) || css.includes(`.${cls}`), `style.css 缺 .${cls} 口径`);
+}
+assert.match(css, /\.stat-page \.sv-pill\.ok[^}]*var\(--green\)/, '绿灯色未走主题变量');
+assert.match(css, /\.stat-page \.sv-pill\.bad[^}]*var\(--red\)/, '红灯色未走主题变量');
+ok('健康检查/定时队列与 editor 视图同构，样式进 style.css 且状态色走变量');
 
 console.log(`\nadmin nav: ${pass} passed`);

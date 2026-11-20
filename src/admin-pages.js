@@ -6,30 +6,9 @@ import { getSite } from './settings.js';
 import { renderAdminShell, esc } from './admin-ui.js';
 import { postCacheStats } from './postcache.js';
 
-const PAGE_STYLE = `<style>
-.wrap-s{max-width:900px;margin:0 auto;padding:30px 22px 60px}
-.card{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--card);margin-bottom:14px}
-.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
-.row:last-child{border-bottom:0}
-.row-l{font-size:13.5px}
-.row-r{font-family:var(--mono);font-size:12.5px;color:var(--muted);text-align:right;word-break:break-all}
-.ok{color:#1a7f37}.warn{color:#b7791f}.bad{color:#c0392b}
-.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;line-height:1.6}
-.pill.ok{background:color-mix(in srgb,#1a7f37 12%,transparent)}
-.pill.warn{background:color-mix(in srgb,#b7791f 12%,transparent)}
-.pill.bad{background:color-mix(in srgb,#c0392b 12%,transparent)}
-h2{font-family:var(--serif);font-size:16px;margin:24px 0 10px}
-h2:first-child{margin-top:0}
-.sub{color:var(--muted);font-size:12.5px;line-height:1.7;margin:0 0 14px}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;font-weight:500;color:var(--muted);font-size:12px;padding:0 8px 6px 0;border-bottom:1px solid var(--line)}
-td{padding:9px 8px 9px 0;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);text-align:left;vertical-align:top}
-td:last-child,th:last-child{text-align:right;padding-right:0}
-a{color:inherit;text-decoration:none;border-bottom:1px solid var(--line)}
-.time{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap}
-.empty{color:var(--muted);font-size:13px;padding:18px 0}
-@media (max-width:560px){.row{align-items:flex-start;flex-direction:column;gap:3px}.row-r{text-align:left}}
-</style>`;
+/* 这两页的样式已收进 public/style.css 的 .stat-page 命名空间，
+   和 editor.html 的 .view-card 共用一套卡片/分组/细线列表口径。
+   不再内联 <style>：一是避免 CSP 多一处内联，二是颜色能走 CSS 变量自动适配七套主题。 */
 
 /** 北京时间展示。D1 存的是 UTC 的 `YYYY-MM-DD HH:MM:SS`。 */
 function toCN(s) {
@@ -40,8 +19,10 @@ function toCN(s) {
   return new Date(d.getTime() + 8 * 3600e3).toISOString().slice(0, 16).replace('T', ' ') + ' 北京';
 }
 
+/* 键值行：和 editor 视图列表同一套口径——细线分隔、左标签右值。
+   cls 传状态名（ok/warn/bad）时只给值上色，不改行结构。 */
 const row = (label, value, cls = '') =>
-  `<div class="row"><span class="row-l">${label}</span><span class="row-r ${cls}">${value}</span></div>`;
+  `<div class="kv-row"><span class="kv-k">${label}</span><span class="kv-v ${cls}">${value}</span></div>`;
 
 /* ---------- 健康检查 ---------- */
 
@@ -50,30 +31,39 @@ export function renderHealth({ site = {}, checks = [], friend = {}, pc = {} }) {
   const list = checks
     .map(
       (c) =>
-        `<div class="row"><span class="row-l">${esc(c.label)}${
-          c.note ? `<br><span class="tiny muted">${esc(c.note)}</span>` : ''
-        }</span><span class="row-r"><span class="pill ${esc(c.state)}">${esc(c.value)}</span></span></div>`
+        `<div class="kv-row"><span class="kv-k">${esc(c.label)}${
+          c.note ? `<span class="kv-note">${esc(c.note)}</span>` : ''
+        }</span><span class="kv-v"><span class="sv-pill ${esc(c.state)}">${esc(c.value)}</span></span></div>`
     )
     .join('');
-  const body = `<div class="wrap-s">${PAGE_STYLE}
-<h2>运行状态</h2>
-<p class="sub">这一页只做只读检查，不改动任何数据。绿灯表示这次请求实测通过；黄灯是「配了但没完全启用」；红灯才是真故障。</p>
-<div class="card">${list}</div>
-<h2>友链存活</h2>
-<div class="card">
+  const body = `<div class="wrap-s">
+<div class="admin-view-card">
+  <div class="admin-view-head">
+    <span>只读检查 · 不改动任何数据</span>
+    <span class="view-tag">绿=通过 · 黄=半配 · 红=故障</span>
+  </div>
+  <div class="admin-view-body">
+    <div class="form-sec">运行状态</div>
+    <div class="kv-list">${list}</div>
+
+    <div class="form-sec">友链存活</div>
+    <div class="kv-list">
 ${row('可访问', String(friend.up ?? 0), 'ok')}
 ${row('有响应但状态异常', String(friend.degraded ?? 0), 'warn')}
 ${row('探测失败', String(friend.down ?? 0), 'bad')}
 ${row('最近一轮检测', esc(friend.checkedAt || '尚未检测'))}
-</div>
-<h2>文章缓存（本实例）</h2>
-<div class="card">
+    </div>
+
+    <div class="form-sec">文章缓存 <span class="tiny muted">本实例</span></div>
+    <div class="kv-list">
 ${row('命中', String(pc.hit || 0))}
 ${row('未命中', String(pc.miss || 0))}
 ${row('淘汰', String(pc.evicted || 0))}
 ${row('当前篇数', String(pc.size || 0))}
+    </div>
+    <p class="sv-note">缓存是 Worker 实例级的，不跨实例、冷启清零，只能用来判断 TTL 是否合适，别当全站指标。</p>
+  </div>
 </div>
-<p class="sub">缓存是 Worker 实例级的，不跨实例、冷启清零，只能用来判断 TTL 是否合适，别当全站指标。</p>
 </div>`;
   return renderAdminShell({
     site,
@@ -153,20 +143,28 @@ export async function healthPage(env, request) {
 
 export function renderQueue({ site = {}, rows = [] }) {
   const list = rows.length
-    ? `<table><thead><tr><th>标题</th><th>发布时间</th><th>状态</th></tr></thead><tbody>${rows
+    ? `<div class="sv-table-wrap"><table class="sv-table"><thead><tr><th>标题</th><th>发布时间</th><th>状态</th></tr></thead><tbody>${rows
         .map(
           (p) => `<tr>
       <td><a href="/editor?id=${encodeURIComponent(p.id)}">${esc(p.title || '（无标题）')}</a></td>
-      <td class="time">${esc(toCN(p.published_at))}</td>
-      <td class="time">${p.hidden ? '不列出' : p.is_private ? '私密' : '待发布'}</td>
+      <td class="sv-time">${esc(toCN(p.published_at))}</td>
+      <td class="sv-time">${p.hidden ? '不列出' : p.is_private ? '私密' : '待发布'}</td>
     </tr>`
         )
-        .join('')}</tbody></table>`
-    : '<p class="empty">没有待发布的文章。把文章发布时间设到将来，它就会排在这里，到点自动公开。</p>';
-  const body = `<div class="wrap-s">${PAGE_STYLE}
-<h2>尚未到点</h2>
-<p class="sub">这些文章已写好，但发布时间在未来。时间到了会自动出现在站点上，不需要手动操作。</p>
-<div class="card">${list}</div>
+        .join('')}</tbody></table></div>`
+    : '<p class="sv-empty">没有待发布的文章。把文章发布时间设到将来，它就会排在这里，到点自动公开。</p>';
+  const body = `<div class="wrap-s">
+<div class="admin-view-card">
+  <div class="admin-view-head">
+    <span>已写好、等待发布时间到达</span>
+    <span class="view-tag">${rows.length} 篇待发布</span>
+  </div>
+  <div class="admin-view-body">
+    <div class="form-sec">尚未到点</div>
+    <p class="sv-note">这些文章已写好，但发布时间在未来。时间到了会自动出现在站点上，不需要手动操作。</p>
+    ${list}
+  </div>
+</div>
 </div>`;
   return renderAdminShell({
     site,

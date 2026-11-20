@@ -920,6 +920,71 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
   padding: 20px 24px 40px; scrollbar-width: thin;
 }
 
+/* 健康检查 / 定时队列：与 editor.html 的视图同构的一张卡。
+   wrap-s 仍是滚动容器（stat-page 的 flex 布局依赖它），这里只负责视觉口径。 */
+.stat-page .admin-view-card {
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card); overflow: hidden;
+}
+.stat-page .admin-view-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 18px 20px; font-size: 12.5px; color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.stat-page .admin-view-body {
+  padding: 18px 20px 22px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+/* 键值行：细线分隔，左标签右值；窄屏改为上下堆叠 */
+.stat-page .kv-list {
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+}
+.stat-page .kv-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 12px 15px; font-size: 13.5px;
+}
+.stat-page .kv-row + .kv-row { border-top: 1px solid color-mix(in srgb, var(--line) 65%, transparent); }
+.stat-page .kv-k { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.stat-page .kv-note { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+.stat-page .kv-v {
+  flex: 0 0 auto; font-family: var(--mono); font-size: 12.5px;
+  color: var(--muted); text-align: right; word-break: break-all;
+}
+.stat-page .kv-v.ok { color: var(--green); }
+.stat-page .kv-v.warn { color: var(--tok-n); }
+.stat-page .kv-v.bad { color: var(--red); }
+/* 状态徽章：文字色走主题变量，底色用 color-mix 派生，七套主题自动适配 */
+.stat-page .sv-pill {
+  display: inline-block; padding: 2px 10px; border-radius: 999px;
+  font-size: 11.5px; line-height: 1.6; font-family: var(--sans);
+}
+.stat-page .sv-pill.ok { color: var(--green); background: color-mix(in srgb, var(--green) 13%, transparent); }
+.stat-page .sv-pill.warn { color: var(--tok-n); background: color-mix(in srgb, var(--tok-n) 15%, transparent); }
+.stat-page .sv-pill.bad { color: var(--red); background: color-mix(in srgb, var(--red) 13%, transparent); }
+.stat-page .sv-note { color: var(--muted); font-size: 12.5px; line-height: 1.7; margin: 0; }
+/* 定时队列表格 */
+.stat-page .sv-table-wrap { border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
+.stat-page .sv-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.stat-page .sv-table th {
+  text-align: left; font-weight: 500; color: var(--muted); font-size: 12px;
+  padding: 11px 14px; border-bottom: 1px solid var(--line);
+}
+.stat-page .sv-table td {
+  padding: 11px 14px; border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  text-align: left; vertical-align: top;
+}
+.stat-page .sv-table tr:last-child td { border-bottom: 0; }
+.stat-page .sv-table th:last-child, .stat-page .sv-table td:last-child { text-align: right; }
+.stat-page .sv-table a { color: var(--fg); border-bottom: 1px solid var(--line); }
+.stat-page .sv-table a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.stat-page .sv-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.stat-page .sv-empty { color: var(--muted); font-size: 13px; padding: 18px 0; margin: 0; }
+@media (max-width: 560px) {
+  .stat-page .kv-row { flex-direction: column; gap: 5px; }
+  .stat-page .kv-v { text-align: left; }
+  .stat-page .admin-view-head { flex-direction: column; align-items: flex-start; }
+}
+
 .drop-hint {
   position: fixed; inset: 0; z-index: 200; display: none; place-items: center;
   background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(3px);
