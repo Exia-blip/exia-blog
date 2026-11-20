@@ -998,6 +998,16 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
 .stat-page .sv-table a:hover { color: var(--accent); border-bottom-color: var(--accent); }
 .stat-page .sv-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
 .stat-page .sv-empty { color: var(--muted); font-size: 13px; padding: 18px 0; margin: 0; }
+
+/* 后台字体精修：严格限定 editor / stat 两类后台页，读者侧零影响。
+   - tabular-nums：数字等宽，统计表与健康总览刷新时不跳字宽；
+   - lining-nums：统一齐线数字，避免旧式数字高低错落；
+   - optimizeLegibility：开启字距微调，小字号后台文档更干净。 */
+body.editor-page, body.stat-page {
+  font-variant-numeric: tabular-nums lining-nums;
+  text-rendering: optimizeLegibility;
+}
+
 @media (max-width: 560px) {
   .stat-page .kv-row { flex-direction: column; gap: 5px; }
   .stat-page .kv-v { text-align: left; }

@@ -179,4 +179,16 @@ const evilShell = renderAdminShell({ title: 'X', body: '', site: { theme: '</scr
 assert.ok(!evilShell.includes('</script><script>alert'), '主题默认值必须转义，不能闭合 script');
 ok('服务端三页接入主题防闪引导，与 editor 同源同构且安全序列化');
 
+// 8. 后台字体精修：等宽数字 + 渲染优化只在后台两页生效，读者侧 body 不得被污染。
+//    统计页标题从 serif 收到 sans，和 editor/健康/队列的后台字体语言统一。
+assert.match(css, /body\.editor-page,\s*body\.stat-page\s*\{[^}]*font-variant-numeric:\s*tabular-nums lining-nums/, '后台等宽数字规则缺失');
+assert.match(css, /body\.editor-page,\s*body\.stat-page\s*\{[^}]*text-rendering:\s*optimizeLegibility/, '后台文字渲染优化缺失');
+// 作用域边界：全局 body 规则（读者侧）不得直接挂等宽数字
+const globalBody = css.match(/(?:^|\})\s*body\s*\{[^}]*\}/m)?.[0] || '';
+assert.ok(!/font-variant-numeric/.test(globalBody), '读者侧全局 body 不得被后台字体规则污染');
+assert.ok(!/<body[^>]*class="[^"]*(editor-page|stat-page)/.test(readFileSync('public/post.html', 'utf8')), '读者侧文章页不得带后台 body class');
+assert.match(stats, /h1\{font-family:var\(--sans\)/, '统计页 h1 应统一到 sans');
+assert.match(stats, /h2\{font-family:var\(--sans\)/, '统计页章节标题应统一到 sans');
+ok('后台字体精修：等宽数字/渲染优化限定后台，统计页标题归一 sans，读者侧零影响');
+
 console.log(`\nadmin nav: ${pass} passed`);

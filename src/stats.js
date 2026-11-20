@@ -337,7 +337,7 @@ ${themeBoot(site)}
 <link rel="stylesheet" href="/style.css">
 <style>
 .wrap-s{max-width:900px;margin:0 auto;padding:34px 22px 70px}
-h1{font-family:var(--serif);font-size:24px;margin:0 0 4px}
+h1{font-family:var(--sans);font-size:24px;margin:0 0 4px}
 .sub{color:var(--muted);font-size:13px;margin:0 0 26px}
 .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:26px}
 .kpi{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--card)}
@@ -352,7 +352,7 @@ h1{font-family:var(--serif);font-size:24px;margin:0 0 4px}
 .bar:hover .bar-f{background:var(--accent)}
 .bar-d{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:5px;white-space:nowrap}
 section{margin:30px 0}
-h2{font-family:var(--serif);font-size:16px;margin:0 0 10px;color:var(--fg)}
+h2{font-family:var(--sans);font-size:16px;margin:0 0 10px;color:var(--fg)}
 h3{font-size:13px;font-weight:500;color:var(--muted);margin:18px 0 8px}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th{text-align:left;font-weight:500;color:var(--muted);font-size:12px;padding:0 8px 6px 0;border-bottom:1px solid var(--line)}
