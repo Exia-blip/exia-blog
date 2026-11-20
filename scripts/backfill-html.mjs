@@ -77,7 +77,9 @@ if (CHECK) {
     ...(LOCAL ? ['--local'] : ['--remote']),
     '--json',
     '--command',
-    "SELECT COUNT(*) AS total, SUM(CASE WHEN html_content IS NULL OR html_content='' THEN 1 ELSE 0 END) AS missing FROM posts",
+    /* 空正文草稿（content=''）回填后仍是空串，永远补不齐 —— 不该算欠账，
+       否则 check 会因为一篇空草稿永久返回 1，CI/验收每轮都误报。 */
+    "SELECT COUNT(*) AS total, SUM(CASE WHEN (html_content IS NULL OR html_content='') AND content<>'' THEN 1 ELSE 0 END) AS missing FROM posts",
   ])[0].results[0];
   const missing = r.missing ?? 0;
   console.log(`共 ${r.total} 篇，html_content 空 ${missing} 篇`);
@@ -97,7 +99,8 @@ const rows = d1Json([
   "SELECT id, slug, content, html_content, cover_body FROM posts ORDER BY id",
 ])[0].results;
 
-const todo = ALL ? rows : rows.filter((r) => !r.html_content);
+/* 同上：空正文草稿跳过，省得每次都渲染一篇 0 字文章再写一个空串回去。 */
+const todo = ALL ? rows : rows.filter((r) => !r.html_content && r.content);
 console.log(`共 ${rows.length} 篇，待处理 ${todo.length} 篇${ALL ? '（--all 全量重算）' : '（其余已有 html_content）'}`);
 
 if (!todo.length) {

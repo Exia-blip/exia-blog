@@ -55,6 +55,22 @@
 
 **已验**：九篇直链均 404，首页/归档/分类/系列/RSS/sitemap 均搜不到 slug。
 
+### 排队中（03-10 起，待写）
+
+两篇来自 11-20 收尾的第二档交互优化，都是 tools：代码能直接拖走跑，素材是本机实测，不是凑坑位。按「4 周 3 篇」接在 03-03 `csp-nonce-cache` 之后，03-10 / 03-17，03-24 收尾当月第三篇，03-31 空档。slug 是工作名，未入库。
+
+| 日期 | slug（工作名） | 标题 | 栏目 | 目标查询词 | 状态 |
+|---|---|---|---|---|---|
+| 03-10 | `lightbox-no-deps` | 无第三方库的图片灯箱：CSP nonce、SSR 不动、R2 原链路四条约束怎么同时守住 | **小工具** | `原生 js 图片灯箱` / `csp lightbox` | 待写 |
+| 03-17 | `theme-transition-class` | 主题切换只闪一下：临时 class + transitionend 兜底，为什么常驻 transition 会闪首屏 | **小工具** | `主题切换 平滑过渡` / `transitionend 不触发` | 待写 |
+
+两篇的「别处没有的东西」：
+
+- **Lightbox**：14 项 Puppeteer 交互实测（桌面 / 移动端上滑 / ESC / 降噪模式），线上核验 ETag/304 与 SSR 输出零变化、CSS/JS md5 与本地一致；以及否决 `data-light` 标记的取舍过程（改 md.js = 全量回填，与「SSR 零改动」红线冲突）。
+- **主题过渡**：常驻 `body { transition }` 闪首屏的成因；transitionend 在按需加载主题 CSS、前后同色时不触发的实测；400ms 定时兜底 + 连续切换撤旧监听的必要性；`prefers-reduced-motion` 硬开关。
+
+写作时把「无头 Chrome 默认 `prefers-reduced-motion: reduce`，导致过渡测试误判」也写进去——这是「现象像 A、根因在 B」的形态，和 11-13 那篇同类，搜索价值高。
+
 ### 这批稿子的数据来源
 
 - **11-25 三层缓存**：对 `exia.de5.net` 实测响应头（`CF-Cache-Status`、`Age`、`cache-control`），五个路径各打三次。
