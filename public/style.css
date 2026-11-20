@@ -1283,11 +1283,11 @@ button.lnk:hover { border-bottom-color: var(--accent); }
 /* 过渡只在 theme.js apply() 改 data-theme 的那一瞬挂上（body.theme-anim），
    完事就摘掉。常驻 transition 会让首屏、按需加载主题样式时也跟着渐变，像闪屏。
    只碰 color / background-color 两种颜色属性 —— 不动布局，就没有抖动和 CLS。 */
-body.theme-anim, body.theme-anim * {
+html.theme-transition, html.theme-transition * {
   transition: color .28s ease, background-color .28s ease;
 }
 @media (prefers-reduced-motion: reduce) {
-  body.theme-anim, body.theme-anim * { transition: none !important; }
+  html.theme-transition, html.theme-transition * { transition: none !important; }
 }
 
 .theme-btn {
@@ -2418,17 +2418,15 @@ mark {
 .lb-stage {
   max-width: 94vw; max-height: 88vh;
   display: grid; place-items: center;
-  overflow: auto;
-  /* 图片原生手势：双指缩放 + 拖动，不拦截 */
-  touch-action: pan-x pan-y pinch-zoom;
-  -webkit-overflow-scrolling: touch;
+  /* 新取舍：只做单图预览，不做双指缩放/拖动。
+     none 让上滑关闭的 touch 监听拿到完整手势，不被引擎当页面滚动吃掉。 */
+  touch-action: none;
 }
 .lb-img {
   display: block; max-width: 94vw; max-height: 88vh;
   width: auto; height: auto; margin: 0;
   cursor: zoom-out;
-  /* 图片未被物理放大时也能被浏览器 pinch-zoom */
-  touch-action: pinch-zoom;
+  touch-action: none;
 }
 .lb-close {
   position: absolute; top: 16px; right: 18px;

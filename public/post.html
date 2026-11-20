@@ -132,6 +132,20 @@ function ensureLb() {
     if (e.target === wrap || e.target === stage || e.target.closest('.lb-close')) closeLb();
   });
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && !wrap.hidden) closeLb(); });
+  /* 移动端上滑关闭：记 touch 起点，抬手时纵向位移超过阈值就关。
+     只认单指 —— 多指手势已按新取舍砍掉，不在这里复活。
+     passive 监听 + 不 preventDefault，滚动行为不拦截。 */
+  let ty0 = null;
+  stage.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { ty0 = null; return; }
+    ty0 = e.touches[0].clientY;
+  }, { passive: true });
+  stage.addEventListener('touchend', (e) => {
+    if (ty0 == null) return;
+    const dy = (e.changedTouches[0]?.clientY ?? ty0) - ty0;
+    ty0 = null;
+    if (Math.abs(dy) > 64) closeLb();
+  }, { passive: true });
   lb = { wrap, stage, im, close };
   return lb;
 }

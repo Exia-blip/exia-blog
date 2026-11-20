@@ -22,16 +22,31 @@ const K_MODE = 'x_mode';
 
 const ROOT = document.documentElement;
 
-/* 切换瞬间的颜色过渡：只给 body 挂一个临时 class，CSS 那边只过渡 color/bg。
-   常驻 transition 会在首屏和按需加载主题样式时误触发（像闪一下），
-   所以用 class 把过渡严格框在「这次 apply」内 —— 300ms 比 CSS 的 .28s 略长，
-   留一点尾巴确保最后一帧跑完。reduced-motion 交给 CSS media 关掉，这里不判断。 */
+/* 切换瞬间的颜色过渡：给 html 临时挂 theme-transition，CSS 只过渡 color/bg ——
+   不碰 width/height/margin 这类布局属性，杜绝 CLS。常态无 transition，
+   首屏、滚动、hover 都不会带动画。reduced-motion 是第一道硬开关，直接跳过。 */
 let animTimer = 0;
+let animOff = null;
 function flashTransition() {
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  document.body.classList.add('theme-anim');
+  // 连续切换：先把上一次的监听和定时器撤掉，避免旧回调提前摘掉这次的 class
+  if (animOff) { ROOT.removeEventListener('transitionend', animOff); animOff = null; }
   clearTimeout(animTimer);
-  animTimer = setTimeout(() => document.body.classList.remove('theme-anim'), 300);
+  ROOT.classList.add('theme-transition');
+  const done = () => {
+    ROOT.classList.remove('theme-transition');
+    if (animOff) { ROOT.removeEventListener('transitionend', animOff); animOff = null; }
+    clearTimeout(animTimer);
+  };
+  // 子元素的过渡会冒泡到 ROOT，只认 ROOT 自身触发的那一次；
+  // 只认颜色属性，border/transform 之类不算「这次颜色切换结束」。
+  animOff = (e) => {
+    if (e.target === ROOT && (e.propertyName === 'color' || e.propertyName === 'background-color')) done();
+  };
+  ROOT.addEventListener('transitionend', animOff);
+  /* transitionend 不保证触发：主题 CSS 还在异步加载、或前后颜色值相同（比如只换
+     风格不换明暗）时就没有过渡事件。留一个定时兜底，比 .28s 略长，确保 class 一定被摘掉。 */
+  animTimer = setTimeout(done, 400);
 }
 const DEFAULT = () => (window.__THEME_DEFAULT__ && window.__THEME_DEFAULT__.theme) || 'paper';
 const DEFAULT_MODE = () => (window.__THEME_DEFAULT__ && window.__THEME_DEFAULT__.mode) || 'auto';

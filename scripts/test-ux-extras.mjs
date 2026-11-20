@@ -27,16 +27,26 @@ assert.match(lbFn, /currentSrc \|\| img\.src/, '放大应复用已选中的 R2 �
 assert.ok(!/innerHTML\s*=/.test(post.match(/function ensureLb\(\)[\s\S]*?\n\}/)?.[0] || ''), '灯箱不该用 innerHTML 拼结构');
 assert.ok(/createElement/.test(post.match(/function ensureLb\(\)[\s\S]*?\n\}/)?.[0] || ''), '灯箱应纯 DOM 创建');
 assert.match(css, /\.lb\s*\{[^}]*position:\s*fixed[^}]*z-index:\s*10000/, '缺灯箱遮罩样式');
-assert.match(css, /touch-action:\s*pinch-zoom/, '灯箱未放行双指缩放');
+assert.match(css, /\.lb-stage\s*\{[^}]*touch-action:\s*none/, '灯箱应关掉手势（新取舍：无双指缩放）');
+assert.ok(!/pinch-zoom/.test(css), '不应再放行双指缩放（新取舍已砍）');
 assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*\.lb/, '灯箱未尊重 reduced-motion');
-ok('灯箱 DOM 创建、只认 .md-img、双指缩放 + reduced-motion 就位');
+// 移动端上滑关闭：touchstart 记起点 + touchend 判位移
+assert.match(post, /stage\.addEventListener\('touchstart'/, '缺 touchstart 起点记录');
+assert.match(post, /stage\.addEventListener\('touchend'/, '缺 touchend 位移判断');
+assert.match(post, /Math\.abs\(dy\)\s*>\s*64/, '上滑关闭阈值缺失');
+ok('灯箱 DOM 创建、只认 .md-img、上滑关闭 + reduced-motion，无双指缩放');
 
 // ---------- ⑧ 主题过渡 ----------
 assert.ok(theme.includes('flashTransition()'), 'apply 未触发过渡');
-assert.ok(/prefers-reduced-motion/.test(theme.match(/function flashTransition\(\)[\s\S]*?\n\}/)?.[0] || ''), 'flashTransition 应尊重 reduced-motion');
-assert.match(css, /body\.theme-anim\s*,?[\s\S]{0,80}transition:\s*color[^;]*background-color/, '过渡只应碰 color/background-color');
+const flash = theme.match(/function flashTransition\(\)[\s\S]*?\n\}/)?.[0] || '';
+assert.ok(/prefers-reduced-motion/.test(flash), 'flashTransition 第一道硬开关应是 reduced-motion');
+assert.ok(flash.includes("ROOT.classList.add('theme-transition')"), '过渡 class 应挂在 html 根元素');
+assert.match(flash, /transitionend/, '应监听 transitionend 自动摘 class');
+assert.match(flash, /setTimeout\(done/, 'transitionend 不保证触发，需定时兜底');
+assert.match(flash, /e\.target === ROOT/, '只认根元素自身的过渡，别被子元素冒泡误触发');
+assert.match(css, /html\.theme-transition\s*,?[\s\S]{0,90}transition:\s*color[^;]*background-color/, '过渡只应碰 color/background-color');
 assert.ok(!/\bbody\s*\{\s*transition:/.test(css), '不应再留常驻 body transition（首屏会闪）');
-ok('主题过渡走临时 class，只过渡颜色，无常驻 transition');
+ok('主题过渡走 html 临时 class + transitionend/定时兜底，只过渡颜色');
 
 // ---------- ⑨ 搜索快捷键 + 清除 ----------
 assert.ok(index.includes('id="q-clear"'), '缺清除按钮');
