@@ -5,6 +5,7 @@ import { requireAdmin } from './auth.js';
 import { getSite } from './settings.js';
 import { renderAdminShell, esc } from './admin-ui.js';
 import { postCacheStats } from './postcache.js';
+import { webhookPlatform } from './webhook.js';
 
 /* 这两页的样式已收进 public/style.css 的 .stat-page 命名空间，
    和 editor.html 的 .view-card 共用一套卡片/分组/细线列表口径。
@@ -23,6 +24,23 @@ function toCN(s) {
    cls 传状态名（ok/warn/bad）时只给值上色，不改行结构。 */
 const row = (label, value, cls = '') =>
   `<div class="kv-row"><span class="kv-k">${label}</span><span class="kv-v ${cls}">${value}</span></div>`;
+
+/* 评论通知是 Worker Secret（wrangler secret put 写入），运行时只读、网页改不了——
+   所以这里不给编辑框，而是把「现在生效的是哪家 + 怎么改」直接写出来。
+   只显示平台名，绝不回显完整地址（里面带机器人 key）。 */
+const HOOK_CN = { wecom: '企业微信', feishu: '飞书', discord: 'Discord', slack: 'Slack', generic: '通用' };
+export function webhookCheck(hook = '') {
+  const on = !!String(hook).trim();
+  const platform = HOOK_CN[webhookPlatform(hook)] || '通用';
+  return {
+    label: '评论通知',
+    value: on ? `已配置 · ${platform}` : '未配置',
+    state: 'ok',
+    note: on
+      ? 'Worker Secret，网页不可改；换地址：npm run setup:webhook -- "新地址"（会先发测试消息验通再写入）'
+      : '评论照收但不推送；要开通知：npm run setup:webhook -- "机器人地址"',
+  };
+}
 
 /* ---------- 健康检查 ---------- */
 
@@ -123,12 +141,7 @@ export async function healthPage(env, request) {
     },
     { label: '会话密钥', value: ev('SESSION_SECRET') ? '已配置' : '缺失', state: ev('SESSION_SECRET') ? 'ok' : 'bad' },
     turnstile,
-    {
-      label: '评论通知',
-      value: ev('WEBHOOK_URL') ? '已配置' : '未配置',
-      state: 'ok',
-      note: ev('WEBHOOK_URL') ? '新评论会推送' : '新评论不通知，评论本身照收',
-    },
+    webhookCheck(env.WEBHOOK_URL),
     {
       label: '外部统计',
       value: ev('UMAMI_SCRIPT') && ev('UMAMI_SITE_ID') ? 'umami' : '自建 /api/pv',

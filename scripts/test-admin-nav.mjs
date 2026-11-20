@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { ADMIN_NAV, renderAdminNav, renderAdminShell, THEME_BOOT_JS } from '../src/admin-ui.js';
-import { renderHealth, renderQueue } from '../src/admin-pages.js';
+import { renderHealth, renderQueue, webhookCheck } from '../src/admin-pages.js';
 
 const editor = readFileSync('public/editor.html', 'utf8');
 const stats = readFileSync('src/stats.js', 'utf8');
@@ -116,6 +116,16 @@ assert.ok(!zeroFriend.includes('探测失败</span><span class="kv-v bad"'), '�
 assert.ok(!zeroFriend.includes('有响应但状态异常</span><span class="kv-v warn"'), '状态异常为 0 不应标黄');
 assert.ok(zeroFriend.includes('探测失败</span><span class="kv-v ">'), '零值应保持无色');
 ok('健康总览分级/计数正确，友链零值不再误标色');
+
+// 5c. 评论通知是 Secret：网页不可改，但必须给出平台 + 修改命令，且不回显地址
+const hookOn = webhookCheck('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=SECRET123');
+assert.ok(hookOn.value.includes('企业微信'), '应识别平台');
+assert.ok(hookOn.note.includes('npm run setup:webhook'), '应给出修改命令');
+assert.ok(!hookOn.note.includes('SECRET123') && !hookOn.value.includes('SECRET123'), '绝不回显 webhook 地址');
+assert.ok(hookOn.note.includes('网页不可改'), '应说明 Secret 不能在网页改');
+const hookOff = webhookCheck('');
+assert.ok(hookOff.value === '未配置' && hookOff.note.includes('setup:webhook'), '未配置也要给开启命令');
+ok('评论通知显示平台/修改命令，不回显 Secret');
 
 const qp = renderQueue({ site: { name: 'X' }, rows: [{ id: 1, title: '<b>hi</b>', published_at: '2027-03-03 01:00:00' }] });
 assert.ok(qp.includes('定时队列'));
