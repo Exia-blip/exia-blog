@@ -20,7 +20,7 @@
 </main>
 
 <script type="module">
-import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons, bindReadingProgress, bindCodeScroll, refreshRelTimes, enhanceComments, setReadBarPref, enhanceCodeBlocks } from '/app.js';
+import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons, bindReadingProgress, bindCodeScroll, refreshRelTimes, enhanceComments, setReadBarPref, enhanceCodeBlocks, lazyIframes } from '/app.js';
 import { bindCopyNotice } from '/copy-notice.js';
 import { avatarTone, safeWebsite } from '/avatar.js';
 
@@ -201,6 +201,7 @@ function hydrate() {
   // 放在 hydrate 里跑一次就够了 —— SSR 的评论本来就在页面上，不必等接口
   bindCodeScroll(document);
   enhanceCodeBlocks(document);
+  lazyIframes(document);
   refreshRelTimes();
   enhanceComments();
 }

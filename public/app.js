@@ -364,6 +364,16 @@ export function enhanceCodeBlocks(root = document) {
   });
 }
 
+/* iframe 懒加载兜底：消毒白名单目前不放行 iframe（clean.js 直接剥），
+   站内正文还没有真实嵌入。这里只给将来兜底——哪天放行 B 站/YouTube 视频，
+   hydrate 时补 loading=lazy，滚动到附近才拉起播放器，首屏不白拉一份流量。
+   只补缺省值，不动已有的 loading 属性；CSS 已限宽的嵌入也不会被这行影响布局。 */
+export function lazyIframes(root = document) {
+  root.querySelectorAll?.('iframe:not([loading])').forEach((f) => {
+    f.setAttribute('loading', 'lazy');
+  });
+}
+
 /* 代码块横向滚动标记。
    渐隐阴影不能常驻：短代码块根本没有可滚动的量，常驻阴影会让它看起来"右边还有内容"。
    所以按 scrollWidth 判一次，滚到右端再把阴影撤掉。scroll 事件不冒泡，只能捕获。 */

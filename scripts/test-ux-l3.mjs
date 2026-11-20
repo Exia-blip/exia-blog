@@ -8,6 +8,7 @@ const post = readFileSync('public/post.html', 'utf8');
 const index = readFileSync('public/index.html', 'utf8');
 const editor = readFileSync('public/editor.html', 'utf8');
 const server = readFileSync('src/index.js', 'utf8');
+const clean = readFileSync('src/clean.js', 'utf8');
 const app = readFileSync('public/app.js', 'utf8');
 const css = readFileSync('public/style.css', 'utf8');
 
@@ -68,5 +69,16 @@ assert.equal(tagClass('同一标签', 5).split(' ')[1], tagClass('同一标签',
 for (let i = 0; i < 10; i++) assert.ok(css.includes(`.tag.tw-t${i} {`), `缺 tw-t${i} 配色`);
 assert.match(css, /\.tag\[class\*="tw-t"\]/, '配色选择器应限定 tw-t 标签');
 ok('标签云配色复用头像哈希 + 三档权重，SSR 与前端同源');
+
+// ---------- iframe 懒加载兜底：前端补钩子，不碰 SSR ----------
+// 消毒白名单不放行 iframe（clean.js 剥掉），站内正文尚无真实嵌入；
+// 这条守的是"将来放行视频嵌入时 hydrate 自动补 loading=lazy"的接线不被误删。
+const lazyFn = app.match(/export function lazyIframes\([\s\S]*?\n\}/)?.[0] || '';
+assert.match(lazyFn, /querySelectorAll\?\.\('iframe:not\(\[loading\]\)'\)/, '懒加载只补缺省值，不覆盖已有 loading');
+assert.match(lazyFn, /setAttribute\('loading',\s*'lazy'\)/, '懒加载应设置 loading=lazy');
+assert.ok(post.includes('lazyIframes(document)'), '文章页未接 iframe 懒加载');
+// SSR 侧必须保持零 iframe 输出：clean.js 黑名单仍在
+assert.match(clean, /BAD_(BLOCK|SELF)[^;\n]*iframe/, 'clean.js 必须继续剥 iframe');
+ok('iframe 懒加载兜底接线，SSR 保持零 iframe 输出');
 
 console.log(`\nux L3: ${pass} passed`);
