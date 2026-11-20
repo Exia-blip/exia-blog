@@ -5,7 +5,7 @@ import { checkFriends } from './cron.js';
 import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
 import { coverOf, autoThumb, isAutoCover, isCardCover, thumbOf } from './cover.js';
-import { avatarSrc, avatarTone, safeWebsite } from '../public/avatar.js';
+import { avatarSrc, avatarTone, safeWebsite, tagClass } from '../public/avatar.js';
 import { rankRelated } from './related.js';
 import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders, obfuscateEmail } from './security.js';
@@ -1657,7 +1657,7 @@ function renderListBars(body, counts, tags, url) {
     const rows = (tags || [])
       .map(
         (t) =>
-          `<a class="tag" href="/tag/${encodeURIComponent(t.name)}"${hl(curTag === t.name)}>#${esc(t.name)} ${
+          `<a class="${tagClass(t.name, t.count)}" href="/tag/${encodeURIComponent(t.name)}"${hl(curTag === t.name)}>#${esc(t.name)} ${
             t.count
           }</a>`
       )

@@ -20,7 +20,7 @@
 </main>
 
 <script type="module">
-import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons, bindReadingProgress, bindCodeScroll, refreshRelTimes, enhanceComments } from '/app.js';
+import { api, fmtDate, fmtRelative, esc, mountHeader, toast, me, site, bindCopyButtons, bindReadingProgress, bindCodeScroll, refreshRelTimes, enhanceComments, setReadBarPref, enhanceCodeBlocks } from '/app.js';
 import { bindCopyNotice } from '/copy-notice.js';
 import { avatarTone, safeWebsite } from '/avatar.js';
 
@@ -68,6 +68,40 @@ function bindCopyLink() {
       toast('复制失败');
     }
   });
+}
+
+/* 阅读进度开关：顶部 → 底部 → 关闭 → 顶部 三态循环。设置交给 app.js 存本机，
+   这里只管按钮长相和文案。放在 meta 行、复制按钮旁边，不动 SSR 模板。 */
+function bindReadbarToggle() {
+  const meta = document.querySelector('.post-head .meta');
+  if (!meta || meta.querySelector('.readbar-toggle')) return;
+  const svg =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
+    '<path d="M4 7h16M4 12h11M4 17h6"/></svg>';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'readbar-toggle';
+  btn.innerHTML = svg;
+  const LABEL = { top: '进度条在顶部', bottom: '进度条在底部', off: '进度已关闭' };
+  let pref = document.documentElement.dataset.readbar || 'top';
+  const paint = () => {
+    btn.title = LABEL[pref] + '（点击切换）';
+    btn.setAttribute('aria-label', btn.title);
+    btn.classList.toggle('off', pref === 'off');
+    btn.classList.toggle('bottom', pref === 'bottom');
+  };
+  paint();
+  btn.addEventListener('click', () => {
+    const order = ['top', 'bottom', 'off'];
+    pref = setReadBarPref(order[(order.indexOf(pref) + 1) % order.length]);
+    paint();
+    toast(LABEL[pref]);
+  });
+  const edit = meta.querySelector('.post-edit');
+  const copy = meta.querySelector('.copy-link');
+  if (edit) meta.insertBefore(btn, edit);
+  else if (copy) copy.after(btn);
+  else meta.appendChild(btn);
 }
 
 /* 正文图片灯箱：只认独立成图的 .md-img（行内图不触发），放大层纯客户端创建，
@@ -143,6 +177,7 @@ function hydrate() {
     slot.innerHTML = `<a class="btn sm" href="/editor?id=${p.id}">编辑</a>`;
   }
   bindCopyLink();
+  bindReadbarToggle();
   bindLightbox();
   bindReply();
   bindForm();
@@ -151,6 +186,7 @@ function hydrate() {
   // 代码块横滚提示、评论时间自愈、长评论折叠：三件事都只依赖已有 DOM，
   // 放在 hydrate 里跑一次就够了 —— SSR 的评论本来就在页面上，不必等接口
   bindCodeScroll(document);
+  enhanceCodeBlocks(document);
   refreshRelTimes();
   enhanceComments();
 }

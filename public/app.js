@@ -290,6 +290,80 @@ export function bindCopyButtons(root = document) {
   });
 }
 
+/* 代码块增强：折叠 / 语言提示 / 点行号复制该行。
+   全部前端补钩子，不碰 md.js 的 SSR 输出 —— html_content 是落库的，
+   改一次渲染就得全量回填，为一个交互不值得。长块（data-lines>=20）才给折叠。 */
+const LANG_HINT = {
+  js: 'JavaScript', javascript: 'JavaScript', ts: 'TypeScript', typescript: 'TypeScript',
+  jsx: 'JSX', tsx: 'TSX', py: 'Python', python: 'Python', sh: 'Shell', bash: 'Bash',
+  shell: 'Shell', html: 'HTML', css: 'CSS', json: 'JSON', yaml: 'YAML', yml: 'YAML',
+  sql: 'SQL', go: 'Go', rust: 'Rust', java: 'Java', c: 'C', cpp: 'C++', php: 'PHP',
+  md: 'Markdown', markdown: 'Markdown', xml: 'XML', diff: 'Diff', dockerfile: 'Dockerfile',
+};
+export function enhanceCodeBlocks(root = document) {
+  root.querySelectorAll('.code-wrap').forEach((wrap) => {
+    // 语言徽章 hover 说人话：js → JavaScript，未知语言原样显示
+    const lang = wrap.dataset.lang || '';
+    const badge = wrap.querySelector('.code-lang');
+    if (badge && lang) badge.title = `代码语言：${LANG_HINT[lang.toLowerCase()] || lang}`;
+
+    const pre = wrap.querySelector('pre.code-block');
+    const code = wrap && pre && pre.querySelector('code:not(.gutter)');
+    if (!pre || !code) return;
+
+    // 长块加折叠按钮，默认展开。按钮进已有的 .code-head，和复制并排。
+    if ((+wrap.dataset.lines || 0) >= 20 && !wrap.querySelector('.fold-btn')) {
+      const head = wrap.querySelector('.code-head');
+      if (head) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'fold-btn';
+        btn.textContent = '收起';
+        btn.setAttribute('aria-expanded', 'true');
+        btn.addEventListener('click', () => {
+          const folded = wrap.classList.toggle('folded');
+          btn.textContent = folded ? '展开' : '收起';
+          btn.setAttribute('aria-expanded', String(!folded));
+        });
+        const copy = head.querySelector('.copy-btn');
+        if (copy) head.insertBefore(btn, copy);
+        else head.appendChild(btn);
+      }
+    }
+
+    // 点行号复制那一行：gutter 是纯文本 "1\n2\n..."，用点击处相对顶部的
+    // 行高比例定位是第几行，再从 code 的 innerText 取对应行。gutter 本身
+    // user-select:none，选中复制本来就不带行号 —— 这里补的是「点一下」的便利。
+    const gutter = pre.querySelector('.gutter');
+    if (gutter && !gutter._lineBound) {
+      gutter._lineBound = true;
+      gutter.title = '点行号复制该行';
+      gutter.addEventListener('click', (e) => {
+        const lines = code.innerText.split('\n');
+        if (!lines.length) return;
+        // 用 Range 精确定位被点的字符，取其文本里第几个 \n
+        let idx = 0;
+        const r = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+        if (r && gutter.contains(r.startContainer)) {
+          const before = gutter.textContent.slice(0, r.startOffset);
+          idx = (before.match(/\n/g) || []).length;
+        } else {
+          // 兜底：按点击 Y 在 gutter 内的比例估算
+          const box = gutter.getBoundingClientRect();
+          const lh = parseFloat(getComputedStyle(gutter).lineHeight) || 20;
+          idx = Math.max(0, Math.min(lines.length - 1, Math.floor((e.clientY - box.top) / lh)));
+        }
+        const text = lines[idx];
+        if (text == null) return;
+        navigator.clipboard.writeText(text).then(
+          () => toast(`已复制第 ${idx + 1} 行`),
+          () => toast('复制失败')
+        );
+      });
+    }
+  });
+}
+
 /* 代码块横向滚动标记。
    渐隐阴影不能常驻：短代码块根本没有可滚动的量，常驻阴影会让它看起来"右边还有内容"。
    所以按 scrollWidth 判一次，滚到右端再把阴影撤掉。scroll 事件不冒泡，只能捕获。 */
@@ -324,6 +398,34 @@ export function bindCodeScroll(root = document) {
   return marks;
 }
 
+/* 阅读进度偏好：位置 top/bottom + 开关。存本机，服务端配置不掺和。
+   读取时做白名单，localStorage 被塞了脏值也不会给 body 挂上是非 class。 */
+const READ_KEY = 'x_readbar';
+export function readBarPref() {
+  let v = '';
+  try { v = localStorage.getItem(READ_KEY); } catch {}
+  return v === 'bottom' || v === 'off' ? v : 'top';
+}
+export function setReadBarPref(v) {
+  const next = v === 'bottom' || v === 'off' ? v : 'top';
+  try { localStorage.setItem(READ_KEY, next); } catch {}
+  document.documentElement.dataset.readbar = next;
+  applyReadBarPos();
+  return next;
+}
+/* 把偏好落成 DOM 状态：bar 挪到底部用 class（CSS 只改 top/bottom），
+   关掉时直接隐藏整条，百分比角标也一起收 —— 不该关了条线还留个数字。 */
+export function applyReadBarPos() {
+  const pref = readBarPref();
+  document.documentElement.dataset.readbar = pref;
+  const bar = document.querySelector('.read-bar');
+  const pct = document.querySelector('.read-pct');
+  if (bar) bar.classList.toggle('bottom', pref === 'bottom');
+  if (bar) bar.classList.toggle('off', pref === 'off');
+  if (pct) pct.classList.toggle('off', pref === 'off');
+  return pref;
+}
+
 /* 阅读进度：顶部一条细线 + 右侧一颗百分比。两者共用同一份几何计算，
    同一次 rAF 里更新 —— 分别挂 scroll 监听会让一条 3000px 的长文每帧算两遍 rect。 */
 export function bindReadingProgress(root = document.querySelector('.post-body')) {
@@ -346,9 +448,12 @@ export function bindReadingProgress(root = document.querySelector('.post-body'))
     document.body.appendChild(pct);
   }
   const num = pct.querySelector('b');
+  applyReadBarPos();
   let raf = 0;
   const sync = () => {
     raf = 0;
+    // 关掉时几何计算省掉 —— 元素已经 display:none，算了也看不见
+    if (readBarPref() === 'off') return;
     const r = root.getBoundingClientRect();
     // 正文高度减去一屏，才是真正需要滚动的距离；不足一屏就不显示这条线
     const span = r.height - window.innerHeight;

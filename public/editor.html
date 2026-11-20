@@ -276,7 +276,7 @@
 <div class="drop-hint" id="drop-hint">松开上传图片</div>
 
 <script type="module">
-import { api, esc, toast, fmtDate, me, bindCopyButtons } from '/app.js';
+import { api, esc, toast, fmtDate, me, bindCopyButtons, enhanceCodeBlocks } from '/app.js';
 import { renderMarkdown, extractTags, extractCover, cleanAltName } from '/md.js';
 import { THEMES, initSwitcher } from '/theme.js';
 
@@ -424,6 +424,7 @@ let previewTimer = null;
 function updatePreview() {
   const md = inputEl.value;
   previewEl.innerHTML = renderMarkdown(md);
+  enhanceCodeBlocks(previewEl);
   renderTagPreview(md);
   updateChecks();
   document.querySelectorAll('.copy-btn').forEach((b) => (b.onclick = null));

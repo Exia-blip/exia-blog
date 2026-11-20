@@ -38,12 +38,23 @@ export function safeWebsite(raw) {
 /* 没头像的访客用昵称首字当占位。按昵称哈希取色，同一个人换设备/刷新都同色。
    返回 class 而不是内联 style：颜色口径集中在 style.css，深浅主题各改一处即可。 */
 const TONES = 10;
-export function avatarTone(name = '') {
-  const s = String(name || '');
+function hashTone(s) {
+  const str = String(s || '');
   let h = 2166136261; // FNV-1a
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
-  return `ava-t${(h >>> 0) % TONES}`;
+  return (h >>> 0) % TONES;
+}
+export function avatarTone(name = '') {
+  return `ava-t${hashTone(name)}`;
+}
+
+/* 标签云配色：色相复用同一个哈希（换设备/刷新同色，和评论头像风格统一），
+   权重按文章数分三档。返回 class 串由 SSR 与前端两处共用，避免各写一套漂移。 */
+export function tagClass(name = '', count = 0) {
+  const n = Number(count) || 0;
+  const w = n >= 6 ? 3 : n >= 3 ? 2 : 1;
+  return `tag tw-t${hashTone(name)} tw-w${w}`;
 }

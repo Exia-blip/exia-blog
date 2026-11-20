@@ -331,6 +331,27 @@ main:focus { outline: none; }
 .cat-chip { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 a.cat-chip:hover { filter: brightness(0.96); }
 
+/* 标签云配色：色相复用评论头像那十色（同一哈希函数），文章越多字号越重。
+   只作用在带 tw-t 的标签上（tagbar 云），不影响文章卡片里的普通标签。
+   选中态是行内 style，优先级高于这里，仍是强调色。 */
+.tag.tw-t0 { --tw: #6b8fb5; }
+.tag.tw-t1 { --tw: #7f9e86; }
+.tag.tw-t2 { --tw: #b58a6b; }
+.tag.tw-t3 { --tw: #9b7fb5; }
+.tag.tw-t4 { --tw: #b57f92; }
+.tag.tw-t5 { --tw: #6fa39b; }
+.tag.tw-t6 { --tw: #b3a06b; }
+.tag.tw-t7 { --tw: #8794b5; }
+.tag.tw-t8 { --tw: #a08a7f; }
+.tag.tw-t9 { --tw: #7fa0b5; }
+.tag[class*="tw-t"] {
+  color: var(--tw);
+  background: color-mix(in srgb, var(--tw) 12%, var(--card));
+}
+.tag[class*="tw-t"]:hover { background: color-mix(in srgb, var(--tw) 22%, var(--card)); color: var(--tw); }
+.tag.tw-w2 { font-size: 12.5px; font-weight: 500; }
+.tag.tw-w3 { font-size: 13px; font-weight: 600; }
+
 /* 栏目页 */
 .tax-section { margin-bottom: 40px; }
 .tax-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
@@ -414,6 +435,18 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .copy-link svg { width: 14px; height: 14px; }
 .copy-link:hover { color: var(--fg); border-color: var(--muted); background: var(--bg-soft); }
 .copy-link.done { color: var(--accent); border-color: var(--accent); }
+/* 阅读进度开关：和复制按钮一套皮肤，bottom/off 用图标朝向和颜色区分状态 */
+.readbar-toggle {
+  display: inline-grid; place-items: center;
+  width: 26px; height: 24px; padding: 0;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: none; color: var(--muted); cursor: pointer;
+  transition: color .16s, border-color .16s, background-color .16s;
+}
+.readbar-toggle svg { width: 14px; height: 14px; }
+.readbar-toggle:hover { color: var(--fg); border-color: var(--muted); background: var(--bg-soft); }
+.readbar-toggle.bottom svg { transform: rotate(180deg); }
+.readbar-toggle.off { color: var(--muted); opacity: .55; }
 
 /* AI 摘要导语 */
 .post-lead {
@@ -1744,6 +1777,9 @@ body.theme-anim, body.theme-anim * {
   opacity: 0;
   transition: opacity .2s;
 }
+/* 偏好：挪到底部 / 整个关掉。关用 display 而非 opacity —— sync() 每帧会重写 opacity */
+.read-bar.bottom { top: auto; bottom: 0; }
+.read-bar.off, .read-pct.off { display: none !important; }
 
 /* ============ 列表骨架屏 ============ */
 .sk {
@@ -2105,7 +2141,9 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   /* 打印出来点不了，链接地址得看得见 */
   .md a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 85%; color: #444; word-break: break-all; }
   .md .h-anchor { display: none; }
-  .md .code-head .copy-btn { display: none; }
+  .md .code-head .copy-btn, .md .code-head .fold-btn { display: none; }
+  /* 屏幕上折叠的长代码，打印时必须整段展开，否则纸面是截半截的 */
+  .md .code-wrap.folded pre.code-block { max-height: none; overflow: visible; -webkit-mask-image: none; mask-image: none; }
   .md pre.code-block {
     white-space: pre-wrap; word-break: break-word;
     border: 1px solid #d6d6d6; background: #fafafa; color: #000;
@@ -2123,6 +2161,20 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 
 .md .code-meta { display: inline-flex; align-items: center; gap: 8px; }
 .md .code-ln { font-size: 10.5px; color: var(--muted); opacity: .85; letter-spacing: 0; }
+/* 长代码折叠：默认展开，点「收起」限高并给底部渐隐提示还有内容。
+   渐隐用 ::after 覆盖层，不动 pre 的横向滚动（bindCodeScroll 依赖它）。 */
+.md .code-wrap.folded pre.code-block {
+  max-height: 168px; overflow-y: hidden;
+  -webkit-mask-image: linear-gradient(#000 72%, transparent);
+  mask-image: linear-gradient(#000 72%, transparent);
+}
+.md .fold-btn {
+  background: none; border: 0; color: var(--muted); cursor: pointer;
+  font-size: 11.5px; padding: 2px 6px; border-radius: 5px; text-transform: none; letter-spacing: 0;
+}
+.md .fold-btn:hover { background: var(--card); color: var(--fg); }
+.md .gutter[title] { cursor: pointer; }
+.md .gutter[title]:hover { opacity: 1; color: var(--accent); }
 .md pre.code-block.has-ln { padding-left: 12px; }
 /* 锚点跳转别被吸顶栏压住 */
 .md h2, .md h3, .md h4 { scroll-margin-top: 88px; }

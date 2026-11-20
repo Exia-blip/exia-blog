@@ -111,6 +111,7 @@
 <script type="module">
 import { api, fmtDate, esc, mountHeader, toast, site } from '/app.js';
 import { autoThumb } from '/cover.js';
+import { tagClass } from '/avatar.js';
 
 const listEl = document.getElementById('list');
 const tagbarEl = document.getElementById('tagbar');
@@ -308,7 +309,7 @@ async function loadTags() {
     tagbarEl.innerHTML =
       `<span class="bar-label">标签</span>` +
       `<a class="tag" href="/" style="${!currentTag ? 'background:var(--accent-soft);color:var(--accent)' : ''}">全部</a>` +
-      tags.map((t) => `<a class="tag" href="/tag/${encodeURIComponent(t.name)}"
+      tags.map((t) => `<a class="${tagClass(t.name, t.count)}" href="/tag/${encodeURIComponent(t.name)}"
         style="${currentTag === t.name ? 'background:var(--accent-soft);color:var(--accent)' : ''}">#${esc(t.name)} ${t.count}</a>`).join('');
   } catch {}
 }
