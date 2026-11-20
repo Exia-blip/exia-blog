@@ -311,8 +311,18 @@ main:focus { outline: none; }
 
 .toolbar { display: flex; gap: 10px; align-items: center; margin: 22px 0 18px; flex-wrap: wrap; }
 .toolbar .search { flex: 1; min-width: 180px; position: relative; }
-.toolbar .search input { padding-left: 34px; }
+.toolbar .search input { padding-left: 34px; padding-right: 34px; }
 .toolbar .search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+/* 清除按钮：仅输入非空时出现，贴在 input 右缘内侧，不挤压放大镜 */
+.search-clear {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%;
+  background: var(--bg-soft); color: var(--muted);
+  font-size: 11px; line-height: 20px; text-align: center; cursor: pointer;
+  transition: color .16s, background-color .16s;
+}
+.search-clear[hidden] { display: none; }
+.search-clear:hover { color: var(--fg); background: var(--line); }
 
 /* min-height 让分类/标签栏在接口回来前也占着位，避免内容整体往上一跳 */
 .tagbar { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 26px; align-items: center; min-height: 26px; }
@@ -394,6 +404,16 @@ a.cat-chip:hover { filter: brightness(0.96); }
   text-wrap: balance;
 }
 .post-head .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13.5px; color: var(--muted); }
+/* 复制本文链接：跟随 meta 行的轻量文字按钮，成功后染成强调色 */
+.copy-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: none; color: var(--muted); font: inherit; font-size: 12.5px;
+  cursor: pointer; transition: color .16s, border-color .16s, background-color .16s;
+}
+.copy-link svg { width: 14px; height: 14px; }
+.copy-link:hover { color: var(--fg); border-color: var(--muted); background: var(--bg-soft); }
+.copy-link.done { color: var(--accent); border-color: var(--accent); }
 
 /* AI 摘要导语 */
 .post-lead {
@@ -1227,7 +1247,15 @@ button.lnk:hover { border-bottom-color: var(--accent); }
 }
 
 /* ============ 风格切换器 ============ */
-body { transition: background-color .26s ease, color .26s ease; }
+/* 过渡只在 theme.js apply() 改 data-theme 的那一瞬挂上（body.theme-anim），
+   完事就摘掉。常驻 transition 会让首屏、按需加载主题样式时也跟着渐变，像闪屏。
+   只碰 color / background-color 两种颜色属性 —— 不动布局，就没有抖动和 CLS。 */
+body.theme-anim, body.theme-anim * {
+  transition: color .28s ease, background-color .28s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  body.theme-anim, body.theme-anim * { transition: none !important; }
+}
 
 .theme-btn {
   display: grid; place-items: center;
@@ -2323,4 +2351,41 @@ mark {
 @media (prefers-reduced-motion: reduce) {
   .post-adjacent .adj-k i { transition: none; }
   .post-adjacent .adj-k i { transform: none !important; }
+}
+
+/* ============ 正文图片灯箱 ============ */
+/* 纯客户端创建，SSR 输出不受影响；只用已有 CSS 变量，七套主题自动适配。 */
+.lb {
+  position: fixed; inset: 0; z-index: 10000;
+  display: grid; place-items: center;
+  background: rgba(0, 0, 0, .86);
+  opacity: 0; transition: opacity .18s ease;
+}
+.lb[hidden] { display: none; }
+.lb.on { opacity: 1; }
+.lb-stage {
+  max-width: 94vw; max-height: 88vh;
+  display: grid; place-items: center;
+  overflow: auto;
+  /* 图片原生手势：双指缩放 + 拖动，不拦截 */
+  touch-action: pan-x pan-y pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+}
+.lb-img {
+  display: block; max-width: 94vw; max-height: 88vh;
+  width: auto; height: auto; margin: 0;
+  cursor: zoom-out;
+  /* 图片未被物理放大时也能被浏览器 pinch-zoom */
+  touch-action: pinch-zoom;
+}
+.lb-close {
+  position: absolute; top: 16px; right: 18px;
+  width: 38px; height: 38px; border: 0; border-radius: 50%;
+  background: rgba(255, 255, 255, .14); color: #fff;
+  font-size: 17px; line-height: 38px; cursor: pointer;
+  transition: background-color .16s;
+}
+.lb-close:hover { background: rgba(255, 255, 255, .28); }
+@media (prefers-reduced-motion: reduce) {
+  .lb, .lb-close { transition: none; }
 }

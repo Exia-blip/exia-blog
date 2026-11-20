@@ -37,6 +37,104 @@ let POST = window.__POST__ || null;
 let USER = null;
 let replyTo = null;
 
+/* 复制本文链接：只取 canonical（服务端按 SITE_ORIGIN 生成，跟 sitemap/RSS 一致），
+   不做社交分享。按钮纯前端注入，不动 SSR 模板 —— 正文 HTML 是边缘缓存的，
+   为一个分享入口让所有缓存重算不值当。 */
+function bindCopyLink() {
+  const meta = document.querySelector('.post-head .meta');
+  if (!meta || meta.querySelector('.copy-link')) return;
+  const svg =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M9.5 14.5l5-5"/><path d="M7.8 16.2l-1.3 1.3a3.5 3.5 0 0 1-5-5l3.2-3.2a3.5 3.5 0 0 1 5 0"/>' +
+    '<path d="M16.2 7.8l1.3-1.3a3.5 3.5 0 0 1 5 5l-3.2 3.2a3.5 3.5 0 0 1-5 0"/></svg>';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'copy-link';
+  btn.setAttribute('aria-label', '复制本文链接');
+  btn.title = '复制本文链接';
+  btn.innerHTML = svg + '<span>复制链接</span>';
+  const edit = meta.querySelector('.post-edit');
+  if (edit) meta.insertBefore(btn, edit);
+  else meta.appendChild(btn);
+  btn.addEventListener('click', async () => {
+    const link = document.querySelector('link[rel="canonical"]');
+    try {
+      await navigator.clipboard.writeText((link && link.href) || location.href);
+      toast('链接已复制');
+      btn.classList.add('done');
+      clearTimeout(btn._t);
+      btn._t = setTimeout(() => btn.classList.remove('done'), 1400);
+    } catch {
+      toast('复制失败');
+    }
+  });
+}
+
+/* 正文图片灯箱：只认独立成图的 .md-img（行内图不触发），放大层纯客户端创建，
+   SSR/ETag 一滴不碰。缩放/平移交给浏览器原生 touch-action，不引外部看图库。 */
+let lb = null;
+function ensureLb() {
+  if (lb) return lb;
+  const wrap = document.createElement('div');
+  wrap.className = 'lb';
+  wrap.setAttribute('role', 'dialog');
+  wrap.setAttribute('aria-label', '图片预览');
+  wrap.setAttribute('aria-modal', 'true');
+  wrap.hidden = true;
+  const stage = document.createElement('div');
+  stage.className = 'lb-stage';
+  const im = document.createElement('img');
+  im.className = 'lb-img';
+  im.alt = '';
+  stage.appendChild(im);
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'lb-close';
+  close.setAttribute('aria-label', '关闭预览');
+  close.textContent = '✕';
+  wrap.append(close, stage);
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', (e) => {
+    if (e.target === wrap || e.target === stage || e.target.closest('.lb-close')) closeLb();
+  });
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !wrap.hidden) closeLb(); });
+  lb = { wrap, stage, im, close };
+  return lb;
+}
+function openLb(src, alt) {
+  const x = ensureLb();
+  x.im.src = src;
+  x.im.alt = alt || '';
+  x.stage.scrollTop = 0;
+  x.stage.scrollLeft = 0;
+  x.wrap.hidden = false;
+  document.documentElement.style.overflow = 'hidden';
+  requestAnimationFrame(() => x.wrap.classList.add('on'));
+  x.close.focus();
+}
+function closeLb() {
+  if (!lb || lb.wrap.hidden) return;
+  lb.wrap.classList.remove('on');
+  document.documentElement.style.overflow = '';
+  const hide = () => { lb.wrap.hidden = true; };
+  // reduced-motion 下没有淡出过渡，直接隐藏，别留一个看不见还吃事件的层
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) hide();
+  else setTimeout(hide, 180);
+}
+function bindLightbox() {
+  const body = document.querySelector('.post-body');
+  if (!body || body._lbBound) return;
+  body._lbBound = true;
+  body.addEventListener('click', (e) => {
+    const img = e.target.closest('.md-img img');
+    if (!img) return;
+    e.preventDefault();
+    // currentSrc 是浏览器按 srcset 选好的那张（R2 代理链路），命中已有缓存；
+    // 没选定时退回 src。放大层复用同一 URL，不多一次回源。
+    openLb(img.currentSrc || img.src, img.alt);
+  });
+}
+
 /* SSR 页面只挂事件、不重建 DOM：正文不会重排，滚动位置也不会跳 */
 function hydrate() {
   const p = POST;
@@ -44,6 +142,8 @@ function hydrate() {
   if (slot && USER && (USER.is_admin || USER.id === p.author_id)) {
     slot.innerHTML = `<a class="btn sm" href="/editor?id=${p.id}">编辑</a>`;
   }
+  bindCopyLink();
+  bindLightbox();
   bindReply();
   bindForm();
   mountTurnstile();

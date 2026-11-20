@@ -21,6 +21,18 @@ const K_THEME = 'x_theme';
 const K_MODE = 'x_mode';
 
 const ROOT = document.documentElement;
+
+/* 切换瞬间的颜色过渡：只给 body 挂一个临时 class，CSS 那边只过渡 color/bg。
+   常驻 transition 会在首屏和按需加载主题样式时误触发（像闪一下），
+   所以用 class 把过渡严格框在「这次 apply」内 —— 300ms 比 CSS 的 .28s 略长，
+   留一点尾巴确保最后一帧跑完。reduced-motion 交给 CSS media 关掉，这里不判断。 */
+let animTimer = 0;
+function flashTransition() {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.body.classList.add('theme-anim');
+  clearTimeout(animTimer);
+  animTimer = setTimeout(() => document.body.classList.remove('theme-anim'), 300);
+}
 const DEFAULT = () => (window.__THEME_DEFAULT__ && window.__THEME_DEFAULT__.theme) || 'paper';
 const DEFAULT_MODE = () => (window.__THEME_DEFAULT__ && window.__THEME_DEFAULT__.mode) || 'auto';
 
@@ -77,6 +89,7 @@ export function apply(theme, mode, persist = true) {
 
   const run = () => {
     const dark = mode === 'dark' || (mode === 'auto' && systemDark());
+    flashTransition();
     ROOT.setAttribute('data-theme', theme);
     ROOT.setAttribute('data-mode', dark ? 'dark' : 'light');
     ROOT.setAttribute('data-mpref', mode);
