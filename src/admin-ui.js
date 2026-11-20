@@ -6,6 +6,18 @@ import { avatarSrc } from '../public/avatar.js';
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ESC[ch]);
 
+/* 主题防闪引导：和 public/editor.html head 里那段等价。服务端渲染的统计/健康/队列
+   页没有静态模板，之前漏了这段——用户选的深色只存在 localStorage，这三页读不到
+   就回落到系统浅色，表现为「别的页黑、这三页白」。脚本经出口统一补 nonce，不新增
+   CSP 面；改动这段必须同步 editor.html 里那份（test-admin-nav 会比对关键特征）。 */
+export const THEME_BOOT_JS = `(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var s=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&s);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);(function(){var L=document.getElementById('tcss-default'),trivial=(t==='paper'||t==='anzhiyu');if(trivial){if(L)document.head.removeChild(L);return}if(L){L.id='tcss-'+t;L.href='/theme/'+t+'.css'}else{var S=document.createElement('link');S.id='tcss-'+t;S.rel='stylesheet';S.href='/theme/'+t+'.css';document.head.appendChild(S)}})()})();`;
+
+/** 服务端页 head 注入：站点默认主题 + 防闪引导，顺序与 editor.html 一致。 */
+export function themeBoot(site = {}) {
+  const cfg = JSON.stringify({ theme: site.theme || 'paper', mode: site.mode || 'auto' }).replace(/</g, '\\u003c');
+  return `<script>window.__THEME_DEFAULT__=${cfg};</script><script>${THEME_BOOT_JS}</script>`;
+}
+
 /* 图标全用线性 stroke，和参考站同一视觉语言；width/height 交给 CSS 统一控制。 */
 const ICON = {
   write: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
@@ -58,6 +70,7 @@ export function renderAdminShell({ site = {}, active = '', title, desc = '', bod
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} · ${esc(site.name || 'Exia Blog')}</title>
 <meta name="robots" content="noindex,nofollow">
+${themeBoot(site)}
 <link rel="stylesheet" href="/style.css">
 </head><body class="${esc(bodyClass || 'stat-page')}">
 <div class="admin-shell">

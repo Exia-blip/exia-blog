@@ -2,7 +2,7 @@
 // 不一致时表现为「写作页能看到新入口，统计页看不到」，人工很难发现。
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
-import { ADMIN_NAV, renderAdminNav, renderAdminShell } from '../src/admin-ui.js';
+import { ADMIN_NAV, renderAdminNav, renderAdminShell, THEME_BOOT_JS } from '../src/admin-ui.js';
 import { renderHealth, renderQueue } from '../src/admin-pages.js';
 
 const editor = readFileSync('public/editor.html', 'utf8');
@@ -78,13 +78,13 @@ ok('视图头只有一层标题 + 说明，进度/计数等元信息就位');
 
 // 5. 新页渲染：任何输入都不抛，且转义 HTML
 const hp = renderHealth({
-  site: { name: '<img>' },
+  site: { name: '<img>', theme: 'ink', mode: 'dark' },
   checks: [{ label: '<script>', value: 'ok', state: 'ok', note: 'x' }],
   friend: { up: 1, down: 0, checkedAt: '2026-01-01' },
   pc: { hit: 2 },
 });
 assert.ok(hp.includes('健康检查'));
-assert.ok(!hp.includes('<script>'), '标签必须转义');
+assert.ok(hp.includes('&lt;script&gt;'), '用户输入的标签必须转义为实体');
 assert.ok(hp.includes('&lt;img&gt;'), '站名必须转义');
 const qp = renderQueue({ site: { name: 'X' }, rows: [{ id: 1, title: '<b>hi</b>', published_at: '2027-03-03 01:00:00' }] });
 assert.ok(qp.includes('定时队列'));
@@ -112,5 +112,23 @@ for (const cls of ['admin-view-card', 'kv-row', 'sv-pill', 'sv-table', 'form-sec
 assert.match(css, /\.stat-page \.sv-pill\.ok[^}]*var\(--green\)/, '绿灯色未走主题变量');
 assert.match(css, /\.stat-page \.sv-pill\.bad[^}]*var\(--red\)/, '红灯色未走主题变量');
 ok('健康检查/定时队列与 editor 视图同构，样式进 style.css 且状态色走变量');
+
+// 7. 主题引导：服务端三页必须和 editor 一样在首帧前读 localStorage 偏好，
+//    否则用户选的深色到这三页就回落系统浅色（表现为「别的页黑、这三页白」）。
+const bootFeat = ["localStorage.getItem('x_theme')", "setAttribute('data-mode'", 'prefers-color-scheme'];
+for (const f of bootFeat) {
+  assert.ok(editor.includes(f), `editor.html 引导脚本缺 ${f}`);
+  assert.ok(THEME_BOOT_JS.includes(f), `服务端引导脚本缺 ${f}`);
+}
+assert.ok(stats.includes('themeBoot(site)'), 'stats.js 未接入主题引导');
+for (const [name, html] of [['健康检查', hp], ['定时队列', qp]]) {
+  assert.ok(html.includes('window.__THEME_DEFAULT__'), `${name} 缺主题默认值注入`);
+  assert.ok(html.includes("localStorage.getItem('x_theme')"), `${name} 缺主题引导脚本`);
+}
+assert.ok(hp.includes('"theme":"ink"') && hp.includes('"mode":"dark"'), '主题默认值应取自站点设置');
+// 默认值必须安全序列化，站点主题名不能闭合 script 造成注入
+const evilShell = renderAdminShell({ title: 'X', body: '', site: { theme: '</script><script>alert(1)' } });
+assert.ok(!evilShell.includes('</script><script>alert'), '主题默认值必须转义，不能闭合 script');
+ok('服务端三页接入主题防闪引导，与 editor 同源同构且安全序列化');
 
 console.log(`\nadmin nav: ${pass} passed`);

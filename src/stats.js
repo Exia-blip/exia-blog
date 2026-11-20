@@ -12,7 +12,7 @@ import { html, umamiOn } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { postCacheStats } from './postcache.js';
 import { getSite } from './settings.js';
-import { renderAdminNav } from './admin-ui.js';
+import { renderAdminNav, themeBoot } from './admin-ui.js';
 import { avatarSrc } from '../public/avatar.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -333,6 +333,7 @@ export function renderStats({ user, site = {}, t1, t7, t30, dailyRows = [], top,
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>访问统计 · ${user.login}</title>
 <meta name="robots" content="noindex,nofollow">
+${themeBoot(site)}
 <link rel="stylesheet" href="/style.css">
 <style>
 .wrap-s{max-width:900px;margin:0 auto;padding:34px 22px 70px}
