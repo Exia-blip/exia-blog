@@ -61,7 +61,20 @@ ok('五个主视图与导航一一对应，点菜单整块切换');
 const css = readFileSync('public/style.css', 'utf8');
 assert.ok(css.includes('.side-toggle, .side-mask { display: none !important; }'), '抽屉按钮/遮罩必须隐藏');
 assert.ok(css.includes('.admin-main > .view.active { display: flex; }'), '视图切换 CSS 缺失');
+// 文章页的系列目录样式必须限定在 .series 里，否则后台的系列胶囊会被拉成整行
+assert.ok(css.includes('.series .series-list'), '系列目录样式应限定在文章页 .series 内');
 ok('无抽屉/遮罩，视图切换样式就位');
+
+// 4d. 视图头：标题只由 admin-head 承担，说明 + 元信息各就各位
+assert.ok(editor.includes('id="view-desc"'), '缺少视图说明位');
+assert.ok(editor.includes("$('view-desc')"), '视图说明没有随视图切换更新');
+assert.ok(editor.includes('id="post-count"'), '文章列表缺少篇数');
+assert.ok(editor.includes('ci-sub'), '文章行缺少日期/栏目副标题');
+assert.ok(editor.includes('id="check-bar"'), '自检缺少进度条');
+assert.ok(/check-bar'\)[\s\S]{0,80}style\.width/.test(editor), '进度条没有接线');
+assert.equal((editor.match(/id="view-title"/g) || []).length, 1, '标题只允许有一个');
+assert.ok(!editor.includes('class="admin-eyebrow"'), '后台头不应再压一层小标签');
+ok('视图头只有一层标题 + 说明，进度/计数等元信息就位');
 
 // 5. 新页渲染：任何输入都不抛，且转义 HTML
 const hp = renderHealth({

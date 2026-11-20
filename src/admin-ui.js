@@ -47,8 +47,10 @@ export function renderAdminNav(active = '') {
     }).join('')}</nav>`;
 }
 
-/** 服务端页面统一外壳。body 是 <main> 里的内容，不在这里转义。 */
-export function renderAdminShell({ site = {}, active = '', eyebrow = '后台管理', title, desc = '', body = '', bodyClass = '' }) {
+/** 服务端页面统一外壳。body 是 <main> 里的内容，不在这里转义。
+    头部只留 h1 + 一句说明，和写作页同一套（不再压一个「后台管理」小标签，
+    那和侧栏的分组标题重复）。 */
+export function renderAdminShell({ site = {}, active = '', title, desc = '', body = '', bodyClass = '' }) {
   const ava = site.avatar
     ? `<img class="admin-ava" src="${esc(avatarSrc(site.avatar, 96))}" alt="" width="48" height="48">`
     : '';
@@ -79,9 +81,8 @@ export function renderAdminShell({ site = {}, active = '', eyebrow = '后台管�
   </aside>
   <main class="admin-main">
     <header class="admin-head">
-      <div class="admin-eyebrow">${esc(eyebrow)}</div>
       <h1>${esc(title)}</h1>
-      <p>${desc}</p>
+      ${desc ? `<p>${desc}</p>` : ''}
     </header>
     ${body}
   </main>

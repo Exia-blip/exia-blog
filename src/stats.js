@@ -384,7 +384,6 @@ td.p,td.mono{font-family:var(--mono);font-size:12.5px;word-break:break-all}
   </aside>
   <main class="admin-main">
     <header class="admin-head">
-      <div class="admin-eyebrow">后台管理</div>
       <h1>访问统计</h1>
       <p>按北京时间切日 · 同一人同一天同一页只记一次 · 累计 ${total?.c || 0} 条，起于 ${total?.first || '—'}</p>
     </header>
