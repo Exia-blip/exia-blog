@@ -3,6 +3,13 @@
 // 直接 `npx wrangler deploy` 不会带版本号，走 `npm run deploy` 即可。
 import { execSync, spawnSync } from 'node:child_process';
 
+/* 静态资源的 SRI 与版本号都来自 src/assets.gen.js，它必须与 public 里的字节一一对上。
+   放在最前面重算是幂等的：内容没变就什么都不写，变了就把 manifest 跟磁盘对齐。
+   为什么不用 --check 卡住：发版路径上人最容易忘的就是「改了 css 忘了跑脚本」，
+   与其拦下来让人再敲一次命令，不如直接算对 —— 但 npm test 里仍有一条会校验
+   这份 manifest 与磁盘一致，防止有人在测试里改文件却不重算就提交。 */
+execSync(`"${process.execPath}" scripts/build-sri.mjs`, { stdio: 'inherit' });
+
 /* 部署前先把配置摆出来。挡的不是「没配完」，而是「半配」——
    只填 TURNSTILE_SITE_KEY 不填 SECRET，评论会被全量拒收，而页面看起来一切正常。
    这种状态上线一次就够难受半天了，所以放在发版路径上，而不是指望有人记得先跑。 */

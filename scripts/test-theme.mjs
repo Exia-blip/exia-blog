@@ -14,13 +14,24 @@ t('安知鱼同理', () => {
   assert.equal(themeCssTag('anzhiyu', 'abc'), '');
 });
 
-t('其它主题直出 link，并带版本号', () => {
+t('其它主题直出 link，版本号来自内容哈希', () => {
   const tag = themeCssTag('ink', 'mwi16y2e');
-  assert.match(tag, /^<link id="tcss-default" rel="stylesheet" href="\/theme\/ink\.css\?v=mwi16y2e">$/);
+  // 传进来的部署版本号在有 manifest 时被忽略：URL 必须跟 integrity 同源
+  assert.match(tag, /^<link id="tcss-default" rel="stylesheet" href="\/theme\/ink\.css\?v=[0-9a-f]{10}"/);
+});
+
+t('直出的 link 带 integrity，且与 ?v= 是同一份内容', () => {
+  const tag = themeCssTag('ink');
+  const v = tag.match(/\?v=([0-9a-f]+)/)[1];
+  const i = tag.match(/integrity="(sha384-[^"]+)"/)[1];
+  assert.ok(i.startsWith('sha384-'), i);
+  assert.ok(i.length > 40, '摘要长度像真的');
+  assert.ok(v.length === 10, '版本号取自同一份哈希');
 });
 
 t('没有版本号时不拼空的 ?v=', () => {
-  assert.match(themeCssTag('forest'), /href="\/theme\/forest\.css">$/);
+  // 哈希表非空时一定带 v；这条守的是「别拼出 ?v= 空值」这个老坑
+  assert.ok(!/\?v=("| )/.test(themeCssTag('forest')), '不会出现空 v');
 });
 
 t('未知主题退回纸韵 —— 不把用户填的字符串拼进 href', () => {

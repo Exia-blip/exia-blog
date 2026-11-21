@@ -169,6 +169,7 @@
     <div class="ed-panes">
       <div class="pane left" data-pane="edit">
         <textarea id="md-input" placeholder="开始写作…&#10;&#10;支持 Markdown。拖拽或粘贴图片可直接上传。&#10;写 #标签 会自动归类。"></textarea>
+        <div id="monaco-host" aria-hidden="true"></div>
       </div>
       <div class="pane" data-pane="preview">
         <div class="preview md" id="preview"></div>
@@ -342,6 +343,78 @@ const $ = (id) => document.getElementById(id);
 const titleEl = $('title');
 const inputEl = $('md-input');
 const previewEl = $('preview');
+
+/* ---------- 编辑区抽象层 ----------
+   textarea 始终是数据源，Monaco 只是它的显示层。所有「改正文」的操作都走下面几个
+   函数，其余代码不用知道当前是哪一套在跑：
+   - CDN 没到 / 浏览器太老 → monaco 为 null，一切照旧走 textarea
+   - 到位 → 选区、插入、改写落到 Monaco，再把结果写回 textarea
+   为什么不让 Monaco 直接当数据源：保存、发布自检、本地草稿快照全读 inputEl.value，
+   改那一圈等于把整条链路翻一遍，风险远大于收益。 */
+let monaco = null; // editor 实例
+let monacoApi = null; // monaco 命名空间（Range 之类）
+let monoSyncing = false; // 程序回写时别让 onDidChange 再触发一轮
+// 双栏滚动同步的出口：textarea 与 Monaco 各有一条触发链，都汇到这里
+let syncPreviewScroll = () => {};
+let syncScrollGate = () => false;
+
+function monacoSel() {
+  const sel = monaco.getSelection();
+  const model = monaco.getModel();
+  if (!sel || !model) return { s: 0, e: 0 };
+  return { s: model.getOffsetAt(sel.getStartPosition()), e: model.getOffsetAt(sel.getEndPosition()) };
+}
+function edSelection() {
+  if (monaco) return monacoSel();
+  return { s: inputEl.selectionStart, e: inputEl.selectionEnd };
+}
+/* 用 text 替换 [s,e)，可选把光标/选区放到 selectFrom..selectTo。
+   注意 Monaco 里要先把偏移翻成行列：偏移是 UTF-16 code unit 计，
+   行列是「第几行第几列」，换行符让两者永远对不上，不能直接用。 */
+function edReplace(text, s, e, selectFrom, selectTo) {
+  if (monaco) {
+    const model = monaco.getModel();
+    const st = model.getPositionAt(s);
+    const en = model.getPositionAt(e);
+    monaco.executeEdits('toolbar', [
+      { range: new monacoApi.Range(st.lineNumber, st.column, en.lineNumber, en.column), text },
+    ]);
+    if (selectFrom != null) {
+      const a = model.getPositionAt(selectFrom);
+      const b = model.getPositionAt(selectTo == null ? selectFrom : selectTo);
+      monaco.setSelection(new monacoApi.Range(a.lineNumber, a.column, b.lineNumber, b.column));
+    }
+    monaco.focus();
+  } else {
+    inputEl.setRangeText(text, s, e, 'end');
+    if (selectFrom != null) inputEl.setSelectionRange(selectFrom, selectTo == null ? selectFrom : selectTo);
+    inputEl.focus();
+  }
+  onInput();
+}
+function edInsert(text) {
+  const { s, e } = edSelection();
+  edReplace(text, s, e);
+}
+/* 整篇换掉：只在载入草稿 / 切换文章时用。Monaco 的 setValue 会清空撤销栈，
+   场景本来就该清 —— 换了一篇文章还留着上一篇的 Ctrl+Z 是更坏的行为。 */
+function edSetText(t) {
+  if (inputEl.value !== t) inputEl.value = t;
+  if (monaco) {
+    monoSyncing = true;
+    monaco.setValue(t);
+    monoSyncing = false;
+  }
+}
+/* 当前光标所在行的行首偏移（工具栏的 ## / > / - 都往这里插） */
+function edLineStart() {
+  if (monaco) {
+    const pos = monaco.getPosition();
+    return monaco.getModel().getOffsetAt({ lineNumber: pos.lineNumber, column: 1 });
+  }
+  return inputEl.value.lastIndexOf('\n', inputEl.selectionStart - 1) + 1;
+}
+
 const slugEl = $('slug');
 const catEl = $('category');
 const seriesEl = $('series');
@@ -448,7 +521,7 @@ function readLocal(key) {
 function applyDraft(d) {
   if (!d) return;
   titleEl.value = d.title || '';
-  inputEl.value = d.content || '';
+  edSetText(d.content || '');
   slugEl.value = d.slug || '';
   setCategory(d.category || '');
   seriesEl.value = d.series || '';
@@ -467,6 +540,9 @@ function updatePreview() {
   renderTagPreview(md);
   updateChecks();
   document.querySelectorAll('.copy-btn').forEach((b) => (b.onclick = null));
+  /* 预览里的 mermaid 图交给 boot.js 那条链路（它负责按需拉起 vendor 包）。
+     用的是「跳过已渲染」模式：每敲一个字都全量重绘会把编辑器卡住。 */
+  if (typeof window.__rerenderMermaid === 'function') window.__rerenderMermaid(false);
 }
 
 /* 标签去重：extractTags 内部按原样 Set 去重，但这里会再 lower-case，
@@ -694,8 +770,9 @@ catEl.addEventListener('change', () => {
 });
 sumEl.addEventListener('input', updateChecks);
 
-// Tab 插入缩进
+// Tab 插入缩进（Monaco 就绪后由它自己处理：tabSize/insertSpaces 已经配成 2 空格）
 inputEl.addEventListener('keydown', (e) => {
+  if (monaco) return;
   if (e.key === 'Tab') {
     e.preventDefault();
     const s = inputEl.selectionStart;
@@ -834,36 +911,30 @@ async function uploadFile(file) {
 }
 
 function insertAtCursor(text) {
-  const s = inputEl.selectionStart;
-  const e = inputEl.selectionEnd;
-  inputEl.setRangeText(text, s, e, 'end');
-  inputEl.focus();
-  onInput();
+  edInsert(text);
 }
 
-/* Markdown 工具栏：包裹选中文本，没选中就插入占位符并把光标放进去 */
+/* Markdown 工具栏：包裹选中文本，没选中就插入占位符并选中它。
+   全部走 edReplace —— 偏移在两套编辑器里的含义不同（textarea 是 UTF-16 偏移，
+   Monaco 是行列），换算只在校验层做一次，这里不重复。 */
 (function initToolbar() {
   const bar = document.querySelector('.ed-tools');
   if (!bar) return;
   const wrap = (before, after, placeholder) => {
-    const s = inputEl.selectionStart;
-    const e = inputEl.selectionEnd;
+    const { s, e } = edSelection();
     const sel = inputEl.value.slice(s, e);
     const body = sel || placeholder;
-    inputEl.setRangeText(before + body + after, s, e, 'end');
-    if (!sel) {
-      const caret = s + before.length;
-      inputEl.setSelectionRange(caret, caret + placeholder.length);
-    }
-    inputEl.focus();
-    onInput();
+    edReplace(
+      before + body + after,
+      s,
+      e,
+      sel ? null : s + before.length,
+      sel ? null : s + before.length + placeholder.length
+    );
   };
   const linePrefix = (prefix) => {
-    const s = inputEl.selectionStart;
-    const lineStart = inputEl.value.lastIndexOf('\n', s - 1) + 1;
-    inputEl.setRangeText(prefix, lineStart, lineStart, 'end');
-    inputEl.focus();
-    onInput();
+    const at = edLineStart();
+    edReplace(prefix, at, at, null, null);
   };
   const actions = {
     h: () => linePrefix('## '),
@@ -913,13 +984,22 @@ function insertAtCursor(text) {
   const enabled = () => sw.checked;
 
   // 把编辑区滚动位置按比例映射到预览区；短内容（无滚动空间）不触发
-  const sync = () => {
-    const srcMax = inputEl.scrollHeight - inputEl.clientHeight;
-    const dstMax = previewEl.scrollHeight - previewEl.clientHeight;
-    if (srcMax <= 0 || dstMax <= 0) return;
-    const ratio = inputEl.scrollTop / srcMax;
-    previewEl.scrollTop = ratio * dstMax;
+  /* 取滚动量的方式两套编辑器不一样：textarea 直接读 scrollTop/scrollHeight，
+     Monaco 得走它的 API（DOM 节点的 scrollHeight 是整块容器的，不是内容高度）。
+     Monaco 就绪后由 initMonaco 把 onDidScrollChange 接到这个函数上。 */
+  const metrics = () => {
+    if (monaco) {
+      return { top: monaco.getScrollTop(), max: monaco.getScrollHeight() - monaco.getLayoutInfo().height };
+    }
+    return { top: inputEl.scrollTop, max: inputEl.scrollHeight - inputEl.clientHeight };
   };
+  const sync = () => {
+    const src = metrics();
+    const dstMax = previewEl.scrollHeight - previewEl.clientHeight;
+    if (src.max <= 0 || dstMax <= 0) return;
+    previewEl.scrollTop = (src.top / src.max) * dstMax;
+  };
+  syncPreviewScroll = sync;
 
   try { sw.checked = localStorage.getItem(KEY) === '1'; } catch {}
   panes.classList.toggle('sync-on', enabled());       // 开启即双栏并排
@@ -934,10 +1014,17 @@ function insertAtCursor(text) {
     clearTimeout(timer);
     timer = setTimeout(sync, 80);                      // 防抖，避免连续滚动抖动
   }, { passive: true });
+  // Monaco 是另一个滚动容器，textarea 的 scroll 不会再触发；开关状态在这里现读
+  syncScrollGate = () => enabled();
   window.addEventListener('resize', () => { if (enabled()) sync(); });
 })();
 
-inputEl.addEventListener('paste', async (e) => {
+/* 粘贴图片：绑在 document 而不是正文 textarea 上 —— Monaco 是另一个 DOM 树，
+   它自己的隐藏 textarea 才是事件目标，绑在原来的元素上收不到。
+   只在「正文编辑区」里粘贴才拦，标题/摘要输入框粘图仍走浏览器默认行为。 */
+document.addEventListener('paste', async (e) => {
+  const inBody = e.target.closest && e.target.closest('.pane.left');
+  if (!inBody) return;
   const items = [...(e.clipboardData?.items || [])];
   const img = items.find((i) => i.type.startsWith('image/'));
   if (img) {
@@ -1005,7 +1092,7 @@ function resetEditor() {
   currentSlug = '';
   draftKey = 'draft:new';
   titleEl.value = '';
-  inputEl.value = '';
+  edSetText('');
   slugEl.value = '';
   setCategory('');
   seriesEl.value = '';
@@ -1079,7 +1166,7 @@ if (!user) {
       if (!p) throw new Error('文章不存在');
 
       titleEl.value = p.title;
-      inputEl.value = p.content;
+      edSetText(p.content || '');
       slugEl.value = p.slug;
       setCategory(p.category || '');
       seriesEl.value = p.series || '';
@@ -1375,6 +1462,135 @@ async function initSiteSettings() {
     }
   });
 }
+
+/* ---------- Monaco（渐进增强） ----------
+   版本与摘要都写死在这里，和 SRI 是一回事：从 CDN 拿的东西必须钉死，
+   否则「CDN 上这个 tag 指向什么」就成了别人的决定。
+   只钉 loader.js —— AMD 之后那一串子模块是它自己 require 的，拿不到 integrity，
+   这是 loader 模式的固有限制，所以额外用 CSP 之外的手段兜：版本号写死 + 完整路径
+   写死，不让它去解析 latest。 */
+const MONACO_CDN = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min';
+const MONACO_LOADER_SRI = 'sha384-pHG02SG8pId94Np3AbPmBEJ1yPqaH0IkJGLSNGXYmuGhkazT8Lr/57WYpbkGjJtu';
+
+function loadScript(src, integrity) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    if (integrity) {
+      s.integrity = integrity;
+      s.crossOrigin = 'anonymous'; // 跨源没有它，integrity 直接被忽略
+    }
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('加载失败：' + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function initMonaco() {
+  const host = $('monaco-host');
+  const pane = host && host.closest('.pane.left');
+  if (!host || !pane) return;
+
+  try {
+    await loadScript(MONACO_CDN + '/vs/loader.js', MONACO_LOADER_SRI);
+  } catch {
+    pane.classList.add('mon-fail'); // 保持 textarea 可用，写作不受影响
+    return;
+  }
+  const req = window.require;
+  if (!req || !req.config) {
+    pane.classList.add('mon-fail');
+    return;
+  }
+  req.config({ paths: { vs: MONACO_CDN + '/vs' } });
+
+  /* worker：markdown 没有语言服务，但编辑器基础 worker 仍可能被要一次。
+     默认它会去同源的 /vs/base/worker/workerMain.js 找 —— 那个路径不存在，
+     控制台会一直报 404。用 blob 包一层 importScripts 指回 CDN，跨源也能跑
+     （jsdelivr 带 CORS 头）。 */
+  window.MonacoEnvironment = {
+    getWorkerUrl() {
+      const code =
+        'self.MonacoEnvironment={baseUrl:' +
+        JSON.stringify(MONACO_CDN + '/') +
+        '};importScripts(' +
+        JSON.stringify(MONACO_CDN + '/vs/base/worker/workerMain.js') +
+        ');';
+      return URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+    },
+  };
+
+  try {
+    await new Promise((resolve, reject) => req(['vs/editor/editor.main'], resolve, reject));
+  } catch {
+    pane.classList.add('mon-fail');
+    return;
+  }
+  monacoApi = window.monaco;
+  if (!monacoApi) {
+    pane.classList.add('mon-fail');
+    return;
+  }
+  // 字体、行高与 textarea 对齐：切换那一刻不该有半个字的位置跳动
+  const rootStyle = getComputedStyle(document.documentElement);
+  const monoFont = (rootStyle.getPropertyValue('--mono') || '').trim() || 'ui-monospace, monospace';
+  const dark = document.documentElement.getAttribute('data-mode') === 'dark';
+
+  monaco = monacoApi.editor.create(host, {
+    value: inputEl.value,
+    language: 'markdown',
+    theme: dark ? 'vs-dark' : 'vs',
+    automaticLayout: true, // 双栏/单栏切换、窗口缩放都不用自己算尺寸
+    wordWrap: 'on',
+    lineNumbers: 'off',
+    glyphMargin: false,
+    folding: false,
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    renderLineHighlight: 'none',
+    fontSize: 14.5,
+    fontFamily: monoFont,
+    lineHeight: 27, // textarea 是 14.5px / 1.85 ≈ 26.8
+    tabSize: 2,
+    insertSpaces: true,
+    padding: { top: 22, bottom: 22 },
+    scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+    overviewRulerLanes: 0,
+    fixedOverflowWidgets: true,
+    placeholder: '开始写作… 支持 Markdown，拖拽或粘贴图片可直接上传。',
+    ariaLabel: '正文',
+  });
+  pane.classList.add('mon-ready');
+
+  /* 编辑 → 影子 textarea → 现有逻辑。
+     整篇写回而不是增量打补丁：onInput 只读 value，补丁没有收益，
+     而增量同步要自己处理撤销/重做与光标，出错面大得多。 */
+  monaco.onDidChangeModelContent(() => {
+    if (monoSyncing) return;
+    const v = monaco.getValue();
+    if (inputEl.value !== v) inputEl.value = v;
+    onInput();
+  });
+
+  // 快捷键与 textarea 上那两条保持一致（Ctrl+S 保存 / Ctrl+Enter 也是）
+  const K = monacoApi.KeyMod;
+  const C = monacoApi.KeyCode;
+  monaco.addCommand(K.CtrlCmd | C.KeyS, () => saveNow(true));
+  monaco.addCommand(K.CtrlCmd | C.Enter, () => saveNow(true));
+
+  // 双栏滚动同步：Monaco 是另一个滚动容器，得单独接一条
+  monaco.onDidScrollChange(() => {
+    if (syncScrollGate()) syncPreviewScroll();
+  });
+
+  // 明暗切换时跟着换配色（切主题时 transition 会改 data-mode）
+  new MutationObserver(() => {
+    const d = document.documentElement.getAttribute('data-mode') === 'dark';
+    monacoApi.editor.setTheme(d ? 'vs-dark' : 'vs');
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] });
+}
+
+initMonaco();
 </script>
 </body>
 </html>

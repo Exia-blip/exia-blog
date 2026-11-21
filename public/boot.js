@@ -312,6 +312,152 @@
   }
   initFootModes();
 
+  /* ---------------- Mermaid ----------------
+     ```mermaid 代码块在 SSR 阶段只是 <pre> 里的源码（无 JS 也能读到原图数据），
+     真正的图形由这里按需拉起。放在 boot.js 而不是单独文件：
+     boot.js 本来就全站加载，多一个文件就多一次条件请求 + 一个哈希要维护；
+     而 vendor 那 2.7MB 只在页面上真有 .mermaid-wrap 时才注入。
+     顺序不能反：先有 mermaid 才能渲染，加载失败就保持源码可见 —— 空白比方块字更糟。 */
+  /* Mermaid 的入口要可重入：读者页是 SSR 好的，块就在 HTML 里；
+     而编辑器预览是动态生成的 —— 页面刚加载时一个块都没有，
+     用户写完一段 mermaid 代码块之后才出现。所以这里不「没块就 return」，
+     而是把 window.__rerenderMermaid 挂出去，由预览侧主动来叫。
+     复制绑定与主题观察推迟到首次真要渲染时，空跑一遍没意义。 */
+  function initMermaid() {
+    var H = window.__ASSET_H__ || {};
+    var a = H['/vendor/mermaid.min.js'] || {};
+    var loading = false;
+    var loaded = false;
+    var wired = false;
+    /* 源码 → 已渲染的 SVG，按「明暗模式 + 源码」缓存。
+       编辑器预览每敲一次都会重建一遍 preview 的 DOM，节点是新的、类名也是新的；
+       没有这层缓存的话，正文里有一张图，之后每一个字符都触发一次 mermaid.render。
+       缓存只在这个页面生命周期内有效（换主题时 key 变，自动失效）。 */
+    var svgCache = {};
+
+    function wire() {
+      if (wired) return;
+      wired = true;
+
+      /* 复制按钮：app.js 的 bindCopyButtons 按 .code-wrap 找 <code>，
+         mermaid 块没有那个结构，只能自己绑一条。 */
+      document.addEventListener('click', function (e) {
+        var btn = e.target.closest && e.target.closest('[data-copy-mermaid]');
+        if (!btn) return;
+        var w = btn.closest('.mermaid-wrap');
+        var pre = w && w.querySelector('.mm-src');
+        var src = (w && w.getAttribute('data-src')) || (pre ? pre.textContent : '');
+        if (!src || !navigator.clipboard) return;
+        navigator.clipboard.writeText(src).then(
+          function () {
+            btn.textContent = '已复制';
+            btn.classList.add('done');
+            setTimeout(function () {
+              btn.textContent = '复制';
+              btn.classList.remove('done');
+            }, 1400);
+          },
+          function () {}
+        );
+      });
+
+      /* 切主题后重绘：mermaid 的配色是 initialize 时定死的，
+         不重来一张图会在深色底上留一片白。只在已经画出来之后才重绘，
+         避免和首次加载抢同一次渲染。 */
+      var lastKey = '';
+      new MutationObserver(function () {
+        var d = document.documentElement;
+        var key = (d.getAttribute('data-mode') || '') + '|' + (d.getAttribute('data-theme') || '');
+        if (key === lastKey) return;
+        lastKey = key;
+        if (loaded && document.querySelector('.mermaid-wrap.is-rendered')) draw(true);
+      }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode', 'data-theme'] });
+    }
+
+    // force=false 时跳过已经画好的（编辑器预览每敲一次都调，全量重绘会卡）
+    function draw(force) {
+      var m = window.mermaid;
+      if (!m) return;
+      var dark = document.documentElement.getAttribute('data-mode') === 'dark';
+      var cs = getComputedStyle(document.documentElement);
+      var font = (cs.getPropertyValue('--font-body') || '').trim();
+      try {
+        m.initialize({
+          startOnLoad: false,
+          // strict：禁掉 <script> 与事件属性。笔记里的图不该有执行能力
+          securityLevel: 'strict',
+          // htmlLabels 关掉，标签走纯 SVG <text>，不产生 foreignObject 里的 HTML
+          flowchart: { htmlLabels: false },
+          theme: dark ? 'dark' : 'default',
+          fontFamily: font || undefined,
+        });
+      } catch (err) {}
+
+      var list = document.querySelectorAll('.mermaid-wrap');
+      var i = 0;
+      (function next() {
+        if (i >= list.length) return;
+        var w = list[i];
+        var idx = i++;
+        if (!force && w.classList.contains('is-rendered')) return next();
+        var body = w.querySelector('.mm-body');
+        var pre = w.querySelector('.mm-src');
+        // 首次渲染源码在 <pre> 里；重绘时 <pre> 已经被 SVG 顶掉，得从 data-src 拿
+        var src = (pre ? pre.textContent : '') || w.getAttribute('data-src') || '';
+        if (!body || !src) return next();
+        // 源码在 pre 被 SVG 顶掉之前先存一份副本：复制按钮与重绘都要用
+        w.setAttribute('data-src', src);
+        var ck = (dark ? 'd' : 'l') + '|' + src;
+        if (!force && svgCache[ck]) {
+          body.innerHTML = svgCache[ck];
+          w.classList.add('is-rendered');
+          return next();
+        }
+        w.classList.remove('is-error');
+        // render 要一个唯一 id 来放临时容器，重绘时不能撞
+        m.render('mmsvg' + idx + '_' + Date.now().toString(36), src)
+          .then(function (r) {
+            body.innerHTML = r.svg;
+            svgCache[ck] = r.svg;
+            w.classList.add('is-rendered');
+            if (typeof r.bindFunctions === 'function') r.bindFunctions(body);
+          })
+          .catch(function () {
+            // 语法错就明说，别让人对着源码猜哪里少了个箭头
+            w.classList.add('is-error');
+          })
+          .then(next, next);
+      })();
+    }
+
+    function ensure() {
+      if (loaded || loading) return;
+      loading = true;
+      var s = document.createElement('script');
+      s.src = '/vendor/mermaid.min.js' + (a.v ? '?v=' + a.v : '');
+      if (a.i) s.integrity = a.i; // 同源资源不加 crossorigin，加了会被 CORS 拦死
+      s.onload = function () {
+        loaded = true;
+        loading = false;
+        draw(false);
+      };
+      s.onerror = function () {
+        loading = false;
+      };
+      document.head.appendChild(s);
+    }
+
+    window.__rerenderMermaid = function (force) {
+      if (!document.querySelector('.mermaid-wrap')) return;
+      wire();
+      ensure();
+      if (loaded) draw(!!force);
+    };
+    // 读者页走到这里就该直接开画；编辑器页此时没块，钩子留着等预览
+    window.__rerenderMermaid(false);
+  }
+  initMermaid();
+
   if (document.querySelector('.post-body')) {
     watchRead();
     watchImgs();

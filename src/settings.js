@@ -1,5 +1,6 @@
 // 站点信息：优先读 D1 的 settings 表，没配就回退 wrangler.jsonc 的 vars
 // 这样站长在后台改完立刻生效，不用重新 deploy
+import { ASSET_HASH } from './assets.gen.js';
 
 const TTL = 30_000;
 let cache = { at: 0, val: null };
@@ -23,8 +24,13 @@ export function themeCssPath(theme) {
 export function themeCssTag(theme, version = '') {
   const href = themeCssPath(theme);
   if (!href) return '';
-  const v = version ? `?v=${encodeURIComponent(version)}` : '';
-  return `<link id="tcss-default" rel="stylesheet" href="${href}${v}">`;
+  const a = ASSET_HASH[href.slice(1)]; // 'theme/ink.css'
+  /* 版本号与 integrity 都来自同一份内容哈希：两者必须同源，
+     否则「版本号换了但 integrity 还是旧的」会让浏览器直接丢掉这份 CSS。 */
+  const v = a ? a.v : version;
+  const q = v ? `?v=${encodeURIComponent(v)}` : '';
+  const i = a ? ` integrity="${a.i}"` : '';
+  return `<link id="tcss-default" rel="stylesheet" href="${href}${q}"${i}>`;
 }
 
 const normTheme = (v) => (THEME_IDS.includes(v) ? v : 'paper');

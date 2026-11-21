@@ -89,7 +89,12 @@ function ensureThemeCss(theme) {
     const l = document.createElement('link');
     l.id = id;
     l.rel = 'stylesheet';
-    l.href = `/theme/${theme}.css`;
+    /* integrity 必须在 href 之前设：href 一旦赋值浏览器就开始取资源，
+       之后再写 integrity 不会重来一次校验。哈希表由 head 里的内联脚本下发
+       （window.__ASSET_H__），没拿到就退化成不带校验的普通请求。 */
+    const a = (window.__ASSET_H__ || {})[`/theme/${theme}.css`] || {};
+    if (a.i) l.integrity = a.i;
+    l.href = `/theme/${theme}.css${a.v ? `?v=${a.v}` : ''}`;
     // 加载失败也放行：样式缺一份总比点不动强
     l.onload = resolve;
     l.onerror = resolve;

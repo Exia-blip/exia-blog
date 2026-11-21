@@ -46,12 +46,13 @@ assert.ok(editor.includes('id="sync-scroll"'), '缺同步滚动开关');
 assert.match(editor, /const KEY = 'ed:sync-scroll'/, '未定义本地偏好键');
 assert.match(editor, /localStorage\.getItem\(KEY\)/, '未读取本地偏好');
 assert.match(editor, /localStorage\.setItem\(KEY, enabled\(\) \? '1' : '0'\)/, '偏好未持久化');
-assert.match(editor, /const ratio = inputEl\.scrollTop \/ srcMax/, '未按滚动比例映射');
-assert.match(editor, /previewEl\.scrollTop = ratio \* dstMax/, '未写入预览区');
+// Monaco 就绪后编辑器不再是 textarea：滚动量走 metrics() 统一取，再按比例写预览
+assert.match(editor, /previewEl\.scrollTop = \(src\.top \/ src\.max\) \* dstMax/, '未按滚动比例映射');
+assert.match(editor, /monaco\.onDidScrollChange/, 'Monaco 的滚动没接上同步');
 assert.match(editor, /inputEl\.addEventListener\('scroll'/, '只应监听编辑区');
 assert.ok(!/previewEl\.addEventListener\('scroll'/.test(editor), '禁止回拉预览造成死循环');
 assert.match(editor, /setTimeout\(sync, 80\)/, '缺 80ms 防抖');
-assert.match(editor, /if \(srcMax <= 0 \|\| dstMax <= 0\) return/, '短内容不触发');
+assert.match(editor, /if \(src\.max <= 0 \|\| dstMax <= 0\) return/, '短内容不触发');
 assert.match(editor, /addEventListener\('resize'/, 'resize 未重算');
 assert.match(css, /\.ed-panes\.sync-on \.pane \{ display: flex/, '双栏并排样式缺失');
 ok('④ 单向滚动同步：比例映射/防抖/禁回拉/本地偏好/双栏齐全');

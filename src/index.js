@@ -16,6 +16,8 @@ import { normalizePagePath } from './routes.js';
 import { statsPage, prunePv } from './stats.js';
 import { healthPage, queuePage } from './admin-pages.js';
 import { postCacheGet, postCacheSet, postCacheDrop, postCacheStats } from './postcache.js';
+import { assetVersion, assetCacheControl, stampAssets } from './assets.js';
+import { ASSET_HASH } from './assets.gen.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ESC[c]);
@@ -635,7 +637,22 @@ async function serveFriendsPage(env, request) {
 // 主题初始化那一段在 404、系列页都要用，复制三份迟早漂移
 function themeBoot(site) {
   const cfg = JSON.stringify({ theme: site.theme, mode: site.mode }).replace(/</g, '\\u003c');
-  return `<script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);(function(){var L=document.getElementById('tcss-default'),trivial=(t==='paper'||t==='anzhiyu');if(trivial){if(L)document.head.removeChild(L);return}if(L){L.id='tcss-'+t;L.href='/theme/'+t+'.css'}else{var S=document.createElement('link');S.id='tcss-'+t;S.rel='stylesheet';S.href='/theme/'+t+'.css';document.head.appendChild(S)}})()})();</script>`;
+  /* 主题 CSS 的哈希表要跟着这段脚本一起下发给浏览器：
+     head 里直出的那份 <link> 由 themeCssTag 写了 integrity，但运行时切主题是
+     脚本自己 createElement/改 href，拿不到哈希就只能发一个没有 integrity 的请求
+     —— 同一个文件，直出时有校验、切换时没校验，等于留了条后门。
+     表很小（5 套 × 约 100 字节），放进内联脚本比多一次请求划算。 */
+  const H = {};
+  for (const id of ['ink', 'forest', 'ocean', 'plum', 'mono']) {
+    const a = ASSET_HASH[`theme/${id}.css`];
+    if (a) H[`/theme/${id}.css`] = { v: a.v, i: a.i };
+  }
+  /* 自托管的 mermaid 由 boot.js 按需注入：2.7MB 的包只该在有图的页面落地，
+     但 hash 得提前给到 —— 动态拼出来的 <script> 拿不到服务端戳的版本号。 */
+  const mm = ASSET_HASH['vendor/mermaid.min.js'];
+  if (mm) H['/vendor/mermaid.min.js'] = { v: mm.v, i: mm.i };
+  const hs = JSON.stringify(H).replace(/</g, '\\u003c');
+  return `<script>window.__THEME_DEFAULT__=${cfg};window.__ASSET_H__=${hs};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);(function(){var L=document.getElementById('tcss-default'),trivial=(t==='paper'||t==='anzhiyu');if(trivial){if(L)document.head.removeChild(L);return}var H=window.__ASSET_H__||{},a=H['/theme/'+t+'.css']||{},h='/theme/'+t+'.css'+(a.v?'?v='+a.v:'');if(L){L.id='tcss-'+t;L.integrity=a.i||'';L.href=h}else{var S=document.createElement('link');S.id='tcss-'+t;S.rel='stylesheet';if(a.i)S.integrity=a.i;S.href=h;document.head.appendChild(S)}})()})();</script>`;
 }
 
 function seriesShell({ site, origin, title, kicker, desc, canonical, ld, sub, list }) {
@@ -1947,20 +1964,23 @@ async function notFoundPage(env, request, message = '页面走丢了') {
         .join('')}</ul></div>`
     : '';
   return html(
-    `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+    stampAssets(
+      `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>404 · ${siteName}</title>
 <meta name="robots" content="noindex,follow">
 <meta name="description" content="页面不存在">
 <script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);(function(){var L=document.getElementById('tcss-default'),trivial=(t==='paper'||t==='anzhiyu');if(trivial){if(L)document.head.removeChild(L);return}if(L){L.id='tcss-'+t;L.href='/theme/'+t+'.css'}else{var S=document.createElement('link');S.id='tcss-'+t;S.rel='stylesheet';S.href='/theme/'+t+'.css';document.head.appendChild(S)}})()})();</script>
-<link rel="stylesheet" href="/style.css?v=${assetVersion(env)}">
-<script src="/boot.js?v=${assetVersion(env)}" defer></script>
+<link rel="stylesheet" href="/style.css">
+<script src="/boot.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main">跳到正文</a>
 <main class="g404" id="main" tabindex="-1"><div><h1>404</h1><p>${esc(message)}</p>
 <form action="/" method="get" role="search"><input type="search" name="q" placeholder="搜一下想找的内容…" aria-label="搜索文章"><button type="submit">搜索</button></form>
 ${recentHtml}<div class="g404-foot"><a href="/archive">全部文章</a><a href="/">回到首页</a></div></div></main></body></html>`,
+      env
+    ),
     404,
     /* 404 页每访问一次就要查一次站点设置（D1）再拼一遍 HTML。
        爬虫扫废链的时候这是纯粹的负载：给它 60 秒边缘缓存，
@@ -2191,45 +2211,13 @@ async function serveSitemap(env, request) {
   );
 }
 
-/* ---------- 静态资源统一出口 ----------
-   带 ?v=<部署版本> 的资源内容不会变，直接一年强缓存；
-   没带版本号的退回 5 分钟，保证改了样式也能较快生效 */
-function assetVersion(env) {
-  return env.SITE_VERSION || (env.CF_VERSION_METADATA && env.CF_VERSION_METADATA.id) || '';
-}
-
-/* 给静态资源加部署版本号，让它们能进一年强缓存。
-
-   /thumbs/ 与 /cards/ 也一起带上：这两类不是 R2 动态图，是构建产物
-   （public/thumbs/auto-N.webp、public/cards/*.png），文件名固定、内容
-   只随构建变。不带版本号的话只能给 1 天 + swr，每天都要回源校验一次；
-   带上之后就与 /img/ 的原图一样是 immutable，重新构建换版本号自然失效。
-   注意 og:image 用的是绝对 URL（https://…/cards/x.png），正则要求引号后
-   紧跟斜杠，不会误伤它 —— 分享卡片的缓存不该被部署版本带着跑。 */
-function stampAssets(body, env) {
-  const v = assetVersion(env);
-  if (!v) return body;
-  return body.replace(
-    /(["'])\/(style\.css|app\.js|theme\.js|md\.js|boot\.js|cover\.js|avatar\.js|thumbs\/[^"']+|cards\/[^"']+)\1/g,
-    (m, q, f) => `${q}/${f}?v=${v}${q}`
-  );
-}
-
 async function asset(env, request, url) {
   const res = await env.ASSETS.fetch(request);
   const ct = res.headers.get('content-type') || '';
   if (!res.ok || ct.includes('text/html')) return res;
 
   const headers = new Headers(res.headers);
-  const cc = headers.get('cache-control') || '';
-  if (url?.searchParams.has('v')) {
-    headers.set('cache-control', 'public, max-age=31536000, immutable');
-  } else if (url && (url.pathname.startsWith('/thumbs/') || url.pathname.startsWith('/cards/'))) {
-    // 预设头图与标题卡：文件名按 slug 固定，内容跟着文章改，给一天而不是一年
-    headers.set('cache-control', 'public, max-age=86400, stale-while-revalidate=604800');
-  } else if (!cc || /max-age=0/.test(cc)) {
-    headers.set('cache-control', 'public, max-age=300, stale-while-revalidate=3600');
-  }
+  headers.set('cache-control', assetCacheControl(url, headers.get('cache-control') || ''));
   headers.delete('content-length');
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }

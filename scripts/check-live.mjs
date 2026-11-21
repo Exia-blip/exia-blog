@@ -11,6 +11,8 @@
  *   node scripts/check-live.mjs                       # 默认打 https://exia.de5.net
  *   node scripts/check-live.mjs https://shturl.cc     # 换域名
  */
+import { createHash } from 'node:crypto';
+
 const ORIGIN = (process.argv[2] || 'https://exia.de5.net').replace(/\/$/, '');
 
 let pass = 0;
@@ -415,6 +417,36 @@ console.log(`\n${ORIGIN}\n`);
   ok('enclosure URL 同源绝对地址', enc.length > 0 && enc.every((m) => m[1].startsWith(ORIGIN + '/')));
   ok('enclosure type 是合法图片 MIME', enc.length > 0 && enc.every((m) => /^image\/(png|webp|jpeg|avif|gif)$/.test(m[3])));
   ok('enclosure 不破坏原有 item 字段', rss.body.includes('<content:encoded>') && rss.body.includes('<dc:creator>'));
+}
+
+/* ---------- SRI + immutable 静态资源 ----------
+   这一组验的是「浏览器会不会真的去校验」：
+   光有 integrity 属性不够，值必须与线上字节对得上；
+   光有 ?v= 不够，头部得真是 immutable，否则一年强缓存是句空话。
+   算摘要是整段体检里唯一一次读字节，值得 —— 别的手段都验不出「值写错了」。 */
+{
+  const { body: html } = await get('/');
+  const link = html.match(/<link[^>]+href="(\/style\.css\?v=[^"]+)"[^>]*>/);
+  const script = html.match(/<script[^>]+src="(\/boot\.js\?v=[^"]+)"[^>]*>/);
+  ok('style.css 带内容哈希版本号', !!link && /\?v=[0-9a-f]{10}["']/.test(link[0]), link ? link[1] : '没找到');
+  ok('boot.js 带内容哈希版本号', !!script && /\?v=[0-9a-f]{10}["']/.test(script[0]), script ? script[1] : '没找到');
+  ok('style.css 带 integrity', !!link && /integrity="sha384-[A-Za-z0-9+/=]+"/.test(link[0]));
+  ok('boot.js 带 integrity', !!script && /integrity="sha384-"/.test(script[0]));
+  ok('同源资源不加 crossorigin', !!link && !/crossorigin/i.test(link[0]));
+
+  // 关键一条：拿线上真实字节复算 sha384，与 HTML 里写的比对
+  if (link && /integrity="(sha384-[^"]+)"/.test(link[0])) {
+    const want = link[0].match(/integrity="(sha384-[^"]+)"/)[1];
+    const r = await fetch(ORIGIN + link[1]);
+    const buf = Buffer.from(await r.arrayBuffer());
+    const got = 'sha384-' + createHash('sha384').update(buf).digest('base64');
+    ok('style.css 的 integrity 与线上字节一致', got === want, got === want ? '' : `HTML=${want.slice(0, 24)}… 实际=${got.slice(0, 24)}…`);
+    ok('带 v 的 CSS 返回 immutable', /immutable/.test(r.headers.get('cache-control') || ''), r.headers.get('cache-control') || '');
+    ok('带 v 的 CSS 强缓存一年', /max-age=31536000/.test(r.headers.get('cache-control') || ''));
+  }
+  // 不带 v 的请求不该被当成 immutable（否则改了样式永远刷不出来）
+  const plain = await fetch(ORIGIN + '/style.css');
+  ok('无 v 的 CSS 不给 immutable', !/immutable/.test(plain.headers.get('cache-control') || ''), plain.headers.get('cache-control') || '');
 }
 
 /* ---------- 10. 安全与缓存头 ---------- */

@@ -368,6 +368,22 @@ export function renderMarkdown(src = '') {
   text = text.replace(/```([\w+#.\-]*)[ \t]*\n([\s\S]*?)```/g, (_, lang, code) => {
     const l = lang || 'text';
     const src = code.replace(/\n$/, '');
+
+    /* mermaid 不走语法高亮：它是要被渲染成图形的，任何 span 都会变成源码垃圾。
+       结构也刻意不套 .code-wrap —— 代码块那套折叠/行号的增强逻辑对它没意义，
+       而复制按钮由 mermaid 渲染脚本自己绑（渲染后 <pre> 会被 SVG 顶掉，
+       app.js 里按 .code-wrap 找 <code> 的那条路会扑空）。
+       data-src 里放一份源码：渲染后 <pre> 隐藏，复制仍然拿得到原文。 */
+    if (l.toLowerCase() === 'mermaid') {
+      blocks.push(
+        `<div class="mermaid-wrap">` +
+          `<div class="mm-bar"><span class="mm-lang">mermaid</span>` +
+          `<button class="copy-btn" type="button" data-copy-mermaid>复制</button></div>` +
+          `<div class="mm-body"><pre class="mm-src">${esc(src)}</pre></div></div>`
+      );
+      return `\n\u0000CB${blocks.length - 1}\u0000\n`;
+    }
+
     const body = highlight(src, l);
     const lines = src.split('\n').length;
     const long = lines >= 20; // 短块给行号只是噪音，超长块才需要"第 30 行"这种坐标
