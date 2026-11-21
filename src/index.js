@@ -640,6 +640,9 @@ function themeBoot(site) {
 
 function seriesShell({ site, origin, title, kicker, desc, canonical, ld, sub, list }) {
   const siteName = esc(site.name || 'Blog');
+  // 分享图与静态页同口径：固定那张 1200×630，尺寸和域名都在自己手里。
+  // 系列页此前只手搓了 title/desc/canonical，贴到 IM 里不出富卡片 —— 补齐。
+  const ogImage = `${origin}/og-default.jpg`;
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} · ${siteName}</title>
@@ -648,26 +651,24 @@ function seriesShell({ site, origin, title, kicker, desc, canonical, ld, sub, li
 <meta name="color-scheme" content="light dark">
 <link rel="canonical" href="${esc(canonical)}">
 <link rel="manifest" href="/manifest.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="${esc(site.name || 'Blog')}">
+<meta property="og:title" content="${esc(title)}">
+<meta property="og:description" content="${esc(desc)}">
+<meta property="og:url" content="${esc(canonical)}">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="${esc(ogImage)}">
+<meta property="og:image:alt" content="${esc(site.name || 'Blog')}">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${esc(title)}">
+<meta name="twitter:description" content="${esc(desc)}">
+<meta name="twitter:image" content="${esc(ogImage)}">
 ${themeBoot(site)}
 <link rel="stylesheet" href="/style.css">
 <script src="/boot.js" defer></script>
-<style>
-.page-head{padding:42px 0 26px}
-.page-kicker{margin:0 0 8px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-.page-head h1{font-family:var(--serif);font-size:30px;line-height:1.25;margin:0 0 10px;letter-spacing:var(--hero-space)}
-.page-sub{margin:0;color:var(--muted);font-size:13.5px}
-.series-page{list-style:none;margin:0;padding:0 0 60px;display:flex;flex-direction:column;border-top:1px solid var(--line)}
-.series-page li:first-child{border-top:none}
-.series-page a{display:flex;gap:14px;align-items:baseline;padding:13px 0;border-top:1px solid var(--line);color:var(--fg);text-decoration:none}
-.series-page a:hover .sp-t{color:var(--accent)}
-.sp-n{flex:0 0 auto;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
-.sp-t{flex:1 1 auto;font-size:15px;line-height:1.55}
-.sp-d{flex:0 0 auto;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
-.foot{max-width:760px;margin:0 auto;padding:26px 22px 60px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
-.foot a{color:var(--muted);text-decoration:none}
-.foot a:hover{color:var(--accent)}
-@media(max-width:560px){.sp-t{font-size:14px}.sp-d{display:none}}
-</style>
 ${ld ? ldJson(ld) : ''}
 </head><body>
 <a class="skip-link" href="#main">跳到正文</a>
@@ -680,7 +681,7 @@ ${renderHeader(site, '/series')}
   </div>
   ${list}
 </main>
-<footer class="foot"><a href="/">← 首页</a> · <a href="/series">全部系列</a></footer>
+<footer class="series-foot"><a href="/">← 首页</a> · <a href="/series">全部系列</a></footer>
 </body></html>`;
 }
 
@@ -750,7 +751,7 @@ async function serveSeriesPage(env, request, name) {
   };
 
   return html(
-    seriesShell({
+    stampAssets(seriesShell({
       site,
       origin,
       title: name,
@@ -760,7 +761,7 @@ async function serveSeriesPage(env, request, name) {
       ld,
       sub: `共 ${results.length} 篇 · 最近更新 ${esc(fmtDay(latest))}`,
       list: seriesRows(results),
-    }),
+    }), env),
     200,
     { 'cache-control': pageCacheControl() }
   );
@@ -813,7 +814,7 @@ async function serveSeriesIndex(env, request) {
   };
 
   return html(
-    seriesShell({
+    stampAssets(seriesShell({
       site,
       origin,
       title: '系列',
@@ -823,7 +824,7 @@ async function serveSeriesIndex(env, request) {
       ld,
       sub: `${results.length} 个系列 · 按最近更新排`,
       list,
-    }),
+    }), env),
     200,
     { 'cache-control': pageCacheControl() }
   );
@@ -1921,27 +1922,12 @@ async function notFoundPage(env, request, message = '页面走丢了') {
 <script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);(function(){var L=document.getElementById('tcss-default'),trivial=(t==='paper'||t==='anzhiyu');if(trivial){if(L)document.head.removeChild(L);return}if(L){L.id='tcss-'+t;L.href='/theme/'+t+'.css'}else{var S=document.createElement('link');S.id='tcss-'+t;S.rel='stylesheet';S.href='/theme/'+t+'.css';document.head.appendChild(S)}})()})();</script>
 <link rel="stylesheet" href="/style.css?v=${assetVersion(env)}">
 <script src="/boot.js?v=${assetVersion(env)}" defer></script>
-<style>
-.g404{min-height:100vh;display:grid;place-items:center;text-align:center;padding:40px 20px}
-.g404 h1{font-family:var(--serif);font-size:88px;margin:0;opacity:.12;font-weight:700;letter-spacing:-.05em}
-.g404 p{color:var(--muted);margin:0 0 26px}
-.g404 a{display:inline-block;padding:10px 20px;border-radius:999px;background:var(--fg);color:var(--bg);text-decoration:none;font-size:14px}
-/* 走错路的人多半是在找某篇文章，光给「回首页」等于让他重新找一遍 */
-.g404 form{display:flex;gap:8px;justify-content:center;margin:0 0 22px;max-width:380px}
-.g404 input{flex:1;min-width:0;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--bg-soft,transparent);color:var(--fg);font-size:14px;font-family:inherit}
-.g404 input:focus{outline:2px solid var(--accent);outline-offset:1px}
-.g404 button{padding:10px 18px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--fg);font-size:14px;font-family:inherit;cursor:pointer}
-.g404 button:hover{border-color:var(--fg)}
-.g404-hint{color:var(--muted);font-size:13px;margin:0 0 8px}
-.g404-recent ul{list-style:none;padding:0;margin:0 0 22px;display:flex;flex-direction:column;gap:7px;max-width:380px}
-.g404-recent li{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.g404-recent a{background:transparent;color:var(--accent);padding:0;font-size:14px;text-decoration:underline;text-underline-offset:3px}
-.g404-foot a{display:inline-block;margin:0 6px;padding:0;background:none;font-size:13px;color:var(--muted);text-decoration:underline}
-.g404-foot a:hover{color:var(--fg)}
-</style></head>
-<body><div class="g404"><div><h1>404</h1><p>${esc(message)}</p>
+</head>
+<body>
+<a class="skip-link" href="#main">跳到正文</a>
+<main class="g404" id="main" tabindex="-1"><div><h1>404</h1><p>${esc(message)}</p>
 <form action="/" method="get" role="search"><input type="search" name="q" placeholder="搜一下想找的内容…" aria-label="搜索文章"><button type="submit">搜索</button></form>
-${recentHtml}<div class="g404-foot"><a href="/archive">全部文章</a><a href="/">回到首页</a></div></div></div></body></html>`,
+${recentHtml}<div class="g404-foot"><a href="/archive">全部文章</a><a href="/">回到首页</a></div></div></main></body></html>`,
     404,
     /* 404 页每访问一次就要查一次站点设置（D1）再拼一遍 HTML。
        爬虫扫废链的时候这是纯粹的负载：给它 60 秒边缘缓存，

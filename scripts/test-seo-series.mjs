@@ -2,7 +2,11 @@
 // 以前的 isPartOf.url 填的是当前文章地址（自指），系列页建起来之前没人发现。
 // 用法：node scripts/test-seo-series.mjs
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { postLd } from '../src/seo.js';
+
+const src = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+const css = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
 
 const site = { name: 'Exia Blog', desc: 'x' };
 const origin = 'https://exia.de5.net';
@@ -61,6 +65,80 @@ t('series_order 缺失/为 0 时不写 position（0 不是合法序号）', () =
   assert.equal(a.isPartOf['@type'], 'CreativeWorkSeries');
 });
 
+/* 头像必须全链路走代理。JSON-LD 上的 githubusercontent 外链看不见摸不着，
+   但搜索引擎会真的去取 —— 页面上那两处 <img> 早就代理了，这里漏过一次。
+   这两条原本写在 process.exit 之后，从未执行过 —— 一并挪到循环前面。 */
+t('作者头像走 /avatar 代理，不让 githubusercontent 直链进 JSON-LD', () => {
+  const a = withSeries({ avatar: 'https://avatars.githubusercontent.com/u/191740539?v=4' })['@graph'][0];
+  assert.equal(a.author.image, `${origin}/avatar?u=${encodeURIComponent('https://avatars.githubusercontent.com/u/191740539?v=4')}&s=128`);
+  // 地址被编码进 u= 参数后仍含 githubusercontent 字面串，这是正常的 ——
+  // 要验的是它挂在本站 /avatar 代理后面，而不是裸外链
+  assert.match(a.author.image, /^https:\/\/exia\.de5\.net\/avatar\?u=/);
+  assert.ok(!a.author.image.startsWith('https://avatars.githubusercontent.com/'));
+});
+
+t('作者没头像不出 image 字段，不塞 undefined 进 JSON', () => {
+  const a = withSeries({ avatar: '' })['@graph'][0];
+  // postLd 写的是 image: undefined（键在、值不在），序列化后会被 JSON 丢掉 ——
+  // 所以要验的是值为 undefined，不是键不存在
+  assert.equal(a.author.image, undefined, `实际 author=${JSON.stringify(a.author)}`);
+});
+
+/* 系列壳的分享卡片与资源戳：纯前端壳子没有可 import 的输出，按惯例用静态钩子锁定。 */
+const shell = src.match(/function seriesShell\([\s\S]*?\n\}/)?.[0] || '';
+
+t('系列壳输出完整 OG 块，不再只给 title/desc/canonical', () => {
+  assert.match(shell, /og:type.*website/);
+  assert.match(shell, /og:site_name/);
+  assert.match(shell, /og:title/);
+  assert.match(shell, /og:description/);
+  assert.match(shell, /og:url/);
+  assert.match(shell, /og:locale.*zh_CN/);
+  assert.match(shell, /og:image/);
+});
+
+t('系列壳输出 twitter 三件套，分享图走 og-default', () => {
+  assert.match(shell, /twitter:card.*summary_large_image/);
+  assert.match(shell, /twitter:title/);
+  assert.match(shell, /twitter:description/);
+  assert.match(shell, /twitter:image/);
+  assert.match(shell, /og-default\.jpg/);
+});
+
+t('系列壳无内联 style（两处壳样式已迁 style.css）', () => {
+  assert.ok(!/<style>/.test(shell), 'seriesShell 仍有内联 style');
+  const notFound = src.match(/async function notFoundPage\([\s\S]*?\n\}/)?.[0] || '';
+  assert.ok(!/<style>/.test(notFound), '404 仍有内联 style');
+  assert.match(css, /\.series-page\s*\{/, 'style.css 缺系列页样式');
+  assert.match(css, /\.g404\s*\{/, 'style.css 缺 404 样式');
+  // 500 故障页的内联是故意兜底，必须还在
+  const serverErr = src.match(/export function serverErrorPage\([\s\S]*?\n\}/)?.[0] || '';
+  assert.match(serverErr, /<style>/, '500 页的内联兜底不该被迁走');
+});
+
+t('系列页页脚用专属类名，不与评论表单 .foot 冲突', () => {
+  assert.match(shell, /class="series-foot"/);
+  assert.ok(!/class="foot"/.test(shell), '系列页仍在用 .foot');
+  assert.match(css, /\.series-foot\s*\{/);
+  assert.match(src, /class="foot"/, '评论表单的 .foot 应保留');
+});
+
+t('两处系列入口都过 stampAssets，资源带部署版本戳', () => {
+  // 函数定义 `function seriesShell({...})` 也算一次，排除掉才是调用点
+  const allCalls = (src.match(/seriesShell\(\{/g) || []).length;
+  const shellCalls = allCalls - (/\bfunction\s+seriesShell\(\{/.test(src) ? 1 : 0);
+  const stampCalls = (src.match(/stampAssets\(seriesShell\(\{/g) || []).length;
+  assert.equal(shellCalls, 2, '应有两处系列壳调用');
+  assert.equal(stampCalls, shellCalls, '每一处 seriesShell 都必须包在 stampAssets 里');
+});
+
+t('404 有 skip-link 且指向可用的 #main', () => {
+  const notFound = src.match(/async function notFoundPage\([\s\S]*?\n\}/)?.[0] || '';
+  assert.match(notFound, /class="skip-link" href="#main"/);
+  assert.match(notFound, /id="main"/);
+  assert.match(notFound, /<main class="g404" id="main"/, 'skip-link 目标应是主内容区');
+});
+
 let bad = 0;
 for (const [name, fn] of cases) {
   try {
@@ -73,16 +151,3 @@ for (const [name, fn] of cases) {
 }
 console.log(`\n${cases.length - bad}/${cases.length} 通过`);
 process.exit(bad ? 1 : 0);
-
-/* 头像必须全链路走代理。JSON-LD 上的 githubusercontent 外链看不见摸不着，
-   但搜索引擎会真的去取 —— 页面上那两处 <img> 早就代理了，这里漏过一次。 */
-t('作者头像走 /avatar 代理，不让 githubusercontent 外链进 JSON-LD', () => {
-  const a = withSeries({ avatar: 'https://avatars.githubusercontent.com/u/191740539?v=4' })['@graph'][0];
-  assert.equal(a.author.image, `${origin}/avatar?u=${encodeURIComponent('https://avatars.githubusercontent.com/u/191740539?v=4')}&s=128`);
-  assert.ok(!String(a.author.image).includes('githubusercontent.com'));
-});
-
-t('作者没头像不出 image 字段，不塞 undefined 进 JSON', () => {
-  const a = withSeries({ avatar: '' })['@graph'][0];
-  assert.ok(!('image' in a.author));
-});
