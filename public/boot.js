@@ -283,6 +283,35 @@
     }
   }
 
+  /* ---------------- 页脚明暗三按钮 ----------------
+     独立在这里、不塞进 theme.js：404 与系列页只加载 boot.js，不 import theme.js，
+     放在模块里那两页会点不动。用事件委托 + 动态 import 复用同一套 apply()，
+     过渡动画、localStorage 持久化、theme-color 都跟顶栏面板走一条路，不重复实现。 */
+  function syncFootModes(mode) {
+    var btns = document.querySelectorAll('.foot-mode[data-mode-pick]');
+    for (var i = 0; i < btns.length; i++) {
+      var on = btns[i].getAttribute('data-mode-pick') === mode;
+      btns[i].classList.toggle('on', on);
+      btns[i].setAttribute('aria-pressed', String(on));
+    }
+  }
+  function initFootModes() {
+    if (!document.querySelector('.foot-mode')) return;
+    var cur = 'auto';
+    try { cur = localStorage.getItem('x_mode') || document.documentElement.dataset.mpref || 'auto'; } catch (e) {}
+    syncFootModes(cur);
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('.foot-mode[data-mode-pick]');
+      if (!btn) return;
+      import('/theme.js').then(function (m) {
+        var p = m.pref();
+        m.apply(p.theme, btn.getAttribute('data-mode-pick'));
+        syncFootModes(btn.getAttribute('data-mode-pick'));
+      });
+    });
+  }
+  initFootModes();
+
   if (document.querySelector('.post-body')) {
     watchRead();
     watchImgs();

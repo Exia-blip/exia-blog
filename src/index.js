@@ -682,6 +682,7 @@ ${renderHeader(site, '/series')}
   ${list}
 </main>
 <footer class="series-foot"><a href="/">← 首页</a> · <a href="/series">全部系列</a></footer>
+${siteFooter(site)}
 </body></html>`;
 }
 
@@ -1244,6 +1245,32 @@ const NAV = [
 
 const THEME_BTN = `<button class="theme-btn" data-theme-btn type="button" aria-label="切换风格" aria-expanded="false" title="切换风格"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18 2.2 2.2 0 0 0 1.7-3.6 2.2 2.2 0 0 1 1.7-3.6H18A3 3 0 0 0 21 10.8 9 9 0 0 0 12 3Z"/><circle cx="8" cy="9.2" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.4" cy="7" r="1.1" fill="currentColor" stroke="none"/><circle cx="16.4" cy="9.4" r="1.1" fill="currentColor" stroke="none"/></svg></button>`;
 
+/* ---------- 全站页脚 ----------
+   只在读者页注入（injectTheme 里用 isPagePath 判断），后台/登录页不带。
+   站名取站点设置，GitHub 是作者主页常量；明暗三按钮复用主题系统的
+   data-mode-pick 属性，theme.js 的 syncUI 会自动同步选中态。 */
+const AUTHOR_GITHUB = 'https://github.com/Exia-blip';
+const MODE_ICON = {
+  light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+  dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.3A8.5 8.5 0 0 1 9.7 3.5a8.5 8.5 0 1 0 10.8 10.8Z"/></svg>',
+};
+function siteFooter(site) {
+  const name = esc(site.name || 'Exia Blog');
+  const year = new Date().getUTCFullYear();
+  const modes = ['light', 'auto', 'dark']
+    .map(
+      (m) =>
+        `<button type="button" class="foot-mode" data-mode-pick="${m}" aria-label="${{ light: '浅色', auto: '跟随系统', dark: '深色' }[m]}" title="${{ light: '浅色', auto: '跟随系统', dark: '深色' }[m]}">${MODE_ICON[m]}</button>`
+    )
+    .join('');
+  return `<footer class="site-foot"><div class="sf-inner">
+  <div class="sf-line"><a href="/">${name}</a><span class="sf-dot">·</span><a href="${AUTHOR_GITHUB}" target="_blank" rel="noopener noreferrer">GitHub</a></div>
+  <div class="sf-bottom"><span class="sf-copy">© ${year} ${name}</span>
+  <div class="sf-modes" role="group" aria-label="外观模式">${modes}</div></div>
+</div></footer>`;
+}
+
 /* 窄屏汉堡：640 以下导航整块收进抽屉，站名才不会被压成「Exia Bl...」。
    按钮与抽屉都在 SSR 里出，JS 没跑也能看见入口（点了没反应好过看不见）。 */
 const NAV_TOGGLE = `<button class="nav-toggle" id="nav-toggle" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="site-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path class="nt-a" d="M4 7h16"/><path class="nt-b" d="M4 12h16"/><path class="nt-c" d="M4 17h16"/></svg></button>`;
@@ -1742,6 +1769,12 @@ async function injectTheme(env, res, url) {
     );
   }
   body = body.replace('</head>', `${ld.join('\n')}</head>`);
+  /* 全站页脚：只对读者页注入。isPagePath 不含 /editor、/login、/admin/*，
+     这样后台与登录页不会多一条读者导航。用 marker 重复注入时兜底替换。 */
+  if (isPagePath(url.pathname)) {
+    body = body.replace(/<footer class="site-foot">[\s\S]*?<\/footer>\s*/, '');
+    body = body.replace('</body>', `${siteFooter(s)}</body>`);
+  }
   // 资源带部署版本号，静态资源才能一年强缓存
   body = stampAssets(body, env);
 

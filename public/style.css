@@ -2614,3 +2614,57 @@ mark {
 .g404-recent a { background: transparent; color: var(--accent); padding: 0; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
 .g404-foot a { display: inline-block; margin: 0 6px; padding: 0; background: none; font-size: 13px; color: var(--muted); text-decoration: underline; }
 .g404-foot a:hover { color: var(--fg); }
+
+
+/* ============ 全站页脚 ============
+   截图那种：站名/GitHub 一行，版权与亮/自动/暗三按钮一行。
+   颜色全走主题变量，跟随七套风格；只在读者页由 Worker 注入。 */
+.site-foot {
+  margin-top: 72px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.site-foot .sf-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 30px 22px 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.site-foot .sf-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.site-foot a { color: var(--fg-soft); text-decoration: none; }
+.site-foot a:hover { color: var(--accent); }
+.site-foot a:focus-visible, .site-foot button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.site-foot .sf-dot { color: var(--line); }
+.site-foot .sf-bottom {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.site-foot .sf-copy { font-family: var(--mono); font-size: 11.5px; letter-spacing: .01em; }
+/* 三按钮胶囊：选中态用 fg/bg 反色，不引入新色，暗色主题自动成立 */
+.site-foot .sf-modes {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 3px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--card);
+}
+.site-foot .foot-mode {
+  display: grid; place-items: center;
+  width: 30px; height: 30px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent;
+  color: var(--muted); cursor: pointer;
+  transition: background-color .18s, color .18s;
+}
+.site-foot .foot-mode svg { width: 16px; height: 16px; }
+.site-foot .foot-mode:hover { color: var(--fg); background: var(--bg-soft); }
+.site-foot .foot-mode.on { color: var(--bg); background: var(--fg); }
+@media (prefers-reduced-motion: reduce) {
+  .site-foot .foot-mode { transition: none; }
+}
+@media (max-width: 560px) {
+  .site-foot { margin-top: 52px; }
+  .site-foot .sf-inner { padding: 24px 18px 28px; }
+}
