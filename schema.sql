@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_author  ON posts(author_id);
 CREATE INDEX IF NOT EXISTS idx_posts_category ON posts(category);
+CREATE INDEX IF NOT EXISTS idx_posts_published ON posts(published_at);
+CREATE INDEX IF NOT EXISTS idx_posts_series ON posts(series, series_order);
 
 -- 标签
 CREATE TABLE IF NOT EXISTS tags (
@@ -80,6 +82,7 @@ CREATE TABLE IF NOT EXISTS comment_guard (
   banned   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
+CREATE INDEX IF NOT EXISTS idx_comments_ip   ON comments(ip);
 
 -- 友链
 CREATE TABLE IF NOT EXISTS friends (
@@ -90,6 +93,8 @@ CREATE TABLE IF NOT EXISTS friends (
   desc        TEXT,
   status      INTEGER NOT NULL DEFAULT 1, -- 1 可访问 0 挂
   checked_at  TEXT,
+  http_status INTEGER NOT NULL DEFAULT 0, -- 上次探测的 HTTP 状态码，0 = 还没探过
+  latency_ms  INTEGER,                    -- 探测耗时（毫秒），null = 未记录
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -105,8 +110,6 @@ CREATE TABLE IF NOT EXISTS pv (
   kind  TEXT NOT NULL DEFAULT 'pc',
   ts    TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_pv_day  ON pv(day);
-CREATE INDEX IF NOT EXISTS idx_pv_path ON pv(day, path);
 
 -- 行为事件：阅读完成、图片加载失败、站内搜索。
 -- 和 pv 分表，因为这三个的写入时机、去重键、保留策略都不一样：

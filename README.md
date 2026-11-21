@@ -52,7 +52,8 @@
 ```
 exia-blog/
 ├── wrangler.jsonc      # Workers / D1 / R2 / Cron 绑定
-├── schema.sql          # D1 建表
+├── schema.sql          # D1 建表（与 migrations/ 等价，由 test-schema 锁着）
+├── migrations/         # 结构变更的唯一来源；0001 是基线
 ├── cors.json           # R2 CORS（图片直传需要）
 ├── src/
 │   ├── index.js        # 入口：路由、SSR meta / 主题注入、图片代理、RSS
@@ -113,8 +114,36 @@ npx wrangler r2 bucket create blog-images
 ### 3. 初始化表结构
 
 ```bash
-npx wrangler d1 execute blog-db --remote --file=./schema.sql
+npm run db:init            # = wrangler d1 migrations apply blog-db --remote
 ```
+
+走的 `migrations/0001_baseline.sql`，建完表同时记一笔版本（`d1_migrations` 表）。全空库和已有库都能跑，语句都是 `IF NOT EXISTS`。
+
+#### 3.1 以后改表结构（加字段 / 加表 / 加索引）
+
+结构变更一律走 `migrations/`，不要直接对线上库敲 `ALTER` —— 手工改库不留记录，等到换账号或建新库那天才发现漏了。
+
+```bash
+npm run schema:plan          # 看还有哪些迁移没应用
+# 新建 migrations/0002_xxx.sql，序号接着最后一个
+
+npm run schema:apply:local   # 先在本地库验证
+npm run schema:apply:local   # 再跑一次，应该显示 No migrations to apply（幂等）
+
+npm run schema:apply         # 应用线上
+npm run check:schema         # 确认线上结构与 migrations 一致
+```
+
+硬性约定，由 `scripts/test-schema.mjs` 守着，违反就 `npm test` 红：
+
+| 约定 | 为什么 |
+|---|---|
+| 所有 `CREATE TABLE` / `CREATE INDEX` 带 `IF NOT EXISTS` | 迁移要能重放，不能跑第二次就炸 |
+| `schema.sql` 与 `migrations/` 等价 | 两份描述同一个库，漂了就会「新库缺列、老库没问题」 |
+| 代码里 `INSERT INTO 表 (列…)` 的列必须在 migrations 里 | 加了字段忘写迁移 → 线上 `no such column`，这条把问题提前到测试 |
+| 不许 `DROP` / `RENAME` / 删列，除非文件里写 `-- @allow-destructive` | 删数据的语句必须是有意识的 |
+
+`npm run deploy` 在部署前会跑一次 `check:schema`：线上库缺列就停下，不留「代码要新列、库还没有」的 500 窗口。连不上 D1 只警告不阻断（网络抖动不该让人发不了版）。
 
 ### 4. 建 GitHub OAuth App
 
@@ -466,7 +495,7 @@ curl -sD - -o /dev/null https://exia.de5.net/cdn-cgi/trace | grep -iE 'x-content
 
 ```bash
 # 建本地库（首次）
-npx wrangler d1 execute blog-db --local --file=./schema.sql
+npm run schema:apply:local
 
 # 起服务，http://localhost:8788
 npx wrangler dev --port 8788 --local

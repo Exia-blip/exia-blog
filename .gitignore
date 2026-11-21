@@ -22,3 +22,4 @@ scripts/.cards-input.json
 
 # D1 备份导出（含文章全文，不进仓库）
 backups/*.sql
+backups/*.sqlite

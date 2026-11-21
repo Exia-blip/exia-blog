@@ -30,6 +30,20 @@ try {
   process.exit(1);
 }
 
+/* 库结构闸门：代码要的列，线上库得真有。
+   顺序必须是「写 migrations/NNNN_xxx.sql → npm run schema:apply → 发版」；
+   反过来（先发版后迁移）会有一段时间代码撞 no such column，页面直接 500。
+   退出码 1 = 结构与 migrations 不一致，停下；退出码 2 = 连不上 D1，
+   只警告不阻断 —— 网络抖动不该让人发不了版，真正的结构问题会在下次发版时暴露。 */
+const sc = spawnSync(process.execPath, ['scripts/schema.mjs', 'check'], { stdio: 'inherit' });
+if (sc.status === 1) {
+  console.log('\n[deploy] 线上库结构与 migrations 对不上，已停下。先 npm run schema:apply。');
+  process.exit(1);
+}
+if (sc.status === 2) {
+  console.log('\n[deploy] ⚠️ 结构体检没跑成（连不上 D1），继续部署 —— 上线后留意 no such column 报错。');
+}
+
 const version = Date.now().toString(36);
 console.log(`[deploy] asset version = ${version}`);
 execSync(`npx wrangler deploy --var SITE_VERSION:${version}`, { stdio: 'inherit' });
