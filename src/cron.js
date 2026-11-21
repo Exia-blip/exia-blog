@@ -12,12 +12,43 @@ import { nowISO } from './utils.js';
    4. 自己 zone 的域名不能在这里 fetch：请求会绕回本 Worker，实测 522（37ms）。
       友链里出现本站地址的，直接跳过。
 */
-const UA = 'Mozilla/5.0 (compatible; BlogFriendCheck/1.0; +https://exia.de5.net/friends)';
 const TIMEOUT_MS = 8000;
 const PER_RUN = 40;
 const CONCURRENCY = 10;
-const SELF_HOSTS = new Set(['exia.de5.net', 'www.exia.de5.net', 'exia-blog.meitu.workers.dev']);
 const MAX_REDIRECTS = 5;
+
+/* UA 与自环宿主都从 env.SITE_ORIGIN 派生 —— 换域名只改 wrangler.jsonc 一处。
+   旧域名留作兜底不是为了兼容，是因为它们是历史部署地址：屏蔽它们没有副作用，
+   但少屏蔽一个就可能让友链里的自己把自己探测一遍（实测 522）。
+   SITE_ORIGIN 缺失或配错时退回默认，不让整个友链巡检挂掉。 */
+const DEFAULT_ORIGIN = 'https://exia.de5.net';
+const LEGACY_SELF_HOSTS = ['exia.de5.net', 'www.exia.de5.net', 'exia-blog.meitu.workers.dev'];
+
+function originOf(env) {
+  try {
+    const raw = String(env?.SITE_ORIGIN || '').trim();
+    return raw ? new URL(raw).origin : DEFAULT_ORIGIN;
+  } catch {
+    return DEFAULT_ORIGIN;
+  }
+}
+
+function uaOf(env) {
+  return `Mozilla/5.0 (compatible; BlogFriendCheck/1.0; +${originOf(env)}/friends)`;
+}
+
+function selfHostsOf(env) {
+  const set = new Set(LEGACY_SELF_HOSTS);
+  try {
+    const raw = String(env?.SITE_ORIGIN || '').trim();
+    if (raw) {
+      const host = new URL(raw).hostname;
+      set.add(host);
+      set.add(`www.${host}`);
+    }
+  } catch { /* 配错就只用历史集合，不影响巡检本身 */ }
+  return set;
+}
 
 /* 友链 URL 由管理员写入，但不该让 Worker 去打内网 / 回环 / 云元数据地址。
    redirect:'follow' 会跟着 302 跳进内网（外部友链 → 内网），所以不能只校验
@@ -53,8 +84,9 @@ export function isBlockedHost(rawHost) {
   return false;
 }
 
-/* 把 URL 规范化并做首跳校验；返回 target 或拒绝原因。 */
-function resolveTarget(raw) {
+/* 把 URL 规范化并做首跳校验；返回 target 或拒绝原因。
+   selfHosts 由调用方从 env 派生传入，纯函数不读全局，单测可直接穷举。 */
+function resolveTarget(raw, selfHosts) {
   const s = String(raw || '').trim();
   if (!s) return { note: 'bad-url' };
   const target = /^https?:\/\//i.test(s) ? s : `https://${s}`;
@@ -66,14 +98,14 @@ function resolveTarget(raw) {
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return { note: 'bad-url' };
   const host = u.hostname;
-  if (SELF_HOSTS.has(host)) return { note: 'self' };
+  if ((selfHosts || new Set(LEGACY_SELF_HOSTS)).has(host)) return { note: 'self' };
   if (isBlockedHost(host)) return { note: 'blocked-host' };
   return { target };
 }
 
 /* 0 挂 / 1 正常 / 2 有响应但状态异常 */
-async function probe(url) {
-  const first = resolveTarget(url);
+async function probe(url, selfHosts, ua) {
+  const first = resolveTarget(url, selfHosts);
   if (first.note === 'self') return { status: 1, code: 0, ms: 0, note: 'self' };
   if (first.note) return { status: 0, code: 0, ms: 0, note: first.note };
 
@@ -87,7 +119,7 @@ async function probe(url) {
       const res = await fetch(target, {
         method: 'GET',
         redirect: 'manual', // 自行跟随，每跳都能校验目标
-        headers: { 'user-agent': UA, accept: 'text/html,*/*' },
+        headers: { 'user-agent': ua, accept: 'text/html,*/*' },
         signal,
       });
       const ms = Date.now() - t0;
@@ -102,7 +134,7 @@ async function probe(url) {
       if (hop === MAX_REDIRECTS) return { status: 2, code, ms, note: 'too-many-redirects' };
       const loc = res.headers.get('location');
       if (!loc) return { status: 2, code, ms, note: 'redirect-no-location' };
-      const next = resolveTarget(new URL(loc, target).toString());
+      const next = resolveTarget(new URL(loc, target).toString(), selfHosts);
       if (next.note) return { status: 2, code, ms, note: `redirect-${next.note}` };
       target = next.target;
     }
@@ -114,6 +146,10 @@ async function probe(url) {
 }
 
 export async function checkFriends(env) {
+  /* 每轮现算一次：既不碰模块级可变状态（多 isolate  interleaving 会串），
+     也不把域名写死在函数里。换域名配了 SITE_ORIGIN 就自动生效。 */
+  const selfHosts = selfHostsOf(env);
+  const ua = uaOf(env);
   const { results } = await env.DB.prepare(
     `SELECT id, url FROM friends
      ORDER BY COALESCE(NULLIF(checked_at, ''), '') ASC, id ASC
@@ -129,7 +165,7 @@ export async function checkFriends(env) {
   // 每批 10 个并发：同样 10 个站点，串行 2026ms，并发 332ms（实测）
   for (let i = 0; i < results.length; i += CONCURRENCY) {
     const batch = results.slice(i, i + CONCURRENCY);
-    const rows = await Promise.all(batch.map(async (f) => ({ id: f.id, ...(await probe(f.url)) })));
+    const rows = await Promise.all(batch.map(async (f) => ({ id: f.id, ...(await probe(f.url, selfHosts, ua)) })));
 
     // batch() 是单次往返写多条，比逐条 run() 省 N-1 次 D1 调用
     await env.DB.batch(

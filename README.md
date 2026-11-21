@@ -212,6 +212,36 @@ npx wrangler deploy
 
 ---
 
+## 换域名 / 换账号
+
+**换域名（同一个 Cloudflare 账号）不需要搬数据。** D1 和 R2 绑在账号上，跟域名无关。只需三步：
+
+1. `wrangler.jsonc` 的 `SITE_ORIGIN` 改成新域名
+2. CF Dashboard 给 Worker 绑新域名
+3. GitHub OAuth App 的 Callback URL 改成 `新域名/auth/callback`
+
+运行时代码已从 `SITE_ORIGIN` / canonical 派生域名——友链自检的 UA 与自环判定、友链申请示例、复制声明都不用手动改。`npm run migrate:plan` 会打印这份清单。
+
+**换账号 / 灾备重建**才要搬数据：
+
+```bash
+# 旧账号：导出 D1 全库 + 配置快照 + R2 图片命令清单
+npm run migrate:export
+
+# 新账号：建好 D1 / R2，改 wrangler.jsonc 的 database_id，然后
+npm run migrate:import -- --apply    # 灌 D1；不加 --apply 是 dry-run
+sh backups/<日期>/r2-get.sh          # 在旧账号登录态下拉图
+sh backups/<日期>/r2-put.sh          # 切到新账号登录态后灌图
+npm run make:variants                # 重生成变体（get.sh 已含，补漏用）
+npx wrangler secret put SESSION_SECRET
+npx wrangler secret put GITHUB_CLIENT_SECRET
+npm run deploy
+```
+
+`manifest.json` 只记 secrets 的**名字**不记值——密钥必须在新账号重新 `put`。导出目录含文章全文与用户邮箱，`.gitignore` 已排除，别外传。
+
+---
+
 ## 后台
 
 登录后顶部只有一个 **后台** 入口（`/editor`），页面里同时包含：

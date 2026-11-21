@@ -25,7 +25,9 @@
   <section class="friend-apply">
     <h2>想交换友链？</h2>
     <p>把下面这条放进你的友链页，然后到 <a href="https://github.com/Exia-blip" target="_blank" rel="noopener me">GitHub @Exia-blip</a> 说一声。</p>
-    <pre><code>&lt;a href="https://exia.de5.net/" title="Exia Blog"&gt;Exia Blog&lt;/a&gt;</code></pre>
+    <!-- 示例里的域名由下方脚本按 canonical 派生，换域名不用改这页；
+         这里留初始文本，禁用 JS 时仍可读（只是可能指向旧域名）。 -->
+    <pre><code id="friend-demo">&lt;a href="/" title="Exia Blog"&gt;Exia Blog&lt;/a&gt;</code></pre>
     <p class="fa-note">要求：原创为主、HTTPS 打得开、本站已经在你的友链里。加完说一声就行——这边每 20 分钟自动检测一轮，点进去能通就算数。</p>
   </section>
 
@@ -49,6 +51,23 @@
 
 <script type="module">
 import { api, esc, mountHeader, toast } from '/app.js';
+
+// 友链申请示例：链接取 canonical 的 origin（= SITE_ORIGIN），站名取 window.__SITE__。
+// 换域名只改 wrangler.jsonc，这页展示的地址自动跟着走。
+// 页面脚本一律纯文本写入（textContent），不拼 HTML —— 站名由管理员在后台填。
+{
+  const demo = document.getElementById('friend-demo');
+  if (demo) {
+    let origin = '';
+    try {
+      const link = document.querySelector('link[rel="canonical"]');
+      if (link && link.href) origin = new URL(link.href, location.href).origin;
+    } catch { /* 拿不到就保留相对链接兜底 */ }
+    const name = (window.__SITE__ && window.__SITE__.name) || 'Exia Blog';
+    const href = origin ? origin + '/' : '/';
+    demo.textContent = `<a href="${href}" title="${name}">${name}</a>`;
+  }
+}
 
 const grid = document.getElementById('grid');
 
