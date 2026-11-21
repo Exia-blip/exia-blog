@@ -39,6 +39,8 @@
     "vitals:mobile": "node scripts/perf-vitals.mjs https://exia.de5.net/ --mobile --runs=3",
     "cls": "node scripts/cls-dig.mjs",
     "check:live": "node scripts/check-live.mjs",
+    "verify:mermaid": "node scripts/verify-mermaid.mjs",
+    "verify:editor": "node scripts/verify-editor.mjs",
     "backfill:html": "node scripts/backfill-html.mjs",
     "backfill:check": "node scripts/backfill-html.mjs --check",
     "ttfb": "node scripts/ttfb.mjs",

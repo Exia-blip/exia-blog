@@ -24,7 +24,7 @@
 | 能力 | 实现 |
 |---|---|
 | GitHub OAuth 登录 | 第一个登录的用户自动成为管理员，其余为普通用户 |
-| 文章写作 / 编辑 | Markdown 编辑器，左右分栏实时预览，内置零依赖语法高亮 |
+| 文章写作 / 编辑 | Monaco 编辑器（CDN 拉不到就退回原生 textarea），左右分栏实时预览，内置零依赖语法高亮 |
 | 本地实时保存 | 每次输入即写 `localStorage`，按文章 ID 分键，多篇互不覆盖 |
 | 服务端自动保存 | 停止输入 3 秒自动落库，`Ctrl/Cmd + S` 立即保存 |
 | 私密文章 | 仅作者可见，未登录访问返回 404 |
@@ -42,6 +42,7 @@
 | 搜索 | 标题 + 正文关键词，分页列表 |
 | 风格主题 | 7 套预设（安知鱼 / 纸韵 / 水墨 / 苔原 / 静海 / 暮紫 / 终端），读者自选，浅色·深色·跟随系统三档 |
 | 站点头像 | 导航栏左上角圆形头像，后台可上传 / 拖拽 / 粘贴 / 填外链，兼作 favicon |
+| 图表 | 正文里写 mermaid 代码块（围栏语言标 mermaid），读者侧按需加载自托管 mermaid 渲染成 SVG；无 JS 时显示源码 |
 | AI 摘要 | 保存/发布时自动生成导语，文章页顶部展示，同时作为列表简介、SEO description 与 RSS 描述；可手动改写或重新生成 |
 
 额外：RSS（带 `content:encoded` 全文，站内相对链接自动补成绝对地址）、sitemap、移动端适配、文章内 `#标签` 自动转为可点击链接。
@@ -499,7 +500,13 @@ npx wrangler dev --port 8788 --local
 | 浏览器/边缘 | `/thumbs/*`、`/cards/*`（带 `?v=`） | `max-age=31536000, immutable` |
 | 浏览器/边缘 | 同上但不带版本号（兜底） | `max-age=86400, stale-while-revalidate=604800` |
 
-资源版本号取自 `CF_VERSION_METADATA.id`（每次 `wrangler deploy` 自动换一个 UUID），HTML 里的 `/style.css?v=<uuid>` 跟着变，所以能放心给一年强缓存——改样式不用教用户清缓存。
+资源版本号取自**内容哈希**（`npm run build:sri` 算出，落在 `src/assets.gen.js`），不是部署序号。两者差别很大：部署序号每次发版都换，等于每改一行文档就逼所有访客重下 121KB 的 `style.css`；内容哈希只在文件真变了才换，没动过的资源跨部署继续命中缓存——一年 `immutable` 这时候才是真的生效。
+
+同一份哈希顺手产出 `integrity="sha384-…"` 写进 `<script>` / `<link>`。它和版本号同源，所以不会出现「URL 换了、校验值还是旧的」这种既白屏又难查的状态。**改了 `public/` 下的 js/css 必须跑一次 `npm run build:sri`**（`npm run deploy` 会自动跑，`npm test` 里有一条会校验 manifest 与磁盘字节一致）。
+
+SRI 的边界在 `<head>` 直出的标签上；`/editor`、`/login` 这类直接由静态资源返回的 HTML 不过 Worker 模板，标签上没有版本号也没有 integrity，它们只能吃 5 分钟短缓存。故意不补：为这几个页每次请求读一遍 HTML 文章算哈希，代价大于收益。
+
+`public/vendor/mermaid.min.js`（2.7MB）也走同一条路：自托管、内容哈希、`immutable`、`integrity`。只在页面上真有 mermaid 图时才注入，不拖累其它页面。
 
 **发布即失效**：新建 / 修改 / 删除文章后会主动 `caches.default.delete()` 掉首页、归档、栏目页和新旧文章地址，不用等 TTL。TTL 放宽到 300 秒就是靠这一条兜底的——内容更新是主动清的，不是等出来的。带 `sid` cookie 的请求一律绕过缓存，后台、私密文章、登录流程永远实时渲染。
 
