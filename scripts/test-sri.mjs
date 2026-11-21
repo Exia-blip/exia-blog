@@ -157,6 +157,17 @@ t('上游 max-age=0 时被抬到短缓存', () => {
   assert.match(assetCacheControl(new URL('https://x/a.js'), 'public, max-age=0'), /max-age=300/);
 });
 
+/* 内容哈希对字节敏感，行尾一变哈希就变。仓库里按 .gitattributes 存 LF，
+   Windows 工作区若被写回 CRLF，本地 manifest 按 CRLF 算、CI checkout 出 LF，
+   结果是「本地绿、CI 红」—— 2026-11-22 在 app.js 上真发生过。
+   这条不依赖 build:sri 有没有跑过，直接看磁盘字节。 */
+t('参与 SRI 的文件都是 LF 行尾（与仓库索引一致）', () => {
+  const offenders = Object.keys(ASSET_HASH).filter((f) =>
+    readFileSync(join(PUB, f), 'utf8').includes('\r\n')
+  );
+  assert.deepEqual(offenders, [], `CRLF：${offenders.join('、')}`);
+});
+
 console.log(`\nPASS  ${pass} passed, ${fails.length} failed  （SRI / immutable）`);
 if (fails.length) {
   console.log(fails.map((f) => '   · ' + f).join('\n'));

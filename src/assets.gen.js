@@ -2,7 +2,7 @@
  *   npm run build:sri
  * 测试里有一条会校验这份表与磁盘文件是否同步，忘了跑会被发版闸门拦下。 */
 export const ASSET_HASH = {
-  'app.js': { v: '5373e451dd', i: 'sha384-Nl2zDXQdS3AD31XGEiWOjXIRp9YkESqESOuUXnUgWGWr/dCVzTCxvrlEClNzvVSN' },
+  'app.js': { v: '6423311726', i: 'sha384-jmTvGXuUZeKaIPvq6uMtV+Ai0pbgPsL+9vf68djeY/jnBFEfvrEsn4Ondpj4x18B' },
   'avatar.js': { v: '6945d59a78', i: 'sha384-30Q/I2a0FinO61Vm7okClafFryh+6EhWthjZ+F8ZJYK7AVwo6w1ypU59jsI2cM0k' },
   'boot.js': { v: '01956cba31', i: 'sha384-HBkR6v0RAqcZuzTEUq/AclQFoVoal510gO9NSk+rapSaAWZ+ZlxtycWK44pU8B7v' },
   'copy-notice.js': { v: '9244b7ce73', i: 'sha384-l5UVmwYDiWq68IRagkZJfz+I+EGGEWJR5keZkDJ0ZFqUbea2ojbOuUSLrNdgnxT3' },

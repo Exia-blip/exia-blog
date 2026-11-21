@@ -56,13 +56,28 @@ function collect() {
 const files = collect();
 const map = {};
 const rows = [];
+const crlf = [];
 for (const f of files) {
   const buf = readFileSync(join(PUB, f));
+  /* 行尾必须与 git 索引一致（.gitattributes 定的是 LF）。
+     Windows 上某些工具/编辑器会把文件写回 CRLF：本地算出的哈希是按 CRLF 字节来的，
+     部署到线上去也是 CRLF，线上自洽、本地测试也绿 —— 但 CI checkout 出来是 LF，
+     哈希立刻对不上，单元测试红。这个坑 2026-11-22 真踩过一次（app.js）。
+     宁可在这里硬失败，也不要让不一致的 manifest 溜进发版流程。 */
+  if (buf.includes('\r\n')) crlf.push(f);
   const sha = createHash('sha384').update(buf).digest('base64');
   // 版本号取摘要前 10 位字母数字（去掉 +/），够短也够区分
   const v = createHash('sha256').update(buf).digest('hex').slice(0, 10);
   map[f] = { v, i: `sha384-${sha}` };
   rows.push(`  '${f}': { v: '${v}', i: 'sha384-${sha}' },`);
+}
+
+if (crlf.length) {
+  console.error(`[sri] 这些文件是 CRLF 行尾，哈希会与仓库里的 LF 版本对不上：`);
+  for (const f of crlf) console.error(`  public/${f}`);
+  console.error(`[sri] 转成 LF 再跑：` +
+    `node -e "const fs=require('fs');for(const f of ${JSON.stringify(crlf.map((f) => 'public/' + f))}){fs.writeFileSync(f,fs.readFileSync(f,'utf8').replace(/\\r\\n/g,'\\n'))}"`);
+  process.exit(1);
 }
 
 const header = `/* 自动生成，不要手改。改完 public 里的 js/css 跑一次：
