@@ -15,12 +15,14 @@ const ORIGIN = (process.argv[2] || 'https://exia.de5.net').replace(/\/$/, '');
 
 let pass = 0;
 let fail = 0;
+const failed = [];
 const ok = (name, cond, extra = '') => {
   if (cond) {
     pass++;
     console.log(`  ok   ${name}${extra ? '  ' + extra : ''}`);
   } else {
     fail++;
+    failed.push(name);
     console.log(`  FAIL ${name}${extra ? '  ' + extra : ''}`);
   }
 };
@@ -36,6 +38,18 @@ const get = async (path, opts = {}) => {
   const body = opts.head ? '' : await res.text();
   return { res, body, h: res.headers };
 };
+
+/* 动态 HTML 必须带 cache-buster。原来只有首页带 BUST：刚部署完 /series、
+   /archive、文章页还可能命中上一版的边缘缓存，体检等于在测旧代码 ——
+   新增断言会假红，旧断言会假绿。静态资源（CSS/JS/图片）不能加，
+   否则测的就不是用户实际走的那条缓存路径了。 */
+const bustUrl = (path) => {
+  const i = path.indexOf('?');
+  const base = i < 0 ? path : path.slice(0, i);
+  const q = i < 0 ? '' : path.slice(i + 1) + '&';
+  return `${base}?${q}cb=${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+};
+const page = (path, opts = {}) => get(bustUrl(path), opts);
 
 console.log(`\n${ORIGIN}\n`);
 
@@ -76,6 +90,11 @@ console.log(`\n${ORIGIN}\n`);
   ok('404 不让收录（meta）', /<meta\s+name=["']robots["'][^>]*noindex/i.test(body));
   ok('404 不让收录（头）', /noindex/i.test(h.get('x-robots-tag') || ''));
   ok('404 页带返回入口', /回到首页/.test(body) || /href="\/"/.test(body));
+  /* 404 也是读者会落到的页面，键盘用户同样需要跳过导航。
+     这两条连同下面的「无内联 style」守住上一轮把 404 从内联壳迁出的改动。 */
+  ok('404 有跳到正文链接', /class="skip-link"[^>]*href="#main"/.test(body));
+  ok('404 有 main 落点', /<main\b[^>]*id="main"/.test(body));
+  ok('404 样式已外链（无内联 style）', !/<style\b/.test(body));
   const cc = h.get('cache-control') || '';
   ok('404 缓存不超过 1 分钟', !/s-maxage=(\d{3,})/.test(cc), cc);
   // 文章 slug 不存在
@@ -86,11 +105,11 @@ console.log(`\n${ORIGIN}\n`);
 /* ---------- 4. 时区（显示层）---------- */
 {
   // 从 sitemap 拿一篇真文章
-  const { body: sm } = await get('/sitemap.xml');
+  const { body: sm } = await page('/sitemap.xml');
   const locs = [...sm.matchAll(/<loc>[^<]*\/p\/([^<]+)<\/loc>/g)].map((m) => m[1]);
   ok('sitemap 有文章', locs.length > 0, `${locs.length} 篇`);
   if (locs.length) {
-    const { body } = await get(`/p/${locs[0]}`);
+    const { body } = await page(`/p/${locs[0]}`);
     const m = body.match(/class="sep-dot">(\d{4}-\d{2}-\d{2})</);
     const d = m ? m[1] : '';
     ok('文章页有发布日期', /^\d{4}-\d{2}-\d{2}$/.test(d), d);
@@ -105,8 +124,10 @@ console.log(`\n${ORIGIN}\n`);
 /* ---------- 5. HEAD 与 GET 的 ETag 必须一致 ---------- */
 {
   for (const path of ['/', '/archive']) {
-    const g = await get(path);
-    const { h: hh } = await get(path, { head: true });
+    // GET 与 HEAD 必须打同一个 URL，否则比的是两个缓存键
+    const url = bustUrl(path);
+    const g = await get(url);
+    const { h: hh } = await get(url, { head: true });
     const ge = g.h.get('etag');
     const he = hh.get('etag');
     ok(`HEAD 与 GET 的 ETag 一致 ${path}`, ge && ge === he, `${ge} vs ${he}`);
@@ -193,7 +214,7 @@ console.log(`\n${ORIGIN}\n`);
   const pages = ['/', '/archive', '/p/post-brfy5'];
   const leaked = [];
   for (const path of pages) {
-    const { body } = await get(path);
+    const { body } = await page(path);
     const text = body
       .replace(/<style[\s\S]*?<\/style>/gi, '')
       .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -214,7 +235,7 @@ console.log(`\n${ORIGIN}\n`);
   const slugs = [...new Set([...home.matchAll(/href="(\/p\/[^"]+)"/g)].map((m) => m[1]))].slice(0, 5);
   let imgs = [];
   for (const p of slugs) {
-    const art = (await get(p)).body;
+    const art = (await page(p)).body;
     imgs = [...new Set([...art.matchAll(/<img[^>]+src="(\/img\/[^"]+)"/g)].map((m) => m[1]))].slice(0, 8);
     if (imgs.length) break;
   }
@@ -327,7 +348,7 @@ console.log(`\n${ORIGIN}\n`);
 {
   // 固定夹具：worker-cron-friend-check 有 4 标签、非系列，相关推荐与上下篇应共存；
   // post-brfy5 无标签无栏目，整块不该渲染（空壳占版面是回归）。
-  const withTags = await get('/p/worker-cron-friend-check');
+  const withTags = await page('/p/worker-cron-friend-check');
   const cards = [...withTags.body.matchAll(/class="rel"[^>]*>/g)].map((_, i) => i);
   ok('有标签文章渲染相关推荐区块', withTags.body.includes('class="post-related"'));
   ok('相关推荐最多 3 张卡', cards.length > 0 && cards.length <= 3, `实际 ${cards.length} 张`);
@@ -339,8 +360,43 @@ console.log(`\n${ORIGIN}\n`);
   // 前三会退化成纯 tools 栏目文章。这条只有排序真按标签交集走才会过。
   ok('跨栏目同标签文章排第一（标签交集真生效）',
     relHrefs[0] === '/p/worker-render-549-to-96', `实际第一张 ${relHrefs[0]}`);
-  const noTags = await get('/p/post-brfy5');
+  const noTags = await page('/p/post-brfy5');
   ok('无标签无栏目文章不渲染相关推荐', !noTags.body.includes('class="post-related"'));
+}
+
+/* ---------- 系列页：手搓壳的四项线上守门 ----------
+ * test-seo-series.mjs 在源码层锁住了这些约束；这里验的是线上真的吐出来了 ——
+ * 静态断言过、Worker 里换个返回值，只有线上体检能抓到。
+ * 这页以前 OG/Twitter 整块缺失、CSS/JS 裸引用、还带一段内联 style。 */
+{
+  const idx = await page('/series');
+  const stamped = (b) =>
+    /href="\/style\.css\?v=[^"]+"/.test(b) && /src="\/boot\.js\?v=[^"]+"/.test(b);
+
+  ok('系列页有 OG 标题与站点名',
+    /<meta property="og:title" content="[^"]+"/.test(idx.body) &&
+    /<meta property="og:site_name" content="[^"]+"/.test(idx.body));
+  ok('系列页有 Twitter 富卡片',
+    /<meta name="twitter:card" content="summary_large_image"/.test(idx.body) &&
+    /<meta name="twitter:image" content="[^"]+"/.test(idx.body));
+  ok('系列页 OG 图走同源 1200×630 默认卡',
+    idx.body.includes(`content="${ORIGIN}/og-default.jpg"`) &&
+    /og:image:width" content="1200"/.test(idx.body) &&
+    /og:image:height" content="630"/.test(idx.body));
+  ok('系列总览资源带部署版本戳', stamped(idx.body));
+  ok('系列总览样式已外链（无内联 style）', !/<style\b/.test(idx.body));
+  ok('系列总览有 skip-link 与 main 落点',
+    /class="skip-link"[^>]*href="#main"/.test(idx.body) && /<main\b[^>]*id="main"/.test(idx.body));
+
+  // 两处 seriesShell 调用，总览过了不代表详情也过了
+  const href = (idx.body.match(/href="(\/series\/[^"]+)"/) || [])[1];
+  if (href) {
+    const detail = await page(href.replace(/&amp;/g, '&'));
+    ok('系列详情资源带部署版本戳', stamped(detail.body));
+    ok('系列详情样式已外链（无内联 style）', !/<style\b/.test(detail.body));
+  } else {
+    ok('能取到系列详情样本', false);
+  }
 }
 
 /* ---------- RSS 封面 enclosure ---------- */
@@ -363,5 +419,10 @@ console.log(`\n${ORIGIN}\n`);
   ok('HTML 不做浏览器长缓存', !/max-age=[1-9]\d{2,}/.test((h.get('cache-control') || '').split('s-maxage')[0]));
 }
 
+/* 体检有几十条，失败夹在中间的 ok 里很容易漏读。末尾把失败项单独列一遍。 */
+if (failed.length) {
+  console.log('\n失败项：');
+  for (const name of failed) console.log(`  - ${name}`);
+}
 console.log(`\n${fail ? 'FAIL' : 'PASS'}  ${pass} 通过，${fail} 失败\n`);
 process.exit(fail ? 1 : 0);
