@@ -151,6 +151,19 @@ try {
   });
   t('Monaco 缩进是 2 空格（与原 textarea 一致）', tabSt.tabSize === 2, String(tabSt.tabSize));
 
+  /* 工具栏的 mermaid 按钮：围栏 + 模板一次给全 */
+  await page.evaluate(() => {
+    const ed = window.monaco.editor.getEditors()[0];
+    ed.getModel().setValue('');
+    ed.setPosition({ lineNumber: 1, column: 1 });
+    ed.focus();
+  });
+  await page.click('.ed-tools button[data-cmd="mermaid"]');
+  await new Promise((r) => setTimeout(r, 200));
+  const mmIns = await page.evaluate(() => window.monaco.editor.getModels()[0].getValue());
+  t('工具栏插入 mermaid 围栏', /```mermaid\n/.test(mmIns) && /graph TD/.test(mmIns), JSON.stringify(mmIns.slice(0, 40)));
+  t('正文换行统一是 LF（不引入看不见的 \\r）', !mmIns.includes('\r'), 'CRLF found');
+
   /* 预览里的 mermaid 应该被渲染出来 */
   await page.evaluate(() => {
     window.monaco.editor.getModels()[0].setValue('```mermaid\ngraph TD\n  A[开始] --> B[结束]\n```\n');
