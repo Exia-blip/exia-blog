@@ -642,6 +642,8 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .publish-card .field label { font-size: 11.5px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
 .pub-mini-actions { display: flex; gap: 6px; }
 .publish-card .tagbar { margin: 0; }
+/* 标签计数：默认次要色，超过规则上限（4）转告警色，走主题变量 */
+.ed-tag-count.over { color: var(--red) !important; font-weight: 600; }
 .publish-card .tagbar:empty::before {
   content: '正文里写 #标签 自动识别'; font-size: 12px; color: var(--muted); opacity: .7;
 }
@@ -1046,7 +1048,8 @@ body.editor-page, body.stat-page {
   border: 1px solid var(--line); border-radius: 12px;
   background: var(--card); overflow: hidden;
 }
-.cat-list > .tiny { padding: 16px; }
+.cat-list > .tiny, .cat-list > .empty-hint { padding: 16px; }
+.cat-list > .empty-hint { color: var(--muted); font-size: 13px; }
 .cat-item {
   padding: 13px 16px; font-size: 13px; color: var(--fg-soft);
   cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 14px;

@@ -117,7 +117,7 @@ t('报表把三个区间的人数照原样显示，不四舍五入', () => {
   assert.match(h, /2026-11-01/);
 });
 
-t('没有数据时不报错，给一句「还没有数据」', () => {
+t('没有数据时不报错，给一句友好的空状态引导', () => {
   const h = renderStats({
     user: { login: 'exia' },
     t1: null,
@@ -129,7 +129,7 @@ t('没有数据时不报错，给一句「还没有数据」', () => {
     kinds: { results: [] },
     total: null,
   });
-  assert.match(h, /还没有数据/);
+  assert.match(h, /◌ 暂无统计数据/);
   assert.match(h, />0</);
   assert.match(h, /起于 —/);
 });

@@ -63,4 +63,36 @@ for (const cls of ['ed-sync', 'sync-on', 'field-error', 'site-name-error', 'setS
 }
 ok('读者侧零污染：post/index/app/md 无后台同名钩子');
 
+// ===== 第二批：标签去重计数 / 占位文案 / 空状态文案 =====
+// ⑤ 标签去重：extractTags 原样去重后前端 lower-case 会撞车（#Worker/#worker），视图层再 dedupe
+assert.match(editor, /const dedupeTags = \(md\) => \[\.\.\.new Set\(extractTags\(md\)\.map\(\(t\) => t\.toLowerCase\(\)\)\)\]/,
+  '缺 dedupeTags 去重（小写后去重，防 #Worker/#worker 撞车）');
+assert.ok((editor.match(/dedupeTags\(md\)/g) || []).length >= 2, '标签预览与发布自检都应用同一去重口径');
+assert.ok(!/const tags = extractTags\(md\)\.map/.test(editor), '不应残留未去重的旧直接赋值');
+assert.match(editor, /id="tag-count"/, '标签计数槽位缺失');
+assert.match(editor, /\$\{tags\.length\}\/\$\{TAG_MAX\}/, '计数应为 N/上限 格式');
+assert.match(editor, /const TAG_MAX = 4/, '上限应与本站自检规则 1~4 一致，不新造 10');
+assert.match(editor, /classList\.toggle\('over', tags\.length > TAG_MAX\)/, '超限未标记 over');
+assert.match(css, /\.ed-tag-count\.over \{[^}]*var\(--red\)/, '超限色未走 --red');
+ok('⑤ 标签去重计数：dedupe/4 上限/超限告警齐全');
+
+// ⑥ 占位文案：slug 禁止中文提示、摘要标注可选，不改校验
+assert.ok(editor.includes('placeholder="自动生成，建议英文，不可中文"'), 'slug 占位文案未改');
+assert.ok(editor.includes('placeholder="可选，用于RSS和预览"'), '摘要占位文案未改');
+ok('⑥ 占位文案：slug/摘要按必填-可选区分提示');
+
+// ⑦ 空状态文案：字符图标 + 友好引导，无图片，且 Stats 空态仍是 <p> 不破坏斑马纹断言
+assert.ok(editor.includes('empty-hint') && editor.includes('◌ 还没有文章'), '文章列表空态文案未改');
+assert.match(css, /\.cat-list > \.empty-hint \{[^}]*var\(--muted\)/, '空态样式未限定 .cat-list 或未走主题变量');
+assert.ok(!/<img|background-image|url\(/.test(editor.match(/<span class="empty-hint">[\s\S]*?<\/span>/)?.[0] || ''), '空态不应引入图片');
+assert.ok(stats.includes('◌ 暂无统计数据'), '统计表空态文案未改');
+assert.ok(stats.includes('◌ 暂无访问趋势'), '趋势图空态文案未改');
+ok('⑦ 空状态文案：友好引导 + 字符图标，无图片');
+
+// 读者侧零污染（第二批新类名）
+for (const cls of ['ed-tag-count', 'empty-hint', 'dedupeTags', 'TAG_MAX']) {
+  assert.ok(!readerSources.includes(cls), `读者侧出现后台钩子 ${cls}`);
+}
+ok('第二批读者侧零污染：新类名不进 post/index/app/md');
+
 console.log(`\nadmin ui: ${pass} passed`);

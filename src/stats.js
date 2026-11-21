@@ -226,7 +226,7 @@ function bars(rows) {
 }
 
 function table(head, rows) {
-  if (!rows.length) return '<p class="empty">还没有数据</p>';
+  if (!rows.length) return '<p class="empty">◌ 暂无统计数据，等访问产生记录后会显示</p>';
   // rows 里每一格已经是完整的 <td>…</td>，这里只负责拼行 ——
   // 再包一层 <td> 会被浏览器拆成两列，表格看着错位却很难一眼看出原因
   return `<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows
@@ -402,7 +402,7 @@ td.p,td.mono{font-family:var(--mono);font-size:12.5px;word-break:break-all}
 
 <section>
   <h2>近 14 天</h2>
-  ${dailyRows.length ? `<div class="chart">${bars(dailyRows)}</div>` : '<p class="empty">还没有数据</p>'}
+  ${dailyRows.length ? `<div class="chart">${bars(dailyRows)}</div>` : '<p class="empty">◌ 暂无访问趋势，有访客访问后这里会出现图表</p>'}
 </section>
 
 <section>

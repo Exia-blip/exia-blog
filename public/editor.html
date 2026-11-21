@@ -98,7 +98,7 @@
   <div class="pub-grid">
     <div class="field">
       <label>简介 <span class="tiny muted" id="sum-state"></span></label>
-      <textarea id="summary" rows="2" maxlength="400" placeholder="保存后自动生成，也可以自己改写"></textarea>
+      <textarea id="summary" rows="2" maxlength="400" placeholder="可选，用于RSS和预览"></textarea>
       <div class="pub-mini-actions">
         <button class="btn sm" id="btn-sum" type="button">重新生成</button>
         <button class="btn sm" id="btn-sum-clear" type="button" title="清空，下次保存时重新生成">清空</button>
@@ -106,7 +106,7 @@
     </div>
     <div class="field">
       <label>别名（访问路径）</label>
-      <input type="text" id="slug" placeholder="如 about → /about" autocomplete="off">
+      <input type="text" id="slug" placeholder="自动生成，建议英文，不可中文" autocomplete="off">
       <span class="tiny muted" id="slug-hint"></span>
     </div>
     <div class="field">
@@ -117,7 +117,7 @@
   </div>
 
   <div class="field">
-    <label>标签 <span class="tiny muted" id="tag-count"></span></label>
+    <label>标签 <span class="tiny muted ed-tag-count" id="tag-count"></span></label>
     <div class="tagbar" id="tags"></div>
     <datalist id="tag-options"></datalist>
   </div>
@@ -434,10 +434,18 @@ function updatePreview() {
   document.querySelectorAll('.copy-btn').forEach((b) => (b.onclick = null));
 }
 
+/* 标签去重：extractTags 内部按原样 Set 去重，但这里会再 lower-case，
+   #Worker 与 #worker 会撞成同一个 → 前端视图层再 dedupe 一次。
+   只做视图过滤，不改 md.js（读者侧共用），提交仍是原文交给后端校验。 */
+const dedupeTags = (md) => [...new Set(extractTags(md).map((t) => t.toLowerCase()))];
+const TAG_MAX = 4;                       // 与发布自检「标签 1~4」同一口径，不新造 10 的上限
+
 function renderTagPreview(md) {
-  const tags = extractTags(md).map((t) => t.toLowerCase());
+  const tags = dedupeTags(md);
   const seed = new Set((TAX.seed || []).map((t) => t.toLowerCase()));
-  $('tag-count').textContent = tags.length ? `${tags.length} 个（规则 1~4）` : '';
+  const cnt = $('tag-count');
+  cnt.textContent = tags.length ? `${tags.length}/${TAG_MAX}` : '';
+  cnt.classList.toggle('over', tags.length > TAG_MAX);   // 超限走 --red，次要色不抢主视觉
   $('tags').innerHTML = tags.length
     ? tags
         .map(
@@ -920,7 +928,7 @@ async function loadList() {
           ${p.is_private ? '<span class="flag">私</span>' : p.hidden ? '<span class="flag">隐</span>' : ''}
         </div>`;
         }).join('')
-      : '<span class="tiny muted">还没有文章</span>';
+      : '<span class="empty-hint">◌ 还没有文章，点「写文章」开始第一篇</span>';
   } catch {}
 }
 
@@ -1124,7 +1132,7 @@ function updateChecks() {
   if (!el) return;
   const title = titleEl.value.trim();
   const md = inputEl.value;
-  const tags = extractTags(md).map((t) => t.toLowerCase());
+  const tags = dedupeTags(md);                       // 与标签预览同一去重口径，自检计数不虚高
   const cat = catEl.value;
   const cname = (TAX.categories || []).find((x) => x.slug === cat)?.name || '';
   const sum = sumEl.value.trim();
