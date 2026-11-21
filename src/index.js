@@ -1826,6 +1826,25 @@ function analyticsTag(cfg) {
 export const isAdminPath = (p) =>
   p === '/editor' || p.startsWith('/editor/') || p.startsWith('/admin/');
 
+/* 写作页服务端门禁：匿名访客不该拿到 55KB 的完整后台骨架（内含全部字段名和
+   视图结构）。这些页本来就不进边缘缓存（isPagePath 不含 /editor，且带 sid 绕过），
+   所以在 route() 入口用与 /api/settings 同一套 currentUser 判一次即可，
+   未登录直接 302 到登录页，登录后带着 next 原路返回。
+   next 取自本站请求的 path+search，是站内相对路径，无开放重定向面；
+   /auth/* 自己处理登录流程，不走这里，避免 loginRedirect 被二次拦截。 */
+export async function editorGate(env, request, path) {
+  if (path !== '/editor' && !path.startsWith('/editor/')) return null;
+  if (await currentUser(env, request)) return null;
+  const url = new URL(request.url);
+  const next = url.pathname + url.search;
+  const to = new URL('/login', url.origin);
+  to.searchParams.set('next', next);
+  return new Response(null, {
+    status: 302,
+    headers: { location: to.toString(), 'cache-control': 'no-store' },
+  });
+}
+
 export async function harden(res, env, path = '') {
   // 配了 Turnstile 才在 CSP 里放行它的域名；没配就保持零第三方
   const tsOn = !!(env && env.TURNSTILE_SITE_KEY);
@@ -2367,6 +2386,9 @@ async function route(request, env, ctx) {
   const path = url.pathname;
 
   if (path.startsWith('/api/')) return await handleApi(env, request, url, ctx);
+  // 写作页服务端门禁：匿名直接 302 到登录，不吐后台骨架。放 API 之后避免重复鉴权。
+  const gate = await editorGate(env, request, path);
+  if (gate) return gate;
   if (path === '/auth/github') return loginRedirect(env, request);
   if (path === '/auth/callback') return await handleCallback(env, request);
   if (path === '/auth/logout') return logout();
