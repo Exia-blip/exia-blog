@@ -642,8 +642,8 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .publish-card .field label { font-size: 11.5px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
 .pub-mini-actions { display: flex; gap: 6px; }
 .publish-card .tagbar { margin: 0; }
-/* 标签计数：默认次要色，超过规则上限（4）转告警色，走主题变量 */
-.ed-tag-count.over { color: var(--red) !important; font-weight: 600; }
+/* 标签计数：默认次要色，超过写作建议（4）给弱红提示，不阻断保存，走主题变量 */
+.ed-tag-count.warn { color: var(--red); }
 .publish-card .tagbar:empty::before {
   content: '正文里写 #标签 自动识别'; font-size: 12px; color: var(--muted); opacity: .7;
 }
@@ -1173,13 +1173,22 @@ body.editor-page, body.stat-page {
     background: var(--bg-soft);
   }
   .nav-toggle svg { width: 20px; height: 20px; }
+  /* 窄屏后台导航：visibility + opacity + translateY 取代 display 硬切。
+     绝对定位脱离文档流，隐藏态不占空间、无 CLS；pointer-events 防透明层拦点击。 */
   .admin-nav-wrap {
-    display: none; position: absolute; z-index: 60;
+    display: flex; position: absolute; z-index: 60;
     left: 0; right: 0; top: calc(100% + 6px);
     padding: 8px; border: 1px solid var(--line); border-radius: 12px;
     background: var(--card); box-shadow: 0 16px 40px -18px rgba(0,0,0,.35);
+    opacity: 0; visibility: hidden; transform: translateY(-6px); pointer-events: none;
+    transition: opacity .15s ease, transform .15s ease, visibility .15s;
   }
-  .nav-cb:checked ~ .admin-nav-wrap { display: flex; }
+  .nav-cb:checked ~ .admin-nav-wrap {
+    opacity: 1; visibility: visible; transform: none; pointer-events: auto;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .admin-nav-wrap { transition: none; transform: none; }
+  }
   .admin-nav-label { margin: 6px 10px 8px; }
   .admin-ava { width: 38px; height: 38px; flex-basis: 38px; border-radius: 50%; }
   .admin-brand { padding: 2px 4px; }

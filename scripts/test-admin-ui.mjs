@@ -63,34 +63,50 @@ for (const cls of ['ed-sync', 'sync-on', 'field-error', 'site-name-error', 'setS
 }
 ok('读者侧零污染：post/index/app/md 无后台同名钩子');
 
-// ===== 第二批：标签去重计数 / 占位文案 / 空状态文案 =====
-// ⑤ 标签去重：extractTags 原样去重后前端 lower-case 会撞车（#Worker/#worker），视图层再 dedupe
+// ===== 第二批：标签去重计数 / 占位文案 / 窄屏导航过渡 / 空状态文案 =====
+// ⑤ 标签去重计数：分母=落库上限 8（taxonomy normalizeTags limit=8），超建议 4 给弱提示、不阻断
 assert.match(editor, /const dedupeTags = \(md\) => \[\.\.\.new Set\(extractTags\(md\)\.map\(\(t\) => t\.toLowerCase\(\)\)\)\]/,
   '缺 dedupeTags 去重（小写后去重，防 #Worker/#worker 撞车）');
 assert.ok((editor.match(/dedupeTags\(md\)/g) || []).length >= 2, '标签预览与发布自检都应用同一去重口径');
 assert.ok(!/const tags = extractTags\(md\)\.map/.test(editor), '不应残留未去重的旧直接赋值');
 assert.match(editor, /id="tag-count"/, '标签计数槽位缺失');
-assert.match(editor, /\$\{tags\.length\}\/\$\{TAG_MAX\}/, '计数应为 N/上限 格式');
-assert.match(editor, /const TAG_MAX = 4/, '上限应与本站自检规则 1~4 一致，不新造 10');
-assert.match(editor, /classList\.toggle\('over', tags\.length > TAG_MAX\)/, '超限未标记 over');
-assert.match(css, /\.ed-tag-count\.over \{[^}]*var\(--red\)/, '超限色未走 --red');
-ok('⑤ 标签去重计数：dedupe/4 上限/超限告警齐全');
+assert.match(editor, /const TAG_STORE_MAX = 8/, '分母应为服务端落库上限 8');
+assert.match(editor, /const TAG_SUGGEST = 4/, '写作建议阈值应为 4');
+assert.match(editor, /\$\{tags\.length\}\/\$\{TAG_STORE_MAX\}/, '计数应为 N/8 格式');
+assert.match(editor, /classList\.toggle\('warn', tags\.length > TAG_SUGGEST\)/, '超过建议应标 warn 弱提示');
+assert.match(css, /\.ed-tag-count\.warn \{[^}]*var\(--red\)/, '弱提示色未走 --red');
+assert.ok(!/\.ed-tag-count\.over/.test(css), '不应残留旧的 .over 强告警样式');
+ok('⑤ 标签计数：分母 8/建议 4/warn 弱提示，不阻断');
 
-// ⑥ 占位文案：slug 禁止中文提示、摘要标注可选，不改校验
-assert.ok(editor.includes('placeholder="自动生成，建议英文，不可中文"'), 'slug 占位文案未改');
-assert.ok(editor.includes('placeholder="可选，用于RSS和预览"'), '摘要占位文案未改');
-ok('⑥ 占位文案：slug/摘要按必填-可选区分提示');
+// ⑥ 占位文案：标题/站点名标必填，摘要/别名/系列/站点描述标可选，不改校验
+assert.ok(editor.includes('placeholder="标题（必填）"'), '标题应标必填');
+assert.ok(editor.includes('placeholder="必填 · 例如 Exia Blog"'), '站点名应标必填');
+for (const p of ['可选，用于RSS和预览', '可选 · 自动生成，建议英文，不可中文', '可选 · 如 自建博客实录', '可选 · 一句话介绍这个站点']) {
+  assert.ok(editor.includes(`placeholder="${p}"`), `缺可选标注占位：${p}`);
+}
+ok('⑥ 占位文案：标题/站点名必填，摘要/别名/系列/站点描述可选');
 
-// ⑦ 空状态文案：字符图标 + 友好引导，无图片，且 Stats 空态仍是 <p> 不破坏斑马纹断言
-assert.ok(editor.includes('empty-hint') && editor.includes('◌ 还没有文章'), '文章列表空态文案未改');
+// ⑦ 窄屏后台导航淡入：absolute + visibility/opacity/translateY，不碰读者侧 nav.top
+assert.match(css, /\.admin-nav-wrap \{[\s\S]{0,400}?opacity: 0; visibility: hidden; transform: translateY\(-6px\)/,
+  '窄屏后台导航隐藏态缺 opacity/visibility/translateY');
+assert.match(css, /\.nav-cb:checked ~ \.admin-nav-wrap \{[\s\S]{0,120}?opacity: 1; visibility: visible/,
+  '展开态未恢复可见');
+assert.match(css, /\.admin-nav-wrap \{[^}]*transition: opacity \.15s/, '缺 0.15s 过渡');
+assert.ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,120}?\.admin-nav-wrap \{ transition: none/.test(css),
+  '缺 reduced-motion 降级');
+assert.ok(!/nav\.top[\s\S]{0,200}?translateY\(-6px\)/.test(css), '不应改动读者侧 nav.top 抽屉');
+ok('⑦ 窄屏后台导航淡入：visibility/opacity/位移过渡 + reduced-motion，读者侧未碰');
+
+// ⑧ 空状态文案：报告指定三处文案，无图片
+assert.ok(editor.includes('empty-hint') && editor.includes('还没有文章——从上方标题开始写第一篇'), '文章列表空态文案未改');
 assert.match(css, /\.cat-list > \.empty-hint \{[^}]*var\(--muted\)/, '空态样式未限定 .cat-list 或未走主题变量');
 assert.ok(!/<img|background-image|url\(/.test(editor.match(/<span class="empty-hint">[\s\S]*?<\/span>/)?.[0] || ''), '空态不应引入图片');
-assert.ok(stats.includes('◌ 暂无统计数据'), '统计表空态文案未改');
-assert.ok(stats.includes('◌ 暂无访问趋势'), '趋势图空态文案未改');
-ok('⑦ 空状态文案：友好引导 + 字符图标，无图片');
+assert.ok(stats.includes('还没有记录，有访客访问后会显示在这里'), '统计表空态文案未改');
+assert.ok(stats.includes('近 14 天还没有访问记录'), '趋势图空态文案未改');
+ok('⑧ 空状态文案：三处友好引导，无图片');
 
 // 读者侧零污染（第二批新类名）
-for (const cls of ['ed-tag-count', 'empty-hint', 'dedupeTags', 'TAG_MAX']) {
+for (const cls of ['ed-tag-count', 'empty-hint', 'dedupeTags', 'TAG_STORE_MAX', 'TAG_SUGGEST']) {
   assert.ok(!readerSources.includes(cls), `读者侧出现后台钩子 ${cls}`);
 }
 ok('第二批读者侧零污染：新类名不进 post/index/app/md');

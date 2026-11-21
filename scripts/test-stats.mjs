@@ -129,7 +129,7 @@ t('没有数据时不报错，给一句友好的空状态引导', () => {
     kinds: { results: [] },
     total: null,
   });
-  assert.match(h, /◌ 暂无统计数据/);
+  assert.match(h, /还没有记录，有访客访问后会显示在这里/);
   assert.match(h, />0</);
   assert.match(h, /起于 —/);
 });

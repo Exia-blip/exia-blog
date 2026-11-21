@@ -93,7 +93,7 @@
     </div>
   </div>
 
-  <input class="title-input" id="title" placeholder="标题" autocomplete="off">
+  <input class="title-input" id="title" placeholder="标题（必填）" autocomplete="off">
 
   <div class="pub-grid">
     <div class="field">
@@ -106,7 +106,7 @@
     </div>
     <div class="field">
       <label>别名（访问路径）</label>
-      <input type="text" id="slug" placeholder="自动生成，建议英文，不可中文" autocomplete="off">
+      <input type="text" id="slug" placeholder="可选 · 自动生成，建议英文，不可中文" autocomplete="off">
       <span class="tiny muted" id="slug-hint"></span>
     </div>
     <div class="field">
@@ -199,7 +199,7 @@
   <div class="view-body">
     <div class="field">
       <label>系列（可选）</label>
-      <input type="text" id="series" list="series-options" placeholder="如 自建博客实录" maxlength="40" autocomplete="off">
+      <input type="text" id="series" list="series-options" placeholder="可选 · 如 自建博客实录" maxlength="40" autocomplete="off">
       <datalist id="series-options"></datalist>
       <div class="series-order-row">
         <input type="number" id="series-order" min="1" max="999" placeholder="1" inputmode="numeric" aria-label="系列序号">
@@ -223,13 +223,13 @@
         <div class="form-sec">基本信息</div>
         <div class="field">
           <label>站点名称</label>
-          <input type="text" id="site-name" placeholder="例如 Exia Blog" maxlength="60" autocomplete="off">
+          <input type="text" id="site-name" placeholder="必填 · 例如 Exia Blog" maxlength="60" autocomplete="off">
           <div class="field-error" id="site-name-error" hidden></div>
           <small class="site-hint">显示在浏览器标签页标题和导航栏左侧</small>
         </div>
         <div class="field">
           <label>站点描述</label>
-          <textarea id="site-desc" maxlength="200" rows="3" placeholder="一句话介绍这个站点"></textarea>
+          <textarea id="site-desc" maxlength="200" rows="3" placeholder="可选 · 一句话介绍这个站点"></textarea>
           <small class="site-hint">显示在导航栏站名右侧，窄屏自动隐藏；同时作为首页的搜索引擎描述</small>
         </div>
         <div class="field">
@@ -438,14 +438,15 @@ function updatePreview() {
    #Worker 与 #worker 会撞成同一个 → 前端视图层再 dedupe 一次。
    只做视图过滤，不改 md.js（读者侧共用），提交仍是原文交给后端校验。 */
 const dedupeTags = (md) => [...new Set(extractTags(md).map((t) => t.toLowerCase()))];
-const TAG_MAX = 4;                       // 与发布自检「标签 1~4」同一口径，不新造 10 的上限
+const TAG_STORE_MAX = 8;                 // 服务端落库硬上限（taxonomy.js normalizeTags limit=8），分母用它
+const TAG_SUGGEST = 4;                   // 发布自检的写作建议（1~4），超过只弱提示、不阻断保存
 
 function renderTagPreview(md) {
   const tags = dedupeTags(md);
   const seed = new Set((TAX.seed || []).map((t) => t.toLowerCase()));
   const cnt = $('tag-count');
-  cnt.textContent = tags.length ? `${tags.length}/${TAG_MAX}` : '';
-  cnt.classList.toggle('over', tags.length > TAG_MAX);   // 超限走 --red，次要色不抢主视觉
+  cnt.textContent = tags.length ? `${tags.length}/${TAG_STORE_MAX}` : '';
+  cnt.classList.toggle('warn', tags.length > TAG_SUGGEST);   // 超过写作建议给弱红提示，不阻断
   $('tags').innerHTML = tags.length
     ? tags
         .map(
@@ -928,7 +929,7 @@ async function loadList() {
           ${p.is_private ? '<span class="flag">私</span>' : p.hidden ? '<span class="flag">隐</span>' : ''}
         </div>`;
         }).join('')
-      : '<span class="empty-hint">◌ 还没有文章，点「写文章」开始第一篇</span>';
+      : '<span class="empty-hint">还没有文章——从上方标题开始写第一篇</span>';
   } catch {}
 }
 
