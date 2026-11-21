@@ -220,7 +220,7 @@ npx wrangler deploy
 2. CF Dashboard 给 Worker 绑新域名
 3. GitHub OAuth App 的 Callback URL 改成 `新域名/auth/callback`
 
-运行时代码已从 `SITE_ORIGIN` / canonical 派生域名——友链自检的 UA 与自环判定、友链申请示例、复制声明都不用手动改。`npm run migrate:plan` 会打印这份清单。
+运行时代码已从 `SITE_ORIGIN` / canonical 派生域名——友链自检的 UA 与自环判定、友链申请示例、复制声明都不用手动改。唯一要动的是 D1 里指向旧域名的**本站友链数据**（后台改，属数据不属代码）。`npm run migrate:plan` 会打印这份清单。
 
 **换账号 / 灾备重建**才要搬数据：
 

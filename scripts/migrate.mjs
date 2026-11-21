@@ -108,6 +108,8 @@ if (cmd === 'plan') {
   console.log('  2. CF Dashboard → Workers & Pages → 自定义域名，绑定新域名');
   console.log(`  3. GitHub OAuth App 的 Callback URL 改成 新域名/auth/callback`);
   console.log('  4. 重新部署：npm run deploy（会自动跑全量测试 + 线上体检）');
+  console.log('  5. 后台 /editor → 友链管理：若有指向旧域名的本站友链，改成新域名');
+  console.log('     （这是 D1 数据不是代码，换域名不会自动跟着走；旧域名在自检里仍被当自己）');
   console.log('\n  运行时已不再硬编码域名：友链自检 UA / 自环判定 / 友链申请示例 / 复制声明');
   console.log('  都从 SITE_ORIGIN 或 canonical 派生。以上四步做完即生效，不用改代码。\n');
   console.log('=== 换账号 / 灾备重建（要搬数据）===\n');
