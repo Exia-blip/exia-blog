@@ -1344,7 +1344,7 @@ function renderHeader(site, path) {
   return `<header class="site">
     <div class="inner">
       <a class="brand" href="/">${avatar}<span class="brand-name">${esc(name)}<span class="dot">.</span></span></a>
-      ${desc ? `<span class="brand-desc" title="${esc(desc)}">${esc(desc)}</span>` : ''}
+      ${desc && path !== '/' ? `<span class="brand-desc" title="${esc(desc)}">${esc(desc)}</span>` : ''}
       <nav class="top" id="site-nav">${links}${extra.join('')}<span id="nav-user"><a href="/login">登录</a></span>${THEME_BTN}</nav>
       ${NAV_TOGGLE}
     </div>
@@ -1364,7 +1364,12 @@ function renderHero(body, site, path) {
   let title = name;
   let sub = desc;
   let boot = '';
-  if (path.startsWith('/tag/')) {
+  if (path === '/') {
+    // 首页 H1 用 tagline（site.desc「写字的地方」），不与顶栏品牌「Exia Blog」重复；
+    // 副标题给一句长描述。site_desc 空时回落到固定 tagline，避免与副标题撞字。
+    title = desc && desc !== '记录思考、代码与生活。' ? desc : '写字的地方';
+    sub = '记录思考、代码与生活。';
+  } else if (path.startsWith('/tag/')) {
     const t = decodeURIComponent(path.slice(5).split('/')[0] || '');
     if (t) {
       title = `#${t}`;

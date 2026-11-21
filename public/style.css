@@ -1208,6 +1208,12 @@ body.editor-page, body.stat-page {
   line-height: 1.5;
 }
 .friend-apply .fa-note { margin: 0; font-size: 12.5px; }
+/* 暗色下友链交换卡的代码片段提亮一档：默认继承 --fg(#e9e6e1) 在 #1b1d21 深井里偏灰，
+   给到近白(#f6f4ef) 更锐利。亮色对比已足够，不动。 */
+:root[data-mode="dark"] .friend-apply pre code { color: #f6f4ef; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mode]) .friend-apply pre code { color: #f6f4ef; }
+}
 
 .friend-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 13px; margin-bottom: 60px; }
 /* 友链是 SSR 直出的：占位骨架交给 CSS 画，HTML 源码里不留「加载中」——

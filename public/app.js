@@ -211,7 +211,7 @@ export async function mountHeader(active = '') {
   <header class="site">
     <div class="inner">
       <a class="brand" href="/">${brandMark}<span class="brand-name">${esc(siteName)}<span class="dot">.</span></span></a>
-      ${siteDesc ? `<span class="brand-desc" title="${esc(siteDesc)}">${esc(siteDesc)}</span>` : ''}
+      ${siteDesc && active !== 'home' ? `<span class="brand-desc" title="${esc(siteDesc)}">${esc(siteDesc)}</span>` : ''}
       <nav class="top" id="site-nav">
         ${links
           .map((l) =>

@@ -149,8 +149,9 @@ if (currentCat) {
   document.getElementById('hero-sub').textContent = '标题、正文与标签关键词匹配';
   document.title = `${currentQ} · 搜索`;
 } else {
-  document.getElementById('hero-title').textContent = SITE.name;
-  document.getElementById('hero-sub').textContent = SITE.desc || '记录思考、代码与生活。';
+  // 首页 hero：H1 用 tagline（site.desc「写字的地方」），不与顶栏品牌「Exia Blog」重复
+  document.getElementById('hero-title').textContent = SITE.desc || '写字的地方';
+  document.getElementById('hero-sub').textContent = '记录思考、代码与生活。';
   document.title = SITE.name;
 }
 
@@ -357,10 +358,10 @@ function applyQuery() {
       history.replaceState(null, '', url);
       currentQ = v;
       page = 1;
-      document.getElementById('hero-title').textContent = v ? `搜索：${v}` : SITE.name;
+      document.getElementById('hero-title').textContent = v ? `搜索：${v}` : (SITE.desc || '写字的地方');
       document.getElementById('hero-sub').textContent = v
         ? '标题、正文与标签关键词匹配'
-        : SITE.desc || '记录思考、代码与生活。';
+        : '记录思考、代码与生活。';
       load();
     }
 }
