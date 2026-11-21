@@ -431,7 +431,7 @@ console.log(`\n${ORIGIN}\n`);
   ok('style.css 带内容哈希版本号', !!link && /\?v=[0-9a-f]{10}["']/.test(link[0]), link ? link[1] : '没找到');
   ok('boot.js 带内容哈希版本号', !!script && /\?v=[0-9a-f]{10}["']/.test(script[0]), script ? script[1] : '没找到');
   ok('style.css 带 integrity', !!link && /integrity="sha384-[A-Za-z0-9+/=]+"/.test(link[0]));
-  ok('boot.js 带 integrity', !!script && /integrity="sha384-"/.test(script[0]));
+  ok('boot.js 带 integrity', !!script && /integrity="sha384-[A-Za-z0-9+/=]+"/.test(script[0]));
   ok('同源资源不加 crossorigin', !!link && !/crossorigin/i.test(link[0]));
 
   // 关键一条：拿线上真实字节复算 sha384，与 HTML 里写的比对
