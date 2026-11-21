@@ -27,7 +27,7 @@
 
 ### 已写好并入库，等闸门到点（11-21 → 12-21）
 
-十三篇全部写完全文、入库，`hidden=0` + 未来 `published_at`，由 `src/api.js` 的 `liveSql()` 时间闸门到点自动上线，不需要 cron 或人工改状态。发布时刻统一为**北京时间 09:00**（库里存 UTC 01:00）。**2026-11-21 起节奏由「每周三一篇」改为「2 天一篇」**：12 篇未到点存稿从 11-25 起每 2 天上线，12-17 收尾（11-21 那篇当日已上线，不动）；改期 SQL 见 `scripts/schedule-2day.sql`，回滚见 `scripts/schedule-2day-rollback.sql`。
+十五篇全部写完全文、入库，`hidden=0` + 未来 `published_at`，由 `src/api.js` 的 `liveSql()` 时间闸门到点自动上线，不需要 cron 或人工改状态。发布时刻统一为**北京时间 09:00**（库里存 UTC 01:00）。**2026-11-21 起节奏由「每周三一篇」改为「2 天一篇」**：12 篇未到点存稿从 11-25 起每 2 天上线，12-17 收尾（11-21 那篇当日已上线，不动）；改期 SQL 见 `scripts/schedule-2day.sql`，回滚见 `scripts/schedule-2day-rollback.sql`。最后两篇 tools 稿 12-19 / 12-21 由 `scripts/seed-27-28.mjs` 直接入库，同一套口径。
 
 三篇 tools 新稿（相关推荐 / 搜索高亮 / RSS enclosure）由 `scripts/seed-23-24.mjs`、`scripts/seed-25-rss.mjs` 入库，INSERT 直接带 `html_content` + `cover_body`，与 `src/api.js` 新建路径同口径。改为 2 天一篇后接在 12-09 pillar 之后的是 12-11 / 12-13 / 12-15。目标查询词：`博客相关推荐 标签交集排序` / `搜索结果关键词高亮` / `RSS 阅读器 卡片封面 不显示`。② 的辅词：`站内搜索 标签匹配`、`SQLite LIKE 子查询`——主词取短词承接通用前端需求，后端角度靠辅词和线上实测（`debugging` 4 篇全靠标签命中）撑。
 
@@ -48,6 +48,8 @@
 | 12-13 | `search-highlight-xss` | 搜索结果高亮的 `<mark>` 怎么不变成注入点：先切段，再逐段转义 | **小工具** | — |
 | 12-15 | `rss-enclosure-cover` | RSS 阅读器卡片封面不显示：缺的是 enclosure，不是正文首图 | **小工具** | — |
 | 12-17 | `csp-nonce-cache` | CSP nonce 每次请求都换，缓存里的旧页面怎么办：三处配对与一个 304 | teardown | — |
+| 12-19 | `lightbox-no-deps` | 无第三方库的图片灯箱：CSP nonce、SSR 不动、R2 原链路四条约束怎么同时守住 | **小工具** | — |
+| 12-21 | `theme-transition-class` | 主题切换只闪一下：临时 class + transitionend 兜底，为什么常驻 transition 会闪首屏 | **小工具** | — |
 
 11-21 这篇是 11-14 当天写完的存货，当日已上线。改期后 11-25 起进入 2 天一篇的密集段，11-21 → 11-25 的 4 天间隔是最后一个长间隔，之后全部压到 2 天。
 
@@ -55,9 +57,9 @@
 
 **已验**：九篇直链均 404，首页/归档/分类/系列/RSS/sitemap 均搜不到 slug。
 
-### 排队中（两篇待写，未入库）
+### 收尾两篇（已写完入库，12-19 / 12-21）
 
-两篇来自 11-20 收尾的第二档交互优化，都是 tools：代码能直接拖走跑，素材是本机实测，不是凑坑位。按 2 天一篇接在 12-17 `csp-nonce-cache` 之后，12-19 / 12-21。slug 是工作名，未入库——**写入库时要带 `published_at`（UTC 01:00）与其余存稿同口径**，不是靠 automation 改 hidden。
+两篇来自 11-20 收尾的第二档交互优化，都是 tools：代码能直接拖走跑，素材是本机实测，不是凑坑位。按 2 天一篇接在 12-17 `csp-nonce-cache` 之后，12-19 / 12-21。`scripts/seed-27-28.mjs` 已带 `published_at`（UTC 01:00）入库，与其余存稿同口径，不靠 automation 改 hidden。
 
 | 日期 | slug（工作名） | 标题 | 栏目 | 目标查询词 | 状态 |
 |---|---|---|---|---|---|
