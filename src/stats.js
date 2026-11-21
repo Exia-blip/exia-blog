@@ -363,7 +363,10 @@ td:last-child,th:last-child{text-align:right;padding-right:0}
 tbody tr:nth-child(even){background:color-mix(in srgb,var(--bg-soft) 55%,transparent)}
 tbody tr:hover{background:var(--bg-soft)}
 td.p,td.mono{font-family:var(--mono);font-size:12.5px;word-break:break-all}
-.empty{color:var(--muted);font-size:13px}
+/* 必须显式覆盖前台 style.css 的 .empty{text-align:center;padding:60px 20px} ——
+   后台页也 link 了那份样式表，空状态不压住的话会被居中、上下空出 60px，
+   悬在左对齐的 <h2> 下面像错位。 */
+.empty{color:var(--muted);font-size:13px;text-align:left;padding:6px 2px}
 .note{color:var(--muted);font-size:12px;line-height:1.7;margin-top:34px;border-top:1px solid var(--line);padding-top:14px}
 @media (max-width:560px){.kpis{grid-template-columns:1fr}.kpi-v{font-size:22px}}
 </style></head>
