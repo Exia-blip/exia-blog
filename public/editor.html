@@ -144,6 +144,9 @@
         <button class="ed-tab on" type="button" data-tab="edit" role="tab" aria-selected="true">编辑</button>
         <button class="ed-tab" type="button" data-tab="preview" role="tab" aria-selected="false">预览</button>
       </div>
+      <label class="ed-sync" title="编辑区滚动时预览区按比例跟随；仅本地保存偏好">
+        <input type="checkbox" id="sync-scroll"><span>同步滚动</span>
+      </label>
       <div class="ed-tools">
         <button type="button" data-cmd="h" title="标题">H</button>
         <button type="button" data-cmd="b" title="加粗"><b>B</b></button>
@@ -221,6 +224,7 @@
         <div class="field">
           <label>站点名称</label>
           <input type="text" id="site-name" placeholder="例如 Exia Blog" maxlength="60" autocomplete="off">
+          <div class="field-error" id="site-name-error" hidden></div>
           <small class="site-hint">显示在浏览器标签页标题和导航栏左侧</small>
         </div>
         <div class="field">
@@ -451,6 +455,34 @@ function schedulePreview() {
   previewTimer = setTimeout(updatePreview, 60);
 }
 
+/* ---------- 保存按钮在途锁：纯前端防手抖，不替代后端幂等 ---------- */
+const saveBtn = $('btn-save');
+const SAVE_LABEL = saveBtn.textContent.trim();
+function setSaveBusy(busy) {
+  saveBtn.disabled = busy;                       // 复用现有 .btn:disabled 置灰 + not-allowed
+  saveBtn.textContent = busy
+    ? (SAVE_LABEL.includes('发布') ? '发布中…' : '保存中…')
+    : SAVE_LABEL;
+}
+
+/* 就近表单报错：输入框加红边 + 下方槽位显示文案；没有槽位的老入口回落 toast。
+   客户端校验与服务端报错共用这一套渲染，清理时一起撤掉红边和文案。 */
+function showFieldError(inputId, msg) {
+  const input = $(inputId);
+  const slot = $(inputId + '-error');
+  if (!slot) { toast(msg); return; }             // 无槽位老入口：维持原 toast 行为
+  input.classList.add('invalid');
+  input.setAttribute('aria-invalid', 'true');
+  slot.textContent = msg;
+  slot.hidden = false;
+}
+function clearFieldError(inputId) {
+  const input = $(inputId);
+  const slot = $(inputId + '-error');
+  if (input) { input.classList.remove('invalid'); input.removeAttribute('aria-invalid'); }
+  if (slot) { slot.hidden = true; slot.textContent = ''; }
+}
+
 /* ---------- 保存到服务端 ---------- */
 async function saveNow(manual = false) {
   clearTimeout(saveTimer);              // 手动保存时把排队中的定时器收掉
@@ -458,6 +490,7 @@ async function saveNow(manual = false) {
   if (saving) { scheduleSave(); return; }
   if (!dirty && !manual) return;
   saving = true;
+  setSaveBusy(true);
   const myRev = rev;
   setState('saving', '保存中…');
 
@@ -517,6 +550,7 @@ async function saveNow(manual = false) {
     toast(e.message || '保存失败');
   } finally {
     saving = false;
+    setSaveBusy(false);                  // 成功 / 报错都解锁，失败可原样重试
   }
 }
 
@@ -798,6 +832,41 @@ function insertAtCursor(text) {
   };
   tabs.forEach((t) => t.addEventListener('click', () => activate(t.dataset.tab)));
   activate('edit');
+})();
+
+/* 预览单向滚动同步：编辑区 → 预览区，按滚动比例映射（源码行高≠渲染行高，不按像素对齐）。
+   只监听编辑区，不回拉预览，避免死循环；开关默认关闭，偏好只存本地不上传。 */
+(function initSyncScroll() {
+  const sw = $('sync-scroll');
+  const panes = document.querySelector('.ed-panes');
+  if (!sw || !panes) return;
+  const KEY = 'ed:sync-scroll';
+  let timer = null;
+  const enabled = () => sw.checked;
+
+  // 把编辑区滚动位置按比例映射到预览区；短内容（无滚动空间）不触发
+  const sync = () => {
+    const srcMax = inputEl.scrollHeight - inputEl.clientHeight;
+    const dstMax = previewEl.scrollHeight - previewEl.clientHeight;
+    if (srcMax <= 0 || dstMax <= 0) return;
+    const ratio = inputEl.scrollTop / srcMax;
+    previewEl.scrollTop = ratio * dstMax;
+  };
+
+  try { sw.checked = localStorage.getItem(KEY) === '1'; } catch {}
+  panes.classList.toggle('sync-on', enabled());       // 开启即双栏并排
+
+  sw.addEventListener('change', () => {
+    panes.classList.toggle('sync-on', enabled());
+    try { localStorage.setItem(KEY, enabled() ? '1' : '0'); } catch {}
+    if (enabled()) { updatePreview(); sync(); }
+  });
+  inputEl.addEventListener('scroll', () => {
+    if (!enabled()) return;                            // 关闭时两区完全独立
+    clearTimeout(timer);
+    timer = setTimeout(sync, 80);                      // 防抖，避免连续滚动抖动
+  }, { passive: true });
+  window.addEventListener('resize', () => { if (enabled()) sync(); });
 })();
 
 inputEl.addEventListener('paste', async (e) => {
@@ -1189,6 +1258,7 @@ async function initSiteSettings() {
 
   $('site-theme').innerHTML = THEMES.map((t) => `<option value="${t.id}">${t.name} · ${t.desc}</option>`).join('');
   initAvatarField();
+  $('site-name').addEventListener('input', () => clearFieldError('site-name'));
 
   try {
     const s = await api('/api/settings');
@@ -1206,7 +1276,8 @@ async function initSiteSettings() {
   $('btn-site-save').addEventListener('click', async () => {
     const btn = $('btn-site-save');
     const name = $('site-name').value.trim();
-    if (!name) { toast('站点名称不能为空'); $('site-name').focus(); return; }
+    if (!name) { showFieldError('site-name', '站点名称不能为空'); $('site-name').focus(); return; }
+    clearFieldError('site-name');
 
     btn.disabled = true;
     btn.textContent = '保存中…';

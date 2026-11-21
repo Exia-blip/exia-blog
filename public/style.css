@@ -691,6 +691,14 @@ a.cat-chip:hover { filter: brightness(0.96); }
 }
 .ed-tab:hover { color: var(--fg); }
 .ed-tab.on { background: var(--accent); color: #fff; }
+/* 同步滚动开关：默认关，勾上后编辑/预览并排。仅后台样式，读者侧无关 */
+.ed-sync {
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
+  padding: 5px 9px; border: 1px solid var(--line); border-radius: 8px;
+  font-size: 11.5px; color: var(--muted); cursor: pointer; user-select: none;
+}
+.ed-sync input { accent-color: var(--accent); margin: 0; cursor: pointer; }
+.ed-sync:has(input:checked) { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); }
 .ed-tools { display: flex; flex-wrap: wrap; gap: 2px; }
 .ed-tools button {
   min-width: 30px; height: 30px; padding: 0 7px;
@@ -703,6 +711,9 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .ed-panes { flex: 1; display: flex; min-height: 0; position: relative; }
 .ed-panes .pane { flex: 1; min-width: 0; display: none; }
 .ed-panes .pane.active { display: flex; flex-direction: column; }
+/* 同步滚动开启：两个 pane 同时并排（覆盖 .active 的单栏切换），中间一道分隔线 */
+.ed-panes.sync-on .pane { display: flex; flex-direction: column; }
+.ed-panes.sync-on .pane.left { border-right: 1px solid var(--line); }
 #md-input {
   flex: 1; width: 100%; border: 0; border-radius: 0; resize: none;
   padding: 22px 26px; font-family: var(--mono); font-size: 14.5px; line-height: 1.85;
@@ -747,6 +758,14 @@ a.cat-chip:hover { filter: brightness(0.96); }
 
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+/* 就近表单报错：输入框红边 + 字段下方一行说明，复用 --red，暗色自适应。
+   与读者侧无同名类，作用域只由 editor.html 的 .field-error / .invalid 触发。 */
+.field-error { font-size: 11.5px; color: var(--red); line-height: 1.5; }
+.field-error[hidden] { display: none; }
+input.invalid, textarea.invalid {
+  border-color: var(--red) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--red) 16%, transparent);
+}
 
 /* 站点设置：折叠卡片 */
 .site-box {

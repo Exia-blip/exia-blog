@@ -358,6 +358,10 @@ table{width:100%;border-collapse:collapse;font-size:13.5px}
 th{text-align:left;font-weight:500;color:var(--muted);font-size:12px;padding:0 8px 6px 0;border-bottom:1px solid var(--line)}
 td{padding:7px 8px 7px 0;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);text-align:left}
 td:last-child,th:last-child{text-align:right;padding-right:0}
+/* 统计表格斑马纹 + hover：只对数据行 tr 生效，表头 th 不参与；空态是 <p> 无 tr 自然无样式。
+   用 --bg-soft 派生低透明度底色，亮/暗主题自动适配，不加新色板。 */
+tbody tr:nth-child(even){background:color-mix(in srgb,var(--bg-soft) 55%,transparent)}
+tbody tr:hover{background:var(--bg-soft)}
 td.p,td.mono{font-family:var(--mono);font-size:12.5px;word-break:break-all}
 .empty{color:var(--muted);font-size:13px}
 .note{color:var(--muted);font-size:12px;line-height:1.7;margin-top:34px;border-top:1px solid var(--line);padding-top:14px}
