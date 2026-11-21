@@ -202,7 +202,15 @@ console.log(`\n${ORIGIN}\n`);
   ok('页面里没有 document.write', !/document\.write\s*\(/.test(body));
   ok('所有外链脚本都带版本号', scripts.every((s) => /\?v=/.test(s.src)), scripts.map((s) => s.src).join(', '));
 
-  const third = [...body.matchAll(/(?:src|href)=["'](https?:\/\/[^"']+)/g)].map((m) => new URL(m[1]).host).filter((h) => !ORIGIN.includes(h));
+  /* 只认真正会发起子资源请求的标签：<script src>、<link rel=stylesheet/preload>、
+     <img/iframe/video src>。原来扫所有 (src|href) 外链，把页脚 GitHub 这种 <a href>
+     导航链接也算成子资源 —— 点才跳转、首屏不下载，不该让「无第三方子资源」误报。 */
+  const subRes = [
+    ...[...body.matchAll(/<script\b[^>]*\bsrc=["'](https?:\/\/[^"']+)/gi)].map((m) => m[1]),
+    ...[...body.matchAll(/<link\b[^>]*\brel=["'](?:stylesheet|preload|preconnect|modulepreload)["'][^>]*\bhref=["'](https?:\/\/[^"']+)/gi)].map((m) => m[1]),
+    ...[...body.matchAll(/<(?:img|iframe|video|source)\b[^>]*\bsrc=["'](https?:\/\/[^"']+)/gi)].map((m) => m[1]),
+  ];
+  const third = subRes.map((u) => new URL(u).host).filter((h) => !ORIGIN.includes(h));
   ok('首屏没有第三方子资源', third.length === 0, [...new Set(third)].join(', '));
 }
 
