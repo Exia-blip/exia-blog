@@ -11,7 +11,7 @@ import { bodyCoverFor } from '../src/cover.js';
 const dir = new URL('../content/', import.meta.url);
 
 // published_at 存 UTC；北京时间 09:00 = UTC 01:00。
-// 01-20 pillar 之后：01-27 是 1 月最后一周（空档周），跳过，落到 02-03 / 02-10。
+// 2 天一篇：12-09 pillar 之后是 12-11 / 12-13。
 const posts = [
   {
     file: '23-related-posts.md',
@@ -21,7 +21,7 @@ const posts = [
     summary:
       '代码写了「共同标签数 → 同栏目 → 时间新」三级排序，线上只跑两级。赋值顺序错让共同标签数恒为 0，纯函数单测 10 项全绿也没抓到。',
     tags: ['workers', 'd1', 'debugging'],
-    at: '2027-02-03 01:00:00',
+    at: '2026-12-11 01:00:00',
   },
   {
     file: '24-search-highlight.md',
@@ -31,7 +31,7 @@ const posts = [
     summary:
       '三路 SQL 让标签进结果集；前端 hl() 先切段、逐段 esc、再包 mark。c++ 直接 new RegExp 会抛错，先 esc 再匹配会让 & 失配。',
     tags: ['javascript', 'xss', 'security'],
-    at: '2027-02-10 01:00:00',
+    at: '2026-12-13 01:00:00',
   },
 ];
 

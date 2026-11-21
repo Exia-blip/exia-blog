@@ -9,7 +9,7 @@ import { bodyCoverFor } from '../src/cover.js';
 
 const dir = new URL('../content/', import.meta.url);
 
-// 02-24 是 2 月最后一周的空档周，跳过，落到 02-17。
+// 2 天一篇：接在 12-13 之后，落到 12-15。
 const p = {
   file: '25-rss-enclosure-cover.md',
   slug: 'rss-enclosure-cover',
@@ -18,7 +18,7 @@ const p = {
   summary:
     '阅读器只读 <enclosure>，不读 content:encoded 里的图。17 个 item 加出 14 个封面：手动 cover 与正文首图进，通用预设图跳过。MIME 按真实后缀给，length 填 0。',
   tags: ['rss', 'http', 'debugging'],
-  at: '2027-02-17 01:00:00', // UTC，北京时间 02-17 09:00
+  at: '2026-12-15 01:00:00', // UTC，北京时间 12-15 09:00
 };
 
 const md = readFileSync(new URL(p.file, dir), 'utf8');

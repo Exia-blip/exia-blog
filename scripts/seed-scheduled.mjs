@@ -24,7 +24,7 @@ const posts = [
     series: '认证边界',
     order: 1,
     tags: ['jwt', 'security', 'http'],
-    at: '2026-12-02 01:00:00',
+    at: '2026-11-27 01:00:00',
   },
   {
     file: '16-samesite-behavior.md',
@@ -35,7 +35,7 @@ const posts = [
     series: '认证边界',
     order: 2,
     tags: ['http', 'security', 'javascript'],
-    at: '2026-12-09 01:00:00',
+    at: '2026-11-29 01:00:00',
   },
   {
     file: '17-cors-preflight-cost.md',
@@ -46,7 +46,7 @@ const posts = [
     series: '认证边界',
     order: 3,
     tags: ['http', 'security', 'javascript'],
-    at: '2026-12-16 01:00:00',
+    at: '2026-12-01 01:00:00',
   },
   {
     file: '18-turnstile-what-it-blocks.md',
@@ -57,7 +57,7 @@ const posts = [
     series: '认证边界',
     order: 4,
     tags: ['turnstile', 'security', 'cloudflare'],
-    at: '2026-12-23 01:00:00',
+    at: '2026-12-03 01:00:00',
   },
   {
     file: '19-workers-free-tier-limits.md',
@@ -66,7 +66,7 @@ const posts = [
     category: 'log',
     summary: '静态资源不算 Worker 请求，这是免费额度能用很久的关键；真正的瓶颈是 10ms CPU 和 50 条 subrequest。',
     tags: ['cloudflare', 'workers'],
-    at: '2027-01-06 01:00:00',
+    at: '2026-12-05 01:00:00',
   },
   {
     file: '20-d1-kv-r2-latency.md',
@@ -75,7 +75,7 @@ const posts = [
     category: 'log',
     summary: 'D1 一切查询都是 44ms（连 SELECT 1 也是），KV 命中 3.6ms、未命中 265ms，R2 读比 D1 还慢。',
     tags: ['d1', 'r2', 'cloudflare', 'workers'],
-    at: '2027-01-13 01:00:00',
+    at: '2026-12-07 01:00:00',
   },
   {
     file: '21-workers-blog-pillar.md',
@@ -84,7 +84,7 @@ const posts = [
     category: 'site',
     summary: '从域名到第一个 200，从 D1 到 R2，从 SSR 到三层缓存：这个站 20 篇的六段路径。',
     tags: ['cloudflare', 'workers', 'debugging'],
-    at: '2027-01-20 01:00:00',
+    at: '2026-12-09 01:00:00',
   },
 ];
 

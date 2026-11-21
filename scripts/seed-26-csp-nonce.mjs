@@ -9,7 +9,7 @@ import { bodyCoverFor } from '../src/cover.js';
 
 const dir = new URL('../content/', import.meta.url);
 
-// 02-24 是 2 月最后一周的空档周，跳过，落到 03-03。
+// 2 天一篇：收尾那篇，落到 12-17。
 const p = {
   file: '26-csp-nonce-cache.md',
   slug: 'csp-nonce-cache',
@@ -18,7 +18,7 @@ const p = {
   summary:
     'nonce 是每次渲染换、不是每个请求换：缓存命中回放整份配对快照。304 必须删掉 CSP 头，ETag 必须抹平 nonce，否则一个静默失效、一个命中率恒为零。',
   tags: ['security', 'cache', 'cloudflare'],
-  at: '2027-03-03 01:00:00', // UTC，北京时间 03-03 09:00
+  at: '2026-12-17 01:00:00', // UTC，北京时间 12-17 09:00
 };
 
 const md = readFileSync(new URL(p.file, dir), 'utf8');

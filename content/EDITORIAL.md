@@ -1,8 +1,8 @@
-# 内容排期（2026-11 → 2027-01）
+# 内容排期（2026-11 → 2026-12）
 
-原则：**每周固定发 1 篇（周三），有余力再加 1 篇，绝不断更**。宁可每周稳定 1 篇，也不要攒 3 篇一次发完再停两周——爬虫回访和读者订阅吃的都是节奏，不是总量。旧文实质更新优先于新文凑数。
+原则（2026-11-21 起）：**每 2 天发 1 篇，北京时间 09:00 上线**。存量存稿已全部写完入库，改期为 2 天一篇，让它们在一个月内出清；爬虫回访和读者订阅吃的是节奏，密集段正好把站撑起来。旧文实质更新优先于新文凑数。
 
-**11 月之后降档为「4 周 3 篇」**：每月最后一周设空档周，不出新稿，专做实验采集与旧文实质更新。原因见下文「产能的真相」——11-03~11-13 这 15 篇是存量转化（把已经做过的事写下来），存量已见底；往后每篇都要先做事再写，A 类单篇真实成本 2~3 个晚上。硬撑周更只会逼出拆稿和数字注水，而这个站唯一不可替代的东西就是数字。
+> **产能警告**：存稿出清后不可持续。每篇都要先做事再写，A 类单篇真实成本 2~3 个晚上——2 天一篇的节奏只适用于消耗 11 月存量，出清后必须回落到可持续频率（每周 1~2 篇），否则会逼出拆稿和数字注水，而这个站唯一不可替代的东西就是数字。这是刻意的一次性冲刺，不是长期节奏。
 
 ## 已发
 
@@ -25,44 +25,44 @@
 | 11-15 | CLS 从 0.0176 到 0：三个空位把首屏推了 182px | 工程实录 | A 性能归因 |
 | 11-18 | Worker 渲染从 549ms 到 96ms：我只改了一件事 | 工程实录 | A 性能归因 |
 
-### 已写好并入库，等闸门到点（11-21 → 03-03）
+### 已写好并入库，等闸门到点（11-21 → 12-21）
 
-十三篇全部写完全文、入库，`hidden=0` + 未来 `published_at`，由 `src/api.js` 的 `liveSql()` 时间闸门到点自动上线，不需要 cron 或人工改状态。发布时刻统一为**北京时间 09:00**（库里存 UTC 01:00）。
+十三篇全部写完全文、入库，`hidden=0` + 未来 `published_at`，由 `src/api.js` 的 `liveSql()` 时间闸门到点自动上线，不需要 cron 或人工改状态。发布时刻统一为**北京时间 09:00**（库里存 UTC 01:00）。**2026-11-21 起节奏由「每周三一篇」改为「2 天一篇」**：12 篇未到点存稿从 11-25 起每 2 天上线，12-17 收尾（11-21 那篇当日已上线，不动）；改期 SQL 见 `scripts/schedule-2day.sql`，回滚见 `scripts/schedule-2day-rollback.sql`。
 
-三篇 tools 新稿（相关推荐 / 搜索高亮 / RSS enclosure）由 `scripts/seed-23-24.mjs`、`scripts/seed-25-rss.mjs` 入库，INSERT 直接带 `html_content` + `cover_body`，与 `src/api.js` 新建路径同口径。01-27 是 1 月最后一周的空档周、02-24 是 2 月的，都不排新稿，所以接在 01-20 pillar 之后的是 02-03 / 02-10 / 02-17。目标查询词：`博客相关推荐 标签交集排序` / `搜索结果关键词高亮` / `RSS 阅读器 卡片封面 不显示`。② 的辅词：`站内搜索 标签匹配`、`SQLite LIKE 子查询`——主词取短词承接通用前端需求，后端角度靠辅词和线上实测（`debugging` 4 篇全靠标签命中）撑。
+三篇 tools 新稿（相关推荐 / 搜索高亮 / RSS enclosure）由 `scripts/seed-23-24.mjs`、`scripts/seed-25-rss.mjs` 入库，INSERT 直接带 `html_content` + `cover_body`，与 `src/api.js` 新建路径同口径。改为 2 天一篇后接在 12-09 pillar 之后的是 12-11 / 12-13 / 12-15。目标查询词：`博客相关推荐 标签交集排序` / `搜索结果关键词高亮` / `RSS 阅读器 卡片封面 不显示`。② 的辅词：`站内搜索 标签匹配`、`SQLite LIKE 子查询`——主词取短词承接通用前端需求，后端角度靠辅词和线上实测（`debugging` 4 篇全靠标签命中）撑。
 
-新增的 teardown 稿 `csp-nonce-cache` 由 `scripts/seed-26-csp-nonce.mjs` 入库，同一套口径。03-03 接在 02-17 之后（02-24 已跳过），是「认证边界」四篇之后的第二篇 teardown，不续那个系列、独立成篇。目标查询词：`csp nonce 原理`。素材是读规范 + 线上实测：CF HIT 时 nonce 三次相同（缓存回放整份配对快照）、绕缓存三次全不同、304 主动删 CSP 头。
+新增的 teardown 稿 `csp-nonce-cache` 由 `scripts/seed-26-csp-nonce.mjs` 入库，同一套口径。12-17 收尾，接在 12-15 之后，是「认证边界」四篇之后的第二篇 teardown，不续那个系列、独立成篇。目标查询词：`csp nonce 原理`。素材是读规范 + 线上实测：CF HIT 时 nonce 三次相同（缓存回放整份配对快照）、绕缓存三次全不同、304 主动删 CSP 头。
 
 | 日期 | slug | 标题 | 栏目 | 系列 |
 |---|---|---|---|---|
 | 11-21 | `ld-self-reference` | 结构化数据里的自指：一个没人发现的 url 循环 | log | — |
 | 11-25 | `three-layer-cache` | 三层缓存怎么排，才不会被 Cloudflare 改写成 4 小时 | log | — |
-| 12-02 | `jwt-exp-verify` | JWT 的 exp 到底在哪一层被校验 | teardown | 认证边界 1/4 |
-| 12-09 | `samesite-behavior` | SameSite 的三种取值，到底谁在什么时候带上 cookie | teardown | 2/4 |
-| 12-16 | `cors-preflight-cost` | CORS 预检不是每个请求都发：OPTIONS 的真实成本 | teardown | 3/4 |
-| 12-23 | `turnstile-what-it-blocks` | Turnstile 拦住了什么，没拦住什么 | teardown | 4/4 |
-| 01-06 | `workers-free-tier-limits` | Workers 免费额度到底能撑多少人：把 10 万次/天换算成真实访问 | log | — |
-| 01-13 | `d1-kv-r2-latency` | D1、KV、R2 到底谁快：1100 次调用的实测分布 | log | — |
-| 01-20 | `workers-blog-pillar` | Cloudflare Workers 建站全流程（pillar） | site | — |
-| 02-03 | `related-posts` | 相关推荐上线那天，排序逻辑根本没跑：post.tags 晚赋值 16 行 | **小工具** | — |
-| 02-10 | `search-highlight-xss` | 搜索结果高亮的 `<mark>` 怎么不变成注入点：先切段，再逐段转义 | **小工具** | — |
-| 02-17 | `rss-enclosure-cover` | RSS 阅读器卡片封面不显示：缺的是 enclosure，不是正文首图 | **小工具** | — |
-| 03-03 | `csp-nonce-cache` | CSP nonce 每次请求都换，缓存里的旧页面怎么办：三处配对与一个 304 | teardown | — |
+| 11-27 | `jwt-exp-verify` | JWT 的 exp 到底在哪一层被校验 | teardown | 认证边界 1/4 |
+| 11-29 | `samesite-behavior` | SameSite 的三种取值，到底谁在什么时候带上 cookie | teardown | 2/4 |
+| 12-01 | `cors-preflight-cost` | CORS 预检不是每个请求都发：OPTIONS 的真实成本 | teardown | 3/4 |
+| 12-03 | `turnstile-what-it-blocks` | Turnstile 拦住了什么，没拦住什么 | teardown | 4/4 |
+| 12-05 | `workers-free-tier-limits` | Workers 免费额度到底能撑多少人：把 10 万次/天换算成真实访问 | log | — |
+| 12-07 | `d1-kv-r2-latency` | D1、KV、R2 到底谁快：1100 次调用的实测分布 | log | — |
+| 12-09 | `workers-blog-pillar` | Cloudflare Workers 建站全流程（pillar） | site | — |
+| 12-11 | `related-posts` | 相关推荐上线那天，排序逻辑根本没跑：post.tags 晚赋值 16 行 | **小工具** | — |
+| 12-13 | `search-highlight-xss` | 搜索结果高亮的 `<mark>` 怎么不变成注入点：先切段，再逐段转义 | **小工具** | — |
+| 12-15 | `rss-enclosure-cover` | RSS 阅读器卡片封面不显示：缺的是 enclosure，不是正文首图 | **小工具** | — |
+| 12-17 | `csp-nonce-cache` | CSP nonce 每次请求都换，缓存里的旧页面怎么办：三处配对与一个 304 | teardown | — |
 
-11-21 这篇是 11-14 当天写完的存货，属于 11 月「每周 1 篇打底、有余力再加 1 篇」里的加发，不占 W2~W10 的坑位，12 月起的降档不变。它与 11-25 隔 4 天、与 11-18 隔 3 天，是 11 月唯一一处密集段。
+11-21 这篇是 11-14 当天写完的存货，当日已上线。改期后 11-25 起进入 2 天一篇的密集段，11-21 → 11-25 的 4 天间隔是最后一个长间隔，之后全部压到 2 天。
 
 **为什么不用定时任务**：11-13/11-18 那两篇是靠 automation 改 `hidden` 上线的，那套有两个故障点——任务没跑、跑了但时间不对。现在全部走闸门，`hidden` 永远保持 0，`published_at` 一到，全部公开查询（列表、归档、分类、标签、系列、RSS、sitemap、单篇 is_live）自动放行。少一个活动部件。
 
 **已验**：九篇直链均 404，首页/归档/分类/系列/RSS/sitemap 均搜不到 slug。
 
-### 排队中（03-10 起，待写）
+### 排队中（两篇待写，未入库）
 
-两篇来自 11-20 收尾的第二档交互优化，都是 tools：代码能直接拖走跑，素材是本机实测，不是凑坑位。按「4 周 3 篇」接在 03-03 `csp-nonce-cache` 之后，03-10 / 03-17，03-24 收尾当月第三篇，03-31 空档。slug 是工作名，未入库。
+两篇来自 11-20 收尾的第二档交互优化，都是 tools：代码能直接拖走跑，素材是本机实测，不是凑坑位。按 2 天一篇接在 12-17 `csp-nonce-cache` 之后，12-19 / 12-21。slug 是工作名，未入库——**写入库时要带 `published_at`（UTC 01:00）与其余存稿同口径**，不是靠 automation 改 hidden。
 
 | 日期 | slug（工作名） | 标题 | 栏目 | 目标查询词 | 状态 |
 |---|---|---|---|---|---|
-| 03-10 | `lightbox-no-deps` | 无第三方库的图片灯箱：CSP nonce、SSR 不动、R2 原链路四条约束怎么同时守住 | **小工具** | `原生 js 图片灯箱` / `csp lightbox` | 待写 |
-| 03-17 | `theme-transition-class` | 主题切换只闪一下：临时 class + transitionend 兜底，为什么常驻 transition 会闪首屏 | **小工具** | `主题切换 平滑过渡` / `transitionend 不触发` | 待写 |
+| 12-19 | `lightbox-no-deps` | 无第三方库的图片灯箱：CSP nonce、SSR 不动、R2 原链路四条约束怎么同时守住 | **小工具** | `原生 js 图片灯箱` / `csp lightbox` | 待写 |
+| 12-21 | `theme-transition-class` | 主题切换只闪一下：临时 class + transitionend 兜底，为什么常驻 transition 会闪首屏 | **小工具** | `主题切换 平滑过渡` / `transitionend 不触发` | 待写 |
 
 两篇的「别处没有的东西」：
 
@@ -78,7 +78,7 @@
 - **01-13 存储延迟**：临时 Worker 绑同一个 D1/R2/新建 KV，每项 120 次调用取 p50/p95。关键数据：D1 连 `SELECT 1` 都是 44.4ms，四类查询差 <1.5ms；KV 命中 3.6ms、未命中 265.4ms；KV 写 560.4ms；R2 读 76.2ms。
 - **01-06 免费额度**：官方限额（2026-11 查证）+ 本站 `cpuTime` 实测，所有换算写出算式，没做过的（如 1MB JSON 解析）明确标「推断」。
 - **12-02 JWT**：对本站 `verifyToken` 真跑五枚畸形 token，四格放行、一格拒绝，脚本在 `scripts/jwt-probe.mjs`。
-- **03-03 CSP nonce**：线上响应头实测——两次请求 nonce 不同；CF HIT 三次 nonce 相同（Age 85/85/86，ETag `"13mm-742d872e"`），绕缓存三次全不同；头 body 配对一致；带 `If-None-Match` 的 304 无 CSP 头。单测在 `scripts/test-security.mjs`（10 条）与 `scripts/test-etag.mjs`（31 条）。
+- **12-17 CSP nonce**：线上响应头实测——两次请求 nonce 不同；CF HIT 三次 nonce 相同（Age 85/85/86，ETag `"13mm-742d872e"`），绕缓存三次全不同；头 body 配对一致；带 `If-None-Match` 的 304 无 CSP 头。单测在 `scripts/test-security.mjs`（10 条）与 `scripts/test-etag.mjs`（31 条）。
 - 采集脚本与原始数据留在 `bench/` 和 `content/bench-data.md`，Worker 与 KV 命名空间已删除。
 
 
@@ -150,7 +150,7 @@ OAuth 系列四篇共用系列名「OAuth 授权流程拆解」，`series_order`
 
 teardown 之所以能上位，不是因为它更好写，而是因为它是唯一**可以计划**的栏目：log 和 tools 都得等事情发生，teardown 只要选定一个机制就能开工。节奏要稳定，主力必须是可以计划的那一个。
 
-> **分发口径（2026-11-21 定）**：原「12-13 Search Console 满月复盘」节点已取消，不再用自然点击数触发停稿/转分发判定。排期表照常按「4 周 3 篇」推进；`content/dist/` 三份外发稿（掘金/V2EX/dev.to）转为独立待命，需要时单独点名发布，不绑定任何数据门槛。
+> **分发口径（2026-11-21 定）**：原「12-13 Search Console 满月复盘」节点已取消，不再用自然点击数触发停稿/转分发判定。排期按「2 天一篇」推进至 12-21 存稿出清；`content/dist/` 三份外发稿（掘金/V2EX/dev.to）转为独立待命，需要时单独点名发布，不绑定任何数据门槛。
 
 ## B 类报错池（成本最低，随时插队）
 
