@@ -1808,12 +1808,18 @@ async function injectTheme(env, res, url) {
      一份再下正确的那份。CSS 没有维度、地址唯一，是唯一适合放进 103 的东西。
 
      站上要开：Dashboard → Speed → Content Optimization → Early Hints。
-     不开也不会坏，这个头退化成普通响应头（浏览器照样当 preload 处理）。 */
-  const av = assetVersion(env);
-  const avq = av ? `?v=${encodeURIComponent(av)}` : '';
-  const hints = [`</style.css${avq}>; rel=preload; as=style`];
+     不开也不会坏，这个头退化成普通响应头（浏览器照样当 preload 处理）。
+
+     版本号必须取**内容哈希**，不能取部署号：preload 的 URL 与 HTML 里的
+     href 差一个字符，浏览器就当两个资源，103 提前下的那份全程没人用 ——
+     等于每次冷访问白下一遍 121KB 的 CSS，而且两份都会被边缘缓存住。
+     拿不到哈希时宁可不发 Link 头，也不发一个错的。 */
+  const cssHash = ASSET_HASH['style.css'] && ASSET_HASH['style.css'].v;
+  const hints = [];
+  if (cssHash) hints.push(`</style.css?v=${cssHash}>; rel=preload; as=style`);
   const themeHref = themeCssPath(s.theme);
-  if (themeHref) hints.push(`<${themeHref}${avq}>; rel=preload; as=style`);
+  const themeHash = themeHref && ASSET_HASH[themeHref.replace(/^\//, '')];
+  if (themeHref && themeHash) hints.push(`<${themeHref}?v=${themeHash.v}>; rel=preload; as=style`);
 
   /* 正文首图也预加载。这里跟 CSS 不一样：首图有 480/800/1200 多档，写死一个 URL
      等于替浏览器挑档 —— 手机会白下 1200 那张，或者 DPR=2 的桌面拿到 480 的糊图。
@@ -1963,6 +1969,14 @@ async function notFoundPage(env, request, message = '页面走丢了') {
         .map((p) => `<li><a href="/p/${encodeURIComponent(p.slug)}">${esc(p.title)}</a></li>`)
         .join('')}</ul></div>`
     : '';
+  /* 走错路的人第一眼该知道自己站在谁的地盘上。这里只放一条静态品牌线，
+     不放整条导航 —— 404 不加载 app.js，而导航抽屉（汉堡）的交互正好在 app.js 里，
+     放一条点不动的导航比没有导航更糟。 */
+  const brandHtml = `<div class="g404-brand"><a href="/">${
+    site.avatar
+      ? `<img src="${esc(avatarSrc(site.avatar, 64))}" alt="" width="26" height="26" decoding="async">`
+      : `<span class="g404-av" aria-hidden="true">${esc((site.name || 'E').trim().charAt(0).toUpperCase())}</span>`
+  }<span>${siteName}</span></a></div>`;
   return html(
     stampAssets(
       `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
@@ -1976,7 +1990,7 @@ async function notFoundPage(env, request, message = '页面走丢了') {
 </head>
 <body>
 <a class="skip-link" href="#main">跳到正文</a>
-<main class="g404" id="main" tabindex="-1"><div><h1>404</h1><p>${esc(message)}</p>
+<main class="g404" id="main" tabindex="-1">${brandHtml}<div><h1>404</h1><p>${esc(message)}</p>
 <form action="/" method="get" role="search"><input type="search" name="q" placeholder="搜一下想找的内容…" aria-label="搜索文章"><button type="submit">搜索</button></form>
 ${recentHtml}<div class="g404-foot"><a href="/archive">全部文章</a><a href="/">回到首页</a></div></div></main></body></html>`,
       env

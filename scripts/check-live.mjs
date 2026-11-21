@@ -449,6 +449,25 @@ console.log(`\n${ORIGIN}\n`);
   ok('无 v 的 CSS 不给 immutable', !/immutable/.test(plain.headers.get('cache-control') || ''), plain.headers.get('cache-control') || '');
 }
 
+/* ---------- 103 Early Hints：preload 必须与 HTML 同址 ----------
+
+   这条是 2026-11 补的：preload 一度还在用部署号（?v=<部署 UUID>），
+   而 HTML 里的 href 已经是内容哈希 —— 两个 URL 差一个字符串，浏览器就当两个资源，
+   103 提前下的那份全程没人用，冷访问白下一遍 121KB 的 CSS，还会被边缘各缓存一份。
+   两者必须逐字符相等，这条断言就是守它。 */
+{
+  const { h, body } = await get('/');
+  const link = h.get('link') || '';
+  const pre = link.match(/<([^>]*\/style\.css\?v=[^>]+)>;\s*rel=preload/i);
+  const href = body.match(/<link[^>]+href="(\/style\.css\?v=[^"]+)"/);
+  ok('响应头带 style.css 的 preload', !!pre, pre ? pre[1] : '没有 Link 头');
+  ok(
+    'preload 地址与 HTML 里的 href 逐字符一致',
+    !!pre && !!href && pre[1] === href[1],
+    pre && href && pre[1] !== href[1] ? `preload=${pre[1]} html=${href[1]}` : ''
+  );
+}
+
 /* ---------- 10. 安全与缓存头 ---------- */
 {
   const { h } = await get('/');

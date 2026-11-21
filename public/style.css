@@ -281,16 +281,20 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 main:focus { outline: none; }
 
 .tag {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
   border-radius: 999px;
-  background: var(--bg-soft);
+  background: transparent;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.7;
-  transition: transform 0.16s, background 0.16s, color 0.16s;
+  white-space: nowrap;
+  transition: background 0.16s, color 0.16s, border-color 0.16s;
 }
-.tag:hover { background: var(--accent-soft); color: var(--accent); transform: translateY(-1px); }
+.tag:hover { background: var(--accent-soft); color: var(--accent); }
 
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
@@ -313,6 +317,9 @@ main:focus { outline: none; }
 .toolbar .search { flex: 1; min-width: 180px; position: relative; }
 .toolbar .search input { padding-left: 34px; padding-right: 34px; }
 .toolbar .search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+/* 输入框 40px、旁边的按钮只有 33px —— 一行里两个高度，基线看着就歪。
+   按钮自己撑到与输入框同高，不写死数值，换主题改了输入框高度也不会脱节。 */
+.toolbar .btn { align-self: stretch; padding-block: 0; }
 /* 清除按钮：仅输入非空时出现，贴在 input 右缘内侧，不挤压放大镜 */
 .search-clear {
   position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
@@ -327,12 +334,34 @@ main:focus { outline: none; }
 /* min-height 让分类/标签栏在接口回来前也占着位，避免内容整体往上一跳 */
 .tagbar { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 26px; align-items: center; min-height: 26px; }
 .tagbar + .tagbar { margin-top: -14px; }
+
+/* 窄屏：标签云改成单行横滑。
+   二十多个标签换行要占掉五排，首屏被压得一篇正文都看不见 ——
+   读者打开首页想看的是文章，不是标签墙。横滑只占两排，
+   右缘渐隐一下，暗示后面还有。 */
+@media (max-width: 720px) {
+  main.wrap.home .tagbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(90deg, #000 92%, transparent);
+    mask-image: linear-gradient(90deg, #000 92%, transparent);
+  }
+  main.wrap.home .tagbar::-webkit-scrollbar { display: none; }
+  main.wrap.home .tagbar + .tagbar { margin-top: 9px; }
+  main.wrap.home .tagbar > * { flex: 0 0 auto; }
+}
 .bar-label { font-size: 12.5px; color: var(--muted); margin-right: 2px; }
 .cat-chip { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 a.cat-chip:hover { filter: brightness(0.96); }
 
 /* 标签云配色：色相复用评论头像那十色（同一哈希函数），文章越多字号越重。
-   只作用在带 tw-t 的标签上（tagbar 云），不影响文章卡片里的普通标签。
+   色相只落在一个 5px 圆点上，胶囊本身是中性描边 —— 二十多个标签同时上色时，
+   满屏彩色胶囊会互相抢注意力（而且色相是按名字哈希来的，本身没有语义），
+   缩成小圆点既能一眼分辨「这是不同的标签」，又不至于把正文压下去。
    选中态是行内 style，优先级高于这里，仍是强调色。 */
 .tag.tw-t0 { --tw: #6b8fb5; }
 .tag.tw-t1 { --tw: #7f9e86; }
@@ -345,12 +374,39 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .tag.tw-t8 { --tw: #a08a7f; }
 .tag.tw-t9 { --tw: #7fa0b5; }
 .tag[class*="tw-t"] {
-  color: var(--tw);
-  background: color-mix(in srgb, var(--tw) 12%, var(--card));
+  color: var(--muted);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--line) 90%, transparent);
 }
-.tag[class*="tw-t"]:hover { background: color-mix(in srgb, var(--tw) 22%, var(--card)); color: var(--tw); }
+.tag[class*="tw-t"]::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--tw);
+}
+.tag[class*="tw-t"]:hover {
+  background: color-mix(in srgb, var(--tw) 12%, var(--card));
+  border-color: color-mix(in srgb, var(--tw) 42%, var(--line));
+  color: var(--fg);
+}
 .tag.tw-w2 { font-size: 12.5px; font-weight: 500; }
 .tag.tw-w3 { font-size: 13px; font-weight: 600; }
+/* 暗色下同一组色相要提亮一档：原色是给浅底算的，压在 #141518 上会灰成一团，
+   圆点就失去「能分辨不同标签」的意义了。 */
+:root[data-mode="dark"] .tag.tw-t0 { --tw: #93b6da; }
+:root[data-mode="dark"] .tag.tw-t1 { --tw: #9cc4a5; }
+:root[data-mode="dark"] .tag.tw-t2 { --tw: #d9ab86; }
+:root[data-mode="dark"] .tag.tw-t3 { --tw: #bda2d6; }
+:root[data-mode="dark"] .tag.tw-t4 { --tw: #d69db0; }
+:root[data-mode="dark"] .tag.tw-t5 { --tw: #8ec7bd; }
+:root[data-mode="dark"] .tag.tw-t6 { --tw: #d6c186; }
+:root[data-mode="dark"] .tag.tw-t7 { --tw: #a7b4d6; }
+:root[data-mode="dark"] .tag.tw-t8 { --tw: #c2a99c; }
+:root[data-mode="dark"] .tag.tw-t9 { --tw: #9cc2d9; }
+/* 字号变了圆点也跟着长一点，重标签才压得住 */
+.tag.tw-w2[class*="tw-t"]::before { width: 5.5px; height: 5.5px; }
+.tag.tw-w3[class*="tw-t"]::before { width: 6px; height: 6px; }
 
 /* 栏目页 */
 .tax-section { margin-bottom: 40px; }
@@ -1768,31 +1824,35 @@ html.theme-transition, html.theme-transition * {
 }
 :root[data-theme="anzhiyu"] .btn.primary:hover { opacity: 1; filter: brightness(1.05); }
 
-/* 标签：五彩胶囊 */
+/* 标签：中性胶囊 + 色相圆点。原来这里是 5 色轮换的实心胶囊，二十多个标签
+   排在一起像撒了一把彩色纸屑；色相只留作圆点后，整片标签云才读得出「一组」
+   而不是「一堆」。选中项仍由行内 style 染成强调色，圆点跟着隐去。 */
 :root[data-theme="anzhiyu"] .tag {
   border-radius: 999px;
   padding: 3px 11px;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  background: transparent;
+  color: var(--muted);
+}
+:root[data-theme="anzhiyu"] .tag:hover {
   background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
   color: var(--accent);
 }
-:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+2) {
-  background: color-mix(in srgb, #17a673 11%, transparent); color: #12946a;
+:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+2) { --tw: #12946a; }
+:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+3) { --tw: #c47a00; }
+:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+4) { --tw: #d23f74; }
+:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+5) { --tw: #6d4ee0; }
+:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+2) { --tw: #5fd6a8; }
+:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+3) { --tw: #f0b976; }
+:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+4) { --tw: #f58bb1; }
+:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+5) { --tw: #bda6f8; }
+/* 行内选中态会盖掉颜色，圆点这时只会跟强调色打架，去掉 */
+:root[data-theme="anzhiyu"] .tagbar .tag[style*="--accent-soft"]::before { display: none; }
+:root[data-theme="anzhiyu"] .cat-chip {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--accent);
 }
-:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+3) {
-  background: color-mix(in srgb, #f08c00 13%, transparent); color: #c47a00;
-}
-:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+4) {
-  background: color-mix(in srgb, #e64980 11%, transparent); color: #d23f74;
-}
-:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+5) {
-  background: color-mix(in srgb, #7c5cf0 11%, transparent); color: #6d4ee0;
-}
-:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+2) { color: #5fd6a8; }
-:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+3) { color: #f0b976; }
-:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+4) { color: #f58bb1; }
-:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+5) { color: #bda6f8; }
-:root[data-theme="anzhiyu"] .cat-chip { background: color-mix(in srgb, var(--accent) 13%, transparent); }
 
 /* 文章卡片：横向大图 + 悬停上浮 */
 :root[data-theme="anzhiyu"] .post-list { gap: 18px; }
@@ -1827,6 +1887,14 @@ html.theme-transition, html.theme-transition * {
     linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--card)), color-mix(in srgb, #b06bff 16%, var(--card)));
 }
 :root[data-theme="anzhiyu"] .post-card:hover .thumb { transform: scale(1.045); }
+/* 自动生成的封面是一层浅色渐变，直接放在深色卡片上会发白发飘。
+   压一档亮度、补一道极淡的内描边，让它落回卡片里而不是浮在上面。 */
+:root[data-theme="anzhiyu"][data-mode="dark"] .post-card .thumb,
+:root[data-theme="anzhiyu"][data-mode="dark"] .post-card:not(:has(.thumb))::before {
+  filter: brightness(.9) saturate(.96);
+  outline: 1px solid rgba(255, 255, 255, .07);
+  outline-offset: -1px;
+}
 :root[data-theme="anzhiyu"] .post-card h2 { font-size: 18.5px; letter-spacing: -0.015em; }
 :root[data-theme="anzhiyu"] .post-card .excerpt { font-size: 14.5px; }
 :root[data-theme="anzhiyu"] .pagination .btn { border-radius: 999px; }
@@ -1889,8 +1957,9 @@ html.theme-transition, html.theme-transition * {
     background: color-mix(in srgb, var(--card) 97%, transparent);
   }
   .back-top { backdrop-filter: none; background: var(--card); }
-  :root[data-theme="anzhiyu"] .hero { padding: 40px 22px 36px; border-radius: 20px; }
-  :root[data-theme="anzhiyu"] .hero h1 { font-size: 28px; }
+  /* 首屏每一像素都算数：横幅只放站名与一句描述，没必要占掉 150px 才让第一篇文章露头 */
+  :root[data-theme="anzhiyu"] .hero { padding: 34px 22px 30px; border-radius: 20px; margin: 10px 0 20px; }
+  :root[data-theme="anzhiyu"] .hero h1 { font-size: 27px; margin: 0 0 8px; }
   :root[data-theme="anzhiyu"] header.site .inner::after { display: none; }
 }
 @media (max-width: 640px) {
@@ -2370,10 +2439,24 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 .pick:hover { transform: translateY(-1px); }
 .pick:hover .pick-t { color: var(--accent); }
 .pick-m { font-size: 12px; color: var(--muted); white-space: nowrap; flex: 0 0 auto; }
+/* 窄屏：分类标签挤在同一行会把标题压成三行半。让它掉到第二行右对齐，
+   当一行脚注 —— 信息不丢，标题也不再被折断。 */
+@media (max-width: 560px) {
+  .pick { flex-wrap: wrap; row-gap: 3px; }
+  .pick-m { flex: 0 0 100%; text-align: right; }
+}
 
 @media (max-width: 640px) {
   /* 窄屏上表格改为横向滚动，别把四列压成每列两个字 */
   .md table { min-width: 460px; }
+}
+
+@media (max-width: 480px) {
+  /* 「共 17 篇 · 2026.10 — 2026.11 · 跨越 1 个年份」在 390 屏正好差一点点，
+     断在「个年份」中间最难看；降半号字整句就能落在一行 */
+  :root[data-theme="anzhiyu"] .hero p { font-size: 13px; }
+  .site-foot { margin-top: 48px; }
+  .site-foot .sf-inner { padding: 24px 20px 28px; gap: 12px; }
 }
 
 
@@ -2636,19 +2719,45 @@ mark {
 @media (max-width: 560px) { .sp-t { font-size: 14px; } .sp-d { display: none; } }
 
 /* ---- 404 ---- */
-.g404 { min-height: 100vh; display: grid; place-items: center; text-align: center; padding: 40px 20px; }
+.g404 {
+  position: relative; min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center; padding: 40px 20px;
+}
+/* 居中容器用 flex 而不是 grid：grid 的 auto 列按 max-content 撑开，
+   内容里写死 380px 时 390 屏会横向溢出（搜索按钮被切掉、长标题截不出省略号）。
+   flex 的 100% 是相对父级内容盒算的，不会自己撑破。 */
+.g404 > div { width: 100%; max-width: 380px; }
+/* 品牌线钉在顶部居中：404 只有一屏内容，跟着 grid 居中会把「404」挤下去 */
+.g404-brand {
+  position: absolute; top: 22px; left: 50%; transform: translateX(-50%);
+  font-size: 14.5px; font-weight: 600; white-space: nowrap;
+}
+.g404-brand a { display: inline-flex; align-items: center; gap: 9px; color: var(--fg); text-decoration: none; }
+/* .g404 a 是给「按钮式链接」的（实底胶囊），品牌线不是按钮，得整条压回去。
+   绝对定位的容器宽度是收缩计算的，不写 nowrap 的话头像会把站名挤到下一行。 */
+.g404 .g404-brand a { display: inline-flex; background: none; padding: 0; border-radius: 0; color: var(--fg); }
+.g404-brand a:hover { color: var(--accent); }
+.g404-brand img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+.g404-av {
+  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700;
+}
 .g404 h1 { font-family: var(--serif); font-size: 88px; margin: 0; opacity: .12; font-weight: 700; letter-spacing: -.05em; }
 .g404 p { color: var(--muted); margin: 0 0 26px; }
 .g404 a { display: inline-block; padding: 10px 20px; border-radius: 999px; background: var(--fg); color: var(--bg); text-decoration: none; font-size: 14px; }
 /* 走错路的人多半是在找某篇文章，光给「回首页」等于让他重新找一遍 */
-.g404 form { display: flex; gap: 8px; justify-content: center; margin: 0 0 22px; max-width: 380px; }
+.g404 form { display: flex; gap: 8px; justify-content: center; margin: 0 0 22px; max-width: 100%; }
 .g404 input { flex: 1; min-width: 0; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg-soft, transparent); color: var(--fg); font-size: 14px; font-family: inherit; }
 .g404 input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .g404 button { padding: 10px 18px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--fg); font-size: 14px; font-family: inherit; cursor: pointer; }
 .g404 button:hover { border-color: var(--fg); }
 .g404-hint { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
-.g404-recent ul { list-style: none; padding: 0; margin: 0 0 22px; display: flex; flex-direction: column; gap: 7px; max-width: 380px; }
-.g404-recent li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g404-recent ul { list-style: none; padding: 0; margin: 0 0 22px; display: flex; flex-direction: column; gap: 7px; max-width: 100%; }
+.g404-recent li { min-width: 0; }
+/* 省略号挂在 a 上：li 是 block，内部 a 是 inline，宽度由文字撑开，
+   text-overflow 作用在 li 上时截断位置跟着 inline 盒子走，经常不出现省略号。 */
+.g404-recent li a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .g404-recent a { background: transparent; color: var(--accent); padding: 0; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
 .g404-foot a { display: inline-block; margin: 0 6px; padding: 0; background: none; font-size: 13px; color: var(--muted); text-decoration: underline; }
 .g404-foot a:hover { color: var(--fg); }

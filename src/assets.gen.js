@@ -8,7 +8,7 @@ export const ASSET_HASH = {
   'copy-notice.js': { v: '9244b7ce73', i: 'sha384-l5UVmwYDiWq68IRagkZJfz+I+EGGEWJR5keZkDJ0ZFqUbea2ojbOuUSLrNdgnxT3' },
   'cover.js': { v: 'df82152a9d', i: 'sha384-A3lOG3f+LLp59TfT44W10oVZGE+h+s9Yl5/xBZhE80fk8zuyMXhMOcpF+aMGpe8u' },
   'md.js': { v: '092666ed13', i: 'sha384-SmrOod4zV8EQrLRzEbhQKez9axG19fmHK0uVCP7NaDbssUvRYGpYtKgEkRYxyvkv' },
-  'style.css': { v: '08f3f145cb', i: 'sha384-qbU4WOqt1WpqFRkjfWfi6gDhTenZyva3mGN+4btqlH6Ha8TX5pXkxOAji0+NgV8x' },
+  'style.css': { v: 'e7052c2688', i: 'sha384-61OjHaWcgHvv6mpFtxc0RCkszAuEzTbcPTicCdUxiZ5YMaukJ0To3xQqHKzzP0f/' },
   'theme.js': { v: 'b7f4df1abc', i: 'sha384-cqn210uD+mbgzwwObSCpMD4xzsgJo8F2EGvoeIiloAfzG1V/aHSZn0QIf2Whwi7O' },
   'theme/forest.css': { v: 'e55135fe0e', i: 'sha384-IzNc3KcUj+67IYD9G7G8Og3FbI4kGDLBD7+m55JQcCfOcBfonwCYso7dPI8pTyfQ' },
   'theme/ink.css': { v: '501c2b3385', i: 'sha384-mcdP0iju4wX6O9ZA3NPvX36gH7uTc+Gmds5lS/qsab6InJ2XlPKaLiWss4eSpbdm' },
