@@ -95,12 +95,43 @@ export async function attachTags(db, posts) {
 }
 
 /**
+ * 客户端指定的定时发布时间。输入是 UTC 的 'YYYY-MM-DD HH:mm:ss'，
+ * 前端把北京时间换算好再传过来，服务端只认这一种格式。
+ *
+ * 返回值区分三种语义，不能合并：
+ *   ''          → 明确清空定时（取消排期，改成立即发布/仍为草稿）
+ *   'YYYY-...'  → 合法的未来时刻
+ *   undefined   → 没传或填错，调用方保持原值（不让一次手滑把排期抹掉）
+ */
+export function requestedAt(raw, now) {
+  if (raw === undefined || raw === null) return undefined;
+  const s = String(raw).trim();
+  if (!s) return '';
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return undefined;
+  const t = Date.parse(s.replace(' ', 'T') + 'Z');
+  const n = Date.parse(now.replace(' ', 'T') + 'Z');
+  if (!Number.isFinite(t) || !Number.isFinite(n)) return undefined;
+  /* 下限 1 分钟：定时在保存请求往返的几十秒里没意义，还可能「设了就发布」。
+     上限 366 天：挡住 2099 这类手滑，又不挡正常的跨年排期。 */
+  if (t <= n + 60_000 || t > n + 366 * 86400_000) return undefined;
+  return s;
+}
+
+/**
  * 发布时间：第一次进入「非私密」状态时定下，之后来回改成草稿/发布都不再改写。
  * 不这么定的话，草稿写于 10 月、发布在 12 月，页面日期、RSS pubDate、
  * article:published_time 会一起错成 10 月。空串表示还没发布过。
+ *
+ * requested 是 requestedAt() 的结果：
+ *   undefined → 没传定时参数，保持旧行为（老调用方与填错的情况都走这里）
+ *   未来时刻  → 排期 / 改期（尚未到点的定时可以改）
+ *   ''        → 取消排期
+ * 已经到点的文章一律锁定 —— 发布日期跳变会让 RSS/JSON-LD/页面日期一起错。
  */
-function publishedOf(prev, isPrivate, now) {
-  if (prev) return prev;
+export function publishedOf(prev, isPrivate, now, requested = undefined) {
+  if (prev && prev <= now) return prev;
+  if (requested === undefined) return prev || (isPrivate ? '' : now);
+  if (requested) return requested;
   return isPrivate ? '' : now;
 }
 
@@ -622,7 +653,7 @@ export async function handleApi(env, request, url, ctx) {
     const category = normalizeCat(rawCat);
     if (rawCat && !category) return err('未知栏目：只能是 log / teardown / tools / site');
     const stamp = nowISO();
-    const published = publishedOf('', !!body.is_private, stamp);
+    const published = publishedOf('', !!body.is_private, stamp, requestedAt(body.publish_at, stamp));
 
     /* 入库前把正文渲染成成品：这条路径写一次，之后每次回源读的都是成品 HTML。
        消毒必须在这一步做完 —— 读的时候不会再 sanitize 一遍（那样就白省了 CPU）。 */
@@ -706,7 +737,7 @@ export async function handleApi(env, request, url, ctx) {
     const isPrivate = body.is_private !== undefined ? (body.is_private ? 1 : 0) : p.is_private;
     const isHidden = body.hidden !== undefined ? (body.hidden ? 1 : 0) : p.hidden;
     const stampNow = nowISO();
-    const published = publishedOf(p.published_at, isPrivate, stampNow);
+    const published = publishedOf(p.published_at, isPrivate, stampNow, requestedAt(body.publish_at, stampNow));
     // 正文没动就沿用上次的成品，省一次解析（编辑器每次保存都会把 content 带回来）
     const html = content === p.content && p.html_content ? p.html_content : sanitizeHtml(renderBody(content));
     const coverBody = bodyCoverFor(content);

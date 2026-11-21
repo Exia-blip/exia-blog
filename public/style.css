@@ -672,7 +672,17 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .pub-switch input:checked::after { transform: translateX(16px); }
 .pub-switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pub-time { flex-direction: column; align-items: flex-start; gap: 2px; }
-.pub-time > span:first-child { color: var(--muted); font-size: 11.5px; }
+.pub-time > label, .pub-time > span:first-child { color: var(--muted); font-size: 11.5px; }
+/* 定时输入：复用输入框口径，窄屏下不撑破发布卡 */
+.pub-at {
+  width: 100%; max-width: 210px; margin: 2px 0 1px; padding: 4px 7px;
+  border: 1px solid var(--line); border-radius: 7px;
+  background: var(--bg-soft, var(--card)); color: var(--fg);
+  font: inherit; font-size: 12px; color-scheme: light dark;
+}
+.pub-at:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pub-at:disabled { opacity: .55; cursor: not-allowed; }
+.pub-time .field-error { font-size: 11.5px; }
 .pub-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .publish-card .save-state { margin-left: 0; }
 

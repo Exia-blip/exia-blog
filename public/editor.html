@@ -125,7 +125,12 @@
   <div class="pub-switches">
     <label class="pub-switch"><span>仅自己可见</span><input type="checkbox" id="is_private"></label>
     <label class="pub-switch"><span>列出在文章中</span><input type="checkbox" id="hidden"></label>
-    <div class="pub-time"><span>发布时间</span><span class="tiny muted" id="pub-state"></span></div>
+    <div class="pub-time">
+      <label for="publish-at">定时发布 <span class="tiny muted">北京时间，留空即保存后上线</span></label>
+      <input type="datetime-local" id="publish-at" class="pub-at" aria-label="定时发布时间（北京时间）">
+      <span class="tiny muted" id="pub-state"></span>
+      <span class="field-error" id="publish-at-error" hidden></span>
+    </div>
   </div>
 
   <div class="pub-foot">
@@ -359,16 +364,44 @@ let hasServerRecord = false;
 // 站点头像预览：声明要在 boot 之前，否则 initSiteSettings 早于赋值语句执行会踩 TDZ
 let paintAvatar = () => {};
 let sumTouched = false; // 手动改过摘要就不让 AI 覆盖
-// 发布时间：首次公开时由服务端定下，之后改标题、来回存草稿都不变
+// 发布时间：首次公开时定下；未到点的定时可以改期，已上线的锁定（服务端也拦一道）
 let pubAt = '';
+const BJ_MS = 8 * 3600 * 1000;
+
+/* 库里存 UTC，输入框按北京时间显示 —— 全站日期都是北京时间，编辑器不能例外。
+   datetime-local 没有时区概念，这里显式 ±8h，避免浏览器时区把时间挪掉一天。 */
+function utcToLocalInput(utc) {
+  if (!utc) return '';
+  const d = new Date(String(utc).replace(' ', 'T') + 'Z');
+  if (Number.isNaN(d.getTime())) return '';
+  return new Date(d.getTime() + BJ_MS).toISOString().slice(0, 16);
+}
+function localInputToUtc(v) {
+  if (!v) return '';
+  const d = new Date(String(v) + ':00Z');
+  if (Number.isNaN(d.getTime())) return '';
+  return new Date(d.getTime() - BJ_MS).toISOString().slice(0, 19).replace('T', ' ');
+}
+// pubAt 是否已到点（到点即锁定，不能再改）
+function pubAtLocked() {
+  if (!pubAt) return false;
+  const t = Date.parse(String(pubAt).replace(' ', 'T') + 'Z');
+  return Number.isFinite(t) && t <= Date.now();
+}
 
 function setPubState(v) {
   pubAt = v || '';
   const el = $('pub-state');
-  if (!el) return;
-  el.textContent = pubAt
-    ? `发布时间 ${String(pubAt).slice(0, 10)}（不再改动）`
-    : '草稿 · 首次取消「私密」时定发布时间';
+  const input = $('publish-at');
+  if (input) {
+    input.value = utcToLocalInput(pubAt);
+    input.disabled = pubAtLocked();
+  }
+  if (el) {
+    if (pubAtLocked()) el.textContent = `发布于 ${pubAt.slice(0, 10)} · 已锁定，不再改动`;
+    else if (pubAt) el.textContent = `定时 · 北京时间 ${utcToLocalInput(pubAt).replace('T', ' ')} 上线`;
+    else el.textContent = '草稿 · 留空则公开时立即发布';
+  }
 }
 let sumBusy = false;
 // 栏目/标签规范（/api/taxonomy）：栏目四选一，标签白名单 + 别名表
@@ -393,6 +426,7 @@ function snapshot() {
     series_order: seriesEl2.value,
     is_private: privateEl.checked,
     hidden: hiddenEl.checked,
+    publish_at: pubAt,
     at: Date.now(),
   };
 }
@@ -421,6 +455,7 @@ function applyDraft(d) {
   seriesEl2.value = d.series_order || '';
   privateEl.checked = !!d.is_private;
   hiddenEl.checked = !!d.hidden;
+  if (d.publish_at !== undefined) setPubState(d.publish_at);
 }
 
 /* ---------- 预览 ---------- */
@@ -513,6 +548,30 @@ async function saveNow(manual = false) {
     is_private: privateEl.checked,
     hidden: hiddenEl.checked,
   };
+  // 定时：已上线的文章锁定，不回传（服务端也会拦）；输入框有值才带，留空＝取消排期
+  let pubError = '';
+  if (!pubAtLocked()) {
+    const pubEl = $('publish-at');
+    const utc = localInputToUtc(pubEl && pubEl.value);
+    if (utc) {
+      const delta = Date.parse(utc.replace(' ', 'T') + 'Z') - Date.now();
+      if (delta <= 60_000) pubError = '定时须晚于当前时间 1 分钟以上';
+      else if (delta > 366 * 86400_000) pubError = '最多提前 366 天定时';
+      else payload.publish_at = utc;
+    } else if (pubAt) {
+      // 原本有定时、现在清空输入框 → 显式传空串取消排期
+      payload.publish_at = '';
+    }
+  }
+  if (pubError) {
+    showFieldError('publish-at', pubError);
+    setState('error', pubError);
+    $('publish-at').focus();
+    saving = false;
+    setSaveBusy(false);
+    return;
+  }
+  clearFieldError('publish-at');
   // 只有手动改过摘要才回传，否则交给服务端按正文变化自动生成
   if (sumTouched) payload.summary = sumEl.value.trim();
 
