@@ -15,13 +15,15 @@ let pass = 0;
 const ok = (n) => { pass++; console.log(`  ok  ${n}`); };
 
 // ① 提交防重复锁：saving 在途置灰 + 文案切换，finally 必解锁，复用 .btn:disabled
-assert.match(editor, /function setSaveBusy\(busy\)/, '缺 setSaveBusy');
+assert.match(editor, /function setSaveBusy\(busy, manual = true\)/, '缺 setSaveBusy 或没区分手动/自动');
 assert.match(editor, /saveBtn\.disabled = busy/, '置灰未接 disabled');
-assert.match(editor, /'发布中…'/, '发布中文案缺失');
-assert.match(editor, /setSaveBusy\(true\)/, '在途未上锁');
+assert.match(editor, /manual \? '发布中…' : '保存中…'/, '两条文案必须都可达（旧写法 SAVE_LABEL 恒为「发布」，保存中…是死代码）');
+assert.ok(!/SAVE_LABEL\.includes\('发布'\)/.test(editor), '不应残留恒真的按钮文案判断');
+assert.match(editor, /setSaveBusy\(true, manual\)/, '在途未把 manual 传进状态切换');
+assert.match(editor, /if \(saving\) \{ scheduleSave\(\); return; \}/, '在途重复点击未拦截');
 assert.match(editor, /setSaveBusy\(false\)[\s\S]{0,40}\/\/ 成功 \/ 报错都解锁/, 'finally 未解锁');
 assert.ok(css.includes('.btn:disabled'), '应复用现有 .btn:disabled 样式');
-ok('① 提交防重复锁：上锁/解锁/文案切换齐全');
+ok('① 提交防重复锁：上锁/解锁/双文案/在途拦截齐全');
 
 // ② 统计表格斑马纹 + hover：只作用 tbody tr，表头不参与，色值走 --bg-soft
 assert.match(stats, /tbody tr:nth-child\(even\)\{background:color-mix\(in srgb,var\(--bg-soft\)/, '斑马纹缺失或未走主题变量');

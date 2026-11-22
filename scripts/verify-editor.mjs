@@ -27,11 +27,24 @@ const MIME = {
 };
 
 // 后台依赖的接口一律返回最小可用的假数据，让模块跑到底（没登录会被踢到 /login）
-const stub = (p) => {
+let postWrites = [];
+let failNextWrite = false;
+const stub = (p, method) => {
   if (p === '/api/me') return { user: { id: 1, name: 'tester', is_admin: true, avatar: '' } };
   if (p === '/api/mine') return { posts: [] };
   if (p.startsWith('/api/taxonomy')) return { categories: [], seed: [] };
   if (p.startsWith('/api/settings')) return { name: '测试站', desc: '', avatar: '', theme: 'paper', mode: 'auto' };
+  // 提交防重复锁：统计真实写请求数，并能模拟一次服务端失败
+  if (p === '/api/posts' && method === 'POST') {
+    postWrites.push(Date.now());
+    if (failNextWrite) { failNextWrite = false; return { __err: '模拟保存失败' }; }
+    return { id: 42, slug: 'probe', published_at: '' };
+  }
+  if (/^\/api\/posts\/\d+$/.test(p) && method === 'PUT') {
+    postWrites.push(Date.now());
+    if (failNextWrite) { failNextWrite = false; return { __err: '模拟保存失败' }; }
+    return { id: 42, slug: 'probe', published_at: '' };
+  }
   return {};
 };
 
@@ -39,8 +52,9 @@ const server = createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   const p = decodeURIComponent(u.pathname);
   if (p.startsWith('/api/')) {
-    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-    return res.end(JSON.stringify(stub(p)));
+    const d = stub(p, req.method);
+    res.writeHead(d.__err ? 500 : 200, { 'content-type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify(d.__err ? { error: d.__err } : d));
   }
   const file = join(PUB, p.replace(/^\/+/, '') || 'index.html');
   if (!existsSync(file)) {
@@ -184,6 +198,55 @@ try {
   /* 隐藏 input 不该被误判为「正文丢失」：值仍在 */
   const keep = await page.evaluate(() => document.getElementById('md-input').value.includes('mermaid'));
   t('切到预览后正文仍留在 textarea 里', keep);
+
+  /* 提交防重复锁：连点只发一次、报错解锁可重试、两种文案都可达 */
+  await page.evaluate(() => document.querySelector('.ed-tab[data-tab="write"]')?.click());
+  postWrites = [];
+  const triple = await page.evaluate(() => {
+    const b = document.getElementById('btn-save');
+    b.click(); b.click(); b.click();
+    return { text: b.textContent.trim(), disabled: b.disabled };
+  });
+  t('连点 3 次立即进入在途态', triple.disabled && triple.text === '发布中…', JSON.stringify(triple));
+  await new Promise((r) => setTimeout(r, 600));
+  t('连点 3 次只发出 1 次写请求', postWrites.length === 1, `got ${postWrites.length}`);
+  const restored = await page.evaluate(() => {
+    const b = document.getElementById('btn-save');
+    return { text: b.textContent.trim(), disabled: b.disabled };
+  });
+  t('请求结束后按钮恢复原状', !restored.disabled && restored.text === '发布', JSON.stringify(restored));
+
+  postWrites = [];
+  failNextWrite = true;
+  await page.click('#btn-save');
+  await new Promise((r) => setTimeout(r, 350));
+  const afterFail = await page.evaluate(() => {
+    const b = document.getElementById('btn-save');
+    return { text: b.textContent.trim(), disabled: b.disabled };
+  });
+  t('服务端报错后按钮解锁可重试', !afterFail.disabled && afterFail.text === '发布', JSON.stringify(afterFail));
+  await page.click('#btn-save');
+  await new Promise((r) => setTimeout(r, 350));
+  t('重试确实再发一次写请求', postWrites.length === 2, `got ${postWrites.length}`);
+
+  // 自动保存文案：用 MutationObserver 抓瞬时状态，别靠轮询碰运气
+  await page.evaluate(() => {
+    const b = document.getElementById('btn-save');
+    window.__btnTexts = [];
+    if (!window.__btnObserver) {
+      window.__btnObserver = new MutationObserver(() => window.__btnTexts.push(b.textContent.trim()));
+      window.__btnObserver.observe(b, { childList: true, characterData: true, subtree: true });
+    }
+    window.__btnTexts.length = 0;
+    const ta = document.getElementById('md-input');
+    ta.value = ta.value + '\nautosave probe';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 4200));
+  const autoTexts = await page.evaluate(() => window.__btnTexts);
+  t('自动保存显示「保存中…」而非「发布中…」',
+    autoTexts.includes('保存中…') && !autoTexts.includes('发布中…'), JSON.stringify(autoTexts));
+  t('自动保存最终也解锁', await page.evaluate(() => !document.getElementById('btn-save').disabled));
 } catch (e) {
   console.log('  异常：' + e.message);
   fails.push('运行时异常');
