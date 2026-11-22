@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { ADMIN_NAV, renderAdminNav, renderAdminShell, THEME_BOOT_JS } from '../src/admin-ui.js';
 import { renderHealth, renderQueue, webhookCheck } from '../src/admin-pages.js';
 import { renderDashboard } from '../src/dashboard.js';
+import { renderReview } from '../src/review.js';
+import { liveSql, timeGateSql } from '../src/api.js';
 
 const editor = readFileSync('public/editor.html', 'utf8');
 const stats = readFileSync('src/stats.js', 'utf8');
@@ -202,6 +204,7 @@ const dash = renderDashboard({
 });
 assert.ok(dash.includes('class="stat-page"'), '工作台应复用 stat-page 外壳');
 assert.ok(dash.includes('id="nav-dash"') && /id="nav-dash"[^>]*aria-current|class="on"[^>]*id="nav-dash"/.test(dash), '工作台侧栏项应高亮');
+assert.ok(dash.includes('href="/admin/review"'), '工作台缺投稿审核入口');
 assert.ok(dash.includes('href="/admin/stats"'), '工作台缺统计入口');
 assert.ok(dash.includes('href="/admin/health"'), '工作台缺健康检查入口');
 assert.ok(dash.includes('href="/admin/queue"'), '工作台缺定时队列入口');
@@ -217,5 +220,25 @@ assert.ok(!/undefined|NaN/.test(dashEmpty), '缺值不应渲染成 undefined/NaN
 assert.ok((dashEmpty.match(/dash-kpi-v">—/g) || []).length >= 4, 'KPI 缺值应显示 —');
 assert.ok(dashEmpty.includes('还没有文章'), '空文章应有引导文案');
 ok('工作台渲染：外壳/入口/转义/缺值/状态分级正确');
+
+// 10. 审核闸门：公开 SQL 必须挡未过审，管理用时间闸门不挡
+assert.ok(liveSql('p').includes("review_status = 'approved'"), '公开查询缺审核闸门');
+assert.ok(!timeGateSql('p').includes('review_status'), '时间闸门不该含审核态（待审队列要用）');
+assert.ok(timeGateSql('posts').includes("datetime('now')"), '时间闸门应保留发布时间判断');
+ok('审核闸门：liveSql 挡未过审，timeGateSql 专供管理视图');
+
+// 11. 审核页渲染：转义 / 空态 / 结构
+const rv = renderReview({
+  site: { name: 'X' },
+  rows: [{ id: 7, slug: '<b>x</b>', title: '<script>t</script>', author: '<img>', updated_at: '2026-11-22 10:30:00', excerpt: '&raw' }],
+});
+assert.ok(rv.includes('class="stat-page"'), '审核页复用后台外壳');
+assert.ok(rv.includes('data-act="approve"') && rv.includes('data-act="reject"'), '缺通过/驳回按钮');
+assert.ok(!rv.includes('<script>t</script>') && rv.includes('&lt;script&gt;'), '标题必须转义');
+assert.ok(!rv.includes('<img>') && rv.includes('&lt;img&gt;'), '作者名必须转义');
+assert.ok(rv.includes('&amp;raw'), '摘要必须转义');
+assert.ok(rv.includes('id="nav-review"'), '审核页侧栏应高亮');
+assert.ok(renderReview({}).includes('没有待审文章'), '空队列应有引导');
+ok('审核页渲染：转义/按钮/空态/高亮正确');
 
 console.log(`\nadmin nav: ${pass} passed`);

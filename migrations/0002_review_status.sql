@@ -1,0 +1,22 @@
+-- 0002 · 投稿审核状态（2026-11-22）
+--
+-- 背景：站点允许普通用户（is_admin=0）登录写文章。此前保存即公开——
+-- 只要 published_at 到点，任何人的文章都会直接进首页/RSS/sitemap。
+-- 需求是「别人发的文章要管理员通过才显示」。
+--
+-- 为什么新增列而不是挪用 hidden：
+--   hidden 是作者自控的「不列入首页」开关，编辑器里作者随时能改回 0。
+--   拿它当审核态，作者点一下保存就自己放行了，等于没有审核。
+--   审核态必须由作者不可写的字段承载，只有管理员的审核 API 能放行。
+--
+-- 为什么 DEFAULT 'approved'：
+--   存量 19 篇已公开文章不该因为这次升级集体消失、等着人工逐篇放行。
+--   默认值保证历史数据 + 管理员新建的文章都是「已通过」，
+--   只有新建时显式写 'pending' 的普通用户投稿才进待审队列。
+--
+-- 三态：
+--   approved  已通过（公开可见）
+--   pending   待审核（作者可见，读者不可见）
+--   rejected  已驳回（作者可见，读者不可见；作者改后可重新提交）
+ALTER TABLE posts ADD COLUMN review_status TEXT NOT NULL DEFAULT 'approved';
+CREATE INDEX IF NOT EXISTS idx_posts_review ON posts(review_status);

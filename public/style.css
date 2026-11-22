@@ -1125,7 +1125,7 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
 .stat-page .sv-empty { color: var(--muted); font-size: 13px; padding: 18px 0; margin: 0; }
 
 /* 工作台：KPI 四联卡 + 快捷入口网格。颜色全走主题变量，亮暗自动适配。 */
-.stat-page .dash-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stat-page .dash-kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
 .stat-page .dash-kpi {
   display: flex; flex-direction: column; gap: 5px;
   border: 1px solid var(--line); border-radius: 10px; padding: 15px 16px;
@@ -1134,6 +1134,9 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
 .stat-page .dash-kpi-l { font-size: 12px; color: var(--muted); letter-spacing: .03em; }
 .stat-page .dash-kpi-v { font-family: var(--mono); font-size: 27px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; }
 .stat-page .dash-kpi-s { font-size: 11.5px; color: var(--muted); }
+.stat-page .dash-kpi-link { text-decoration: none; color: inherit; transition: border-color .15s, background .15s; }
+.stat-page .dash-kpi-link:hover { border-color: var(--tok-n); background: color-mix(in srgb, var(--tok-n) 8%, var(--card)); }
+.stat-page .dash-kpi-link:hover .dash-kpi-v { color: var(--tok-n); }
 .stat-page .dash-links { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .stat-page .dash-tile {
   position: relative; display: flex; flex-direction: column; gap: 5px;
@@ -1153,8 +1156,39 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
 .stat-page .dash-more { font-size: 12px; color: var(--muted); text-decoration: none; white-space: nowrap; }
 .stat-page .dash-more:hover { color: var(--accent); }
 @media (max-width: 900px) {
-  .stat-page .dash-kpis { grid-template-columns: repeat(2, 1fr); }
+  .stat-page .dash-kpis { grid-template-columns: repeat(3, 1fr); }
   .stat-page .dash-links { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 620px) {
+  .stat-page .dash-kpis { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 投稿审核列表：一行一稿，标题/作者/摘要 + 通过/驳回按钮。颜色全走主题变量。 */
+.stat-page .rv-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 18px;
+  padding: 15px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+}
+.stat-page .rv-row:last-child { border-bottom: 0; }
+.stat-page .rv-main { min-width: 0; }
+.stat-page .rv-title { font-size: 14px; font-weight: 600; color: var(--fg); text-decoration: none; border-bottom: 1px solid var(--line); }
+.stat-page .rv-title:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.stat-page .rv-meta { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+.stat-page .rv-slug { font-family: var(--mono); }
+.stat-page .rv-excerpt { font-size: 12.5px; color: var(--muted); line-height: 1.6; margin: 7px 0 0; }
+.stat-page .rv-ops { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
+.stat-page .rv-btn {
+  font: inherit; font-size: 12.5px; cursor: pointer;
+  padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line);
+  background: var(--card); color: var(--fg); transition: border-color .15s, background .15s;
+}
+.stat-page .rv-btn:disabled { opacity: .5; cursor: default; }
+.stat-page .rv-btn.ok:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+.stat-page .rv-btn.no:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+.stat-page .rv-msg { font-size: 11.5px; color: var(--red); flex-basis: 100%; text-align: right; }
+@media (max-width: 560px) {
+  .stat-page .rv-row { flex-direction: column; gap: 10px; }
+  .stat-page .rv-ops { justify-content: flex-start; }
+  .stat-page .rv-msg { text-align: left; }
 }
 @media (max-width: 480px) {
   .stat-page .dash-kpi-v { font-size: 23px; }
@@ -1210,6 +1244,9 @@ body.editor-page, body.stat-page {
   font-size: 10px; color: var(--muted); flex: 0 0 auto;
   border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px;
 }
+/* 投稿审核状态：待审用暖色、驳回用红，都走主题变量，亮暗自动适配 */
+.cat-item .flag-review { color: var(--tok-n); border-color: color-mix(in srgb, var(--tok-n) 45%, transparent); }
+.cat-item .flag-rejected { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
 
 /* ============ 友链 ============ */
 /* 友链交换说明：给来核对的人一条明确的"怎么加、加完怎么找到我"的路。

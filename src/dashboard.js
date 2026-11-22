@@ -9,6 +9,7 @@ import { dayCN } from './stats.js';
 
 // 快捷入口说明：从 ADMIN_NAV 派生链接，这里只补一句用途，避免两处各写一份 href。
 const DESC = {
+  review: '放行普通用户的新投稿',
   write: '新建一篇草稿',
   posts: '编辑、整理已有文章',
   checks: '扫描图片、链接与替代文本',
@@ -24,6 +25,7 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
   const n = (v) => (v === undefined || v === null ? '—' : String(v));
   const cards = [
     { label: '已发布文章', value: kpi.posts, sub: '公开且已到点' },
+    { label: '待审核', value: kpi.pending, sub: '投稿等放行', key: 'pending' },
     { label: '待发布', value: kpi.queue, sub: '定时队列里' },
     { label: '今日浏览', value: kpi.pv, sub: `独立访客 ${n(kpi.uv)}` },
     { label: '友链在线', value: kpi.friendsUp, sub: kpi.friendsTotal != null ? `共 ${kpi.friendsTotal} 条` : '' },
@@ -69,11 +71,11 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
   <div class="admin-view-body">
     <div class="dash-kpis">${cards
       .map(
-        (c) => `<div class="dash-kpi">
+        (c) => `${c.key === 'pending' && c.value > 0 ? '<a class="dash-kpi dash-kpi-link" href="/admin/review">' : '<div class="dash-kpi">'}
           <span class="dash-kpi-l">${esc(c.label)}</span>
           <strong class="dash-kpi-v">${n(c.value)}</strong>
           <span class="dash-kpi-s">${esc(c.sub)}</span>
-        </div>`
+        ${c.key === 'pending' && c.value > 0 ? '</a>' : '</div>'}`
       )
       .join('')}</div>
   </div>
@@ -127,7 +129,7 @@ export async function dashboardPage(env, request) {
   };
 
   const today = dayCN();
-  const [postStat, queueStat, pv, friendStat, recentRows, d1Ok] = await Promise.all([
+  const [postStat, pendingStat, queueStat, pv, friendStat, recentRows, d1Ok] = await Promise.all([
     safe(
       () =>
         one(
@@ -137,6 +139,7 @@ export async function dashboardPage(env, request) {
         ),
       {}
     ),
+    safe(() => one(`SELECT COUNT(*) c FROM posts WHERE review_status='pending'`), {}),
     safe(
       () => one(`SELECT COUNT(*) c FROM posts WHERE published_at!='' AND published_at>datetime('now')`),
       {}
@@ -178,6 +181,7 @@ export async function dashboardPage(env, request) {
       user,
       kpi: {
         posts: postStat?.published,
+        pending: pendingStat?.c,
         queue: queueStat?.c,
         pv: pv?.pv,
         uv: pv?.uv,

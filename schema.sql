@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS posts (
   category    TEXT NOT NULL DEFAULT '',      -- 分类：一篇文章一个，空串表示未分类
   is_private  INTEGER NOT NULL DEFAULT 0,  -- 私密：仅作者可见，未登录 404
   hidden      INTEGER NOT NULL DEFAULT 0,  -- 不列入首页
+  review_status TEXT NOT NULL DEFAULT 'approved', -- 审核态：approved 公开 / pending 待审 / rejected 驳回；仅管理员可改
   summary     TEXT NOT NULL DEFAULT '',    -- AI 摘要（发布/保存时生成）
   summary_src TEXT NOT NULL DEFAULT '',    -- ai | fallback | manual
   summary_hash TEXT NOT NULL DEFAULT '',   -- 生成摘要时的正文指纹，避免重复烧 token
@@ -42,6 +43,7 @@ CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_author  ON posts(author_id);
 CREATE INDEX IF NOT EXISTS idx_posts_category ON posts(category);
 CREATE INDEX IF NOT EXISTS idx_posts_published ON posts(published_at);
+CREATE INDEX IF NOT EXISTS idx_posts_review ON posts(review_status);
 CREATE INDEX IF NOT EXISTS idx_posts_series ON posts(series, series_order);
 
 -- 标签

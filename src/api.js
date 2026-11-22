@@ -160,6 +160,7 @@ function shapePost(p, full = false) {
     category_name: p.category ? catName(p.category) : '',
     is_private: !!p.is_private,
     hidden: !!p.hidden,
+    review_status: p.review_status || 'approved',
     author: p.author_name || p.login || '',
     author_id: p.author_id,
     avatar: p.avatar || '',
@@ -201,8 +202,18 @@ const AUTHOR_COLS = 'u.name AS author_name, u.login, u.avatar';
    不用再指望每次都记得把 hidden 置 1（11-12 就漏过一次，两篇提前上线）。
    published_at 为空的老文章退回 created_at，语义与排序用的表达式保持一致。
    SQLite 同一语句内的 datetime('now') 是常量，不会逐行求值。 */
-export function liveSql(a = 'p') {
+/* 纯时间闸门：只管「发布时间到了没」，不掺审核态。
+   管理视图（待审队列、定时队列）用它——那些地方本来就是要看未公开/未到点的稿子。 */
+export function timeGateSql(a = 'p') {
   return `COALESCE(NULLIF(${a}.published_at, ''), ${a}.created_at) <= datetime('now')`;
+}
+
+export function liveSql(a = 'p') {
+  /* 公开闸门 = 时间到了 + 审核通过。所有公开列表（首页/归档/标签/分类/系列/RSS/sitemap/
+     404 推荐）都调这个函数，一处加条件就全挡住。作者新发的文章默认 review_status='pending'，
+     读者侧任何列表都看不到，只有管理员审核通过改成 'approved' 才放行。
+     hidden/is_private 是作者自控的开关，不能拿来当审核态——作者能自己改回去。 */
+  return `${timeGateSql(a)} AND ${a}.review_status = 'approved'`;
 }
 
 /* 标签用相关子查询一次带出，替代「先查 posts 再 attachTags」的第二次往返。
@@ -532,6 +543,46 @@ export async function handleApi(env, request, url, ctx) {
     });
   }
 
+  /* ---- 待审队列（仅管理员）----
+     只列 pending 且「已经到发布时间」的稿子：没到点的定时稿是作者自己还没准备发，
+     不该堵在审核队列里；作者真要送审，把发布时间设到现在或过去即可。
+     rejected 不进队列——它已经处理过，作者改稿后会自动变回 pending。 */
+  if (path === '/review/pending' && method === 'GET') {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+    const { results } = await db
+      .prepare(
+        `SELECT p.*, ${AUTHOR_COLS} FROM posts p ${AUTHOR_JOIN}
+         WHERE p.review_status = 'pending' AND ${timeGateSql('p')}
+         ORDER BY p.updated_at ASC LIMIT 200`
+      )
+      .all();
+    return json({
+      ok: true,
+      posts: results.map((p) => ({
+        id: p.id, slug: p.slug, title: p.title, author: p.author_name || p.login || '',
+        author_id: p.author_id, excerpt: (p.summary || p.content || '').slice(0, 160),
+        published_at: p.published_at || p.created_at || '', updated_at: p.updated_at || '',
+      })),
+    });
+  }
+
+  /* ---- 审核：通过 / 驳回（仅管理员）---- */
+  if (/^\/review\/\d+$/.test(path) && method === 'POST') {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+    const id = parseInt(path.split('/')[2], 10);
+    const body = await request.json().catch(() => ({}));
+    const action = String(body.action || '');
+    if (action !== 'approve' && action !== 'reject') return err('action 只能是 approve 或 reject');
+    const p = await db.prepare('SELECT id, slug, review_status FROM posts WHERE id = ?').bind(id).first();
+    if (!p) return err('文章不存在', 404);
+    const next = action === 'approve' ? 'approved' : 'rejected';
+    await db.prepare('UPDATE posts SET review_status = ?, updated_at = ? WHERE id = ?').bind(next, nowISO(), id).run();
+    if (ctx) ctx.waitUntil(bust(url, [p.slug]).catch(() => {}));
+    return json({ ok: true, id, review_status: next });
+  }
+
   /* ---- 标签云 ---- */
   if (path === '/tags' && method === 'GET') {
     return json({ ok: true, tags: await tagsData(db) });
@@ -618,9 +669,11 @@ export async function handleApi(env, request, url, ctx) {
       .first();
 
     if (!p) return err('文章不存在', 404);
-    if (p.is_private && (!user || (user.id !== p.author_id && !user.is_admin))) {
-      return err('文章不存在', 404);
-    }
+    const owner = user && (user.id === p.author_id || user.is_admin);
+    if (p.is_private && !owner) return err('文章不存在', 404);
+    /* 审核态闸门：待审/驳回的稿子猜到 slug 也不能读正文。
+       liveSql 只守住了列表，单篇是独立查询，必须单独挡——否则审核形同虚设。 */
+    if (p.review_status && p.review_status !== 'approved' && !owner) return err('文章不存在', 404);
 
     await attachTags(db, [p]);
 
@@ -660,15 +713,19 @@ export async function handleApi(env, request, url, ctx) {
     const html = sanitizeHtml(renderBody(content));
     const coverBody = bodyCoverFor(content);
 
+    /* 审核态：管理员写的是已通过；普通用户的稿子进来先待审。
+       不能拿 hidden 顶替——那是作者自己能在编辑器里改回 0 的开关，挡不住人。 */
+    const review = u.is_admin ? 'approved' : 'pending';
     const info = await db
       .prepare(
-        `INSERT INTO posts (slug, title, content, html_content, cover, cover_body, category, series, series_order, is_private, hidden, published_at, author_id, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO posts (slug, title, content, html_content, cover, cover_body, category, series, series_order, is_private, hidden, review_status, published_at, author_id, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .bind(
         slug, title, content, html, cover, coverBody, category,
         seriesOf(body), seriesOrderOf(body),
         body.is_private ? 1 : 0, body.hidden ? 1 : 0,
+        review,
         published,
         u.id, stamp, stamp
       )
@@ -742,9 +799,15 @@ export async function handleApi(env, request, url, ctx) {
     const html = content === p.content && p.html_content ? p.html_content : sanitizeHtml(renderBody(content));
     const coverBody = bodyCoverFor(content);
 
+    /* 审核态跟着这次保存走：
+       - 普通用户改稿（哪怕只改一个字）一律退回 pending —— 否则「先发篇无害的过审，
+         再偷偷把正文换成广告/违规内容」就绕过了审核。审核结论必须绑定内容版本。
+       - 管理员编辑视为认可，直接 approved。
+       管理员审核通过/驳回走专门的 /admin/review API，不走这里。 */
+    const review = u.is_admin ? 'approved' : 'pending';
     await db
       .prepare(
-        `UPDATE posts SET slug=?, title=?, content=?, html_content=?, cover=?, cover_body=?, category=?, series=?, series_order=?, is_private=?, hidden=?, published_at=?, updated_at=?${sumSql} WHERE id=?`
+        `UPDATE posts SET slug=?, title=?, content=?, html_content=?, cover=?, cover_body=?, category=?, series=?, series_order=?, is_private=?, hidden=?, review_status=?, published_at=?, updated_at=?${sumSql} WHERE id=?`
       )
       .bind(
         slug,
@@ -758,6 +821,7 @@ export async function handleApi(env, request, url, ctx) {
         body.series_order !== undefined ? seriesOrderOf(body) : p.series_order || 0,
         isPrivate,
         isHidden,
+        review,
         published,
         stampNow,
         ...sumArgs,

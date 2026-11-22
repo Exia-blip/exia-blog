@@ -16,6 +16,7 @@ import { normalizePagePath } from './routes.js';
 import { statsPage, prunePv } from './stats.js';
 import { healthPage, queuePage } from './admin-pages.js';
 import { dashboardPage } from './dashboard.js';
+import { reviewPage } from './review.js';
 import { postCacheGet, postCacheSet, postCacheDrop, postCacheStats } from './postcache.js';
 import { assetVersion, assetCacheControl, stampAssets } from './assets.js';
 import { ASSET_HASH } from './assets.gen.js';
@@ -1008,9 +1009,11 @@ async function servePostPage(env, request, slug) {
           series: seriesRes.results,
           same: catRes.results,
         };
-        /* 私有文章不进缓存：来访者本来就少，缓不缓存无所谓；
-           把私有正文在内存里多留 45 秒也没有必要。 */
-        if (post && !post.is_private) postCacheSet(slug, b);
+        /* 私有 / 未过审的文章不进实例缓存：
+           私有正文没必要在内存多留 45 秒；未过审的更危险——作者预览过一次后
+           缓存里就有正文了，匿名访客读缓存会绕过下面那道审核闸门。边缘缓存另算，
+           那边的清理由审核 API 的 bust() 负责。 */
+        if (post && !post.is_private && post.review_status === 'approved') postCacheSet(slug, b);
         return b;
       })();
 
@@ -1054,6 +1057,15 @@ async function servePostPage(env, request, slug) {
   // 作者与站长例外，要能提前预览。
   if (!post.is_live && !(user && (user.id === post.author_id || user.is_admin))) {
     return await notFoundPage(env, request, '页面走丢了');
+  }
+  /* 审核闸门：待审/驳回的稿子，读者拼出 slug 也当文章不存在。
+     作者本人和站长能预览（和预排稿同一条例外）。review_status 为空的老文章按已通过处理。 */
+  if (
+    post.review_status &&
+    post.review_status !== 'approved' &&
+    !(user && (user.id === post.author_id || user.is_admin))
+  ) {
+    return await notFoundPage(env, request, '文章还在审核中');
   }
 
   if (!tpl) return new Response('模板缺失', { status: 500 });
@@ -2427,6 +2439,7 @@ async function route(request, env, ctx) {
   if (path === '/robots.txt') return serveRobots(env, request);
   if (path === '/manifest.webmanifest') return await serveManifest(env, request);
   if (path === '/admin') return await dashboardPage(env, request);
+  if (path === '/admin/review') return await reviewPage(env, request);
   if (path === '/admin/stats') return await statsPage(env, request);
   if (path === '/admin/health') return await healthPage(env, request);
   if (path === '/admin/queue') return await queuePage(env, request);

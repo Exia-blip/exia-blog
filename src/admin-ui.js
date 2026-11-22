@@ -40,6 +40,7 @@ const svg = (name) =>
    key 用于测试比对，href 是真实落点。 */
 export const ADMIN_NAV = [
   { key: 'dash', text: '工作台', href: '/admin', icon: 'grid', id: 'nav-dash' },
+  { key: 'review', text: '投稿审核', href: '/admin/review', icon: 'check', id: 'nav-review' },
   { key: 'write', text: '写作', href: '/editor', icon: 'write', id: 'nav-write' },
   { key: 'posts', text: '文章列表', href: '/editor?panel=posts', icon: 'list', id: 'nav-posts' },
   { key: 'checks', text: '发布自检', href: '/editor?panel=checks', icon: 'check', id: 'nav-checks' },

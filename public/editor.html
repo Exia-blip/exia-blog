@@ -34,6 +34,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
           <span>工作台</span>
         </a>
+        <a href="/admin/review" id="nav-review">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 12 5 5L21 4"/></svg>
+          <span>投稿审核</span>
+        </a>
         <a class="on" href="/editor" aria-current="page" data-view="write" id="nav-write">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           <span>写作</span>
@@ -1088,6 +1092,7 @@ async function loadList() {
             ${sub ? `<span class="ci-sub">${esc(sub)}</span>` : ''}
           </span>
           ${p.is_private ? '<span class="flag">私</span>' : p.hidden ? '<span class="flag">隐</span>' : ''}
+          ${p.review_status === 'pending' ? '<span class="flag flag-review">待审</span>' : p.review_status === 'rejected' ? '<span class="flag flag-rejected">驳回</span>' : ''}
         </div>`;
         }).join('')
       : '<span class="empty-hint">还没有文章——从上方标题开始写第一篇</span>';
