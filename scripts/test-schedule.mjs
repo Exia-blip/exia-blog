@@ -27,6 +27,14 @@ const NEW_POSTS = [
   ['theme-transition-class', '2026-12-21 01:00:00'],
 ];
 const ALL_POSTS = [...EXPECT, ...NEW_POSTS];
+// 出清后的下一批：每周三一篇，从 2027-01-06 起（与 2 天冲刺段分开守门）
+const WEEKLY = [
+  ['crlf-sri-ci-red', '2027-01-06 01:00:00'],
+  ['early-hints-preload-mismatch', '2027-01-13 01:00:00'],
+  ['d1-schema-migrations', '2027-01-20 01:00:00'],
+  ['review-status-cache-bypass', '2027-01-27 01:00:00'],
+  ['monaco-eol-crlf', '2027-02-03 01:00:00'],
+];
 // 原始每周三排期（回滚基线）
 const ORIGINAL = [
   '2026-11-25 01:00:00', '2026-12-02 01:00:00', '2026-12-09 01:00:00',
@@ -110,6 +118,43 @@ t('新两篇：seed 日期与事实源一致，文档标为已入库不再待写
   }
   assert.ok(!editorial.includes('两篇待写，未入库'), '文档仍标待写，应改为已入库');
   assert.ok(editorial.includes('十五篇全部写完全文'), '文档总数应更新为 15 篇');
+});
+
+t('出清后下一批：5 篇、间隔整 7 天、全为 UTC 01:00、接在 12-21 后留空档', () => {
+  assert.equal(WEEKLY.length, 5);
+  for (let i = 0; i < WEEKLY.length; i++) {
+    assert.match(WEEKLY[i][1], / 01:00:00$/, `${WEEKLY[i][0]} 应为 UTC 01:00`);
+    if (i > 0) {
+      const gap = (Date.parse(WEEKLY[i][1]) - Date.parse(WEEKLY[i - 1][1])) / 86400000;
+      assert.equal(gap, 7, `${WEEKLY[i][0]} 与上一篇应间隔整 7 天`);
+    }
+  }
+  const breather = (Date.parse(WEEKLY[0][1]) - Date.parse('2026-12-21 01:00:00')) / 86400000;
+  assert.equal(breather, 16, '12-21 出清到 01-06 应留 16 天空档');
+});
+
+t('下一批 seed / 文档 / 正文：slug 与日期逐条一致，五篇全文都在', () => {
+  const seedSrc = read('scripts/seed-29-33.mjs');
+  for (const [slug, at] of WEEKLY) {
+    assert.ok(seedSrc.includes(`slug: '${slug}'`), `seed 缺 ${slug}`);
+    assert.ok(seedSrc.includes(`at: '${at}'`), `seed 缺 ${slug} 的 ${at}`);
+    const mmdd = at.slice(5, 7) + '-' + at.slice(8, 10);
+    assert.ok(editorial.includes(`| ${mmdd} | \`${slug}\``), `文档缺 ${slug} 的 ${mmdd} 行`);
+    assert.ok(editorial.includes('每周三一篇'), '文档应写清回落后的节奏');
+  }
+  const files = [
+    '29-crlf-sri-ci-red.md', '30-early-hints-preload-mismatch.md',
+    '31-d1-schema-migrations.md', '32-review-status-cache-bypass.md',
+    '33-monaco-eol-crlf.md',
+  ];
+  for (const f of files) {
+    assert.ok(read(`content/${f}`).startsWith('## 结论'), `${f} 缺结论开头`);
+    assert.ok(seedSrc.includes(f), `seed 缺正文文件 ${f}`);
+  }
+  const sql = read('scripts/seed-29-33.sql');
+  for (const [slug] of WEEKLY) {
+    assert.ok(sql.includes(`'${slug}'`), `生成的 SQL 缺 ${slug}`);
+  }
 });
 
 t('EDITORIAL 口径：原则写 2 天、产能警告在、历史排期表标注已执行', () => {

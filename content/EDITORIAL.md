@@ -53,6 +53,20 @@
 
 11-21 这篇是 11-14 当天写完的存货，当日已上线。改期后 11-25 起进入 2 天一篇的密集段，11-21 → 11-25 的 4 天间隔是最后一个长间隔，之后全部压到 2 天。
 
+### 出清后的下一批（5 篇已写完入库，每周三一篇｜2027-01-06 → 02-03）
+
+12-21 十五篇存量出清。**按上面的产能警告回落到每周 1 篇**，不再续 2 天节奏：12-21 → 01-06 留 16 天完整空档，让读者和爬虫都喘一口气，然后每周三北京时间 09:00 上线一篇（库里 UTC 01:00）。每篇都是 11-22 当天做完的一件事，有真实报错、真实响应头、真实提交号，不是为填坑位造的题材。
+
+| 日期 | slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|---|
+| 01-06 | `crlf-sri-ci-red` | CI 连红 4 次：本地绿、线上绿、CI 红，根因是 CRLF | log | `sri integrity 不匹配` / `内容哈希 CRLF` | 三个环境三套字节；`i/lf w/crlf` 一处行尾让本地与线上自洽、只有 CI 红；20 个文件转 LF + 两层防线 |
+| 01-13 | `early-hints-preload-mismatch` | 103 Early Hints 提前下的 CSS 没人用：preload 和 HTML href 差了一个字符串 | log | `103 early hints preload 不匹配` / `cloudflare early hints css` | 冷访问白下 121KB；两个版本号（部署号 / 内容哈希）逐字符比对；`?cb=` 绕缓存 CDP 实抓 103 三次全中 |
+| 01-20 | `d1-schema-migrations` | D1 表结构版本化：第一次跑检查就抓到三处漂移 | teardown | `d1 migrations 最佳实践` / `cloudflare d1 schema 版本管理` | 三份描述互漂的清单；`node:sqlite` 空库重放迁移比对结构；SQLite 不支持 `ADD COLUMN IF NOT EXISTS` |
+| 01-27 | `review-status-cache-bypass` | 投稿审核为什么不能复用 hidden：作者自控的开关挡不住作者自己 | teardown | `多用户博客 投稿审核 设计` / `sqlite 审核状态 缓存` | `hidden` 与审核态必须分列；两个闸门分层；未过审不进 LRU 防缓存旁路；四路实测 |
+| 02-03 | `monaco-eol-crlf` | Monaco 空文档的 getEOL() 恒返回 CRLF，两个枚举值还相反 | log | `monaco getEOL CRLF` / `EndOfLineSequence LF` | 空文档 `getEOL()` 恒 CRLF；两个枚举字面值相反写死 1 越修越糟；三处修法 + textarea 仍是数据源 |
+
+入库脚本 `scripts/seed-29-33.mjs`，生成 SQL `scripts/seed-29-33.sql`，与其余存稿同口径：`hidden=0` + 未来 `published_at` + `html_content` / `cover_body` 一并 INSERT。守门在 `test-schedule`（间隔 7 天、UTC 01:00、seed 与文档逐条比对）。前四篇的栏目正好把 4:4:2 配额往回拉了一点（3 log : 2 teardown），没有为了配额硬改题材。
+
 **为什么不用定时任务**：11-13/11-18 那两篇是靠 automation 改 `hidden` 上线的，那套有两个故障点——任务没跑、跑了但时间不对。现在全部走闸门，`hidden` 永远保持 0，`published_at` 一到，全部公开查询（列表、归档、分类、标签、系列、RSS、sitemap、单篇 is_live）自动放行。少一个活动部件。
 
 **已验**：九篇直链均 404，首页/归档/分类/系列/RSS/sitemap 均搜不到 slug。
