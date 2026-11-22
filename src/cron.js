@@ -1,4 +1,5 @@
 import { nowISO } from './utils.js';
+import { notifyTodo } from './webhook.js';
 
 /* 友链存活检测：每 20 分钟一轮（wrangler.jsonc 的 triggers.crons）。
 
@@ -151,7 +152,7 @@ export async function checkFriends(env) {
   const selfHosts = selfHostsOf(env);
   const ua = uaOf(env);
   const { results } = await env.DB.prepare(
-    `SELECT id, url FROM friends
+    `SELECT id, url, status FROM friends
      ORDER BY COALESCE(NULLIF(checked_at, ''), '') ASC, id ASC
      LIMIT ?`
   )
@@ -165,7 +166,9 @@ export async function checkFriends(env) {
   // 每批 10 个并发：同样 10 个站点，串行 2026ms，并发 332ms（实测）
   for (let i = 0; i < results.length; i += CONCURRENCY) {
     const batch = results.slice(i, i + CONCURRENCY);
-    const rows = await Promise.all(batch.map(async (f) => ({ id: f.id, ...(await probe(f.url, selfHosts, ua)) })));
+    const rows = await Promise.all(
+      batch.map(async (f) => ({ id: f.id, url: f.url, was: f.status, ...(await probe(f.url, selfHosts, ua)) }))
+    );
 
     // batch() 是单次往返写多条，比逐条 run() 省 N-1 次 D1 调用
     await env.DB.batch(
@@ -175,6 +178,12 @@ export async function checkFriends(env) {
         ).bind(r.status, r.code, r.ms, stamp, r.id)
       )
     );
+    // 只在「原本在线 → 这轮挂了」时提醒；一直挂的不重复推送，免得每 20 分钟刷屏
+    const down = rows.filter((r) => r.was === 1 && r.status !== 1);
+    if (down.length) {
+      const lines = down.map((r) => `#${r.id} ${r.url} (HTTP ${r.code || r.note || '-'})`).join('\n');
+      await notifyTodo(env, `友链探测失败 ${down.length} 条：\n${lines}\n后台 /admin/friends`);
+    }
     done += rows.length;
   }
 

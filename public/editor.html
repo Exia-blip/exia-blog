@@ -38,6 +38,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 12 5 5L21 4"/></svg>
           <span>投稿审核</span>
         </a>
+        <a href="/admin/comments" id="nav-cmts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 12 5 5L21 4"/></svg>
+          <span>评论审核</span>
+        </a>
         <a class="on" href="/editor" aria-current="page" data-view="write" id="nav-write">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           <span>写作</span>
@@ -65,6 +69,14 @@
         <a href="/admin/health" id="nav-health">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>
           <span>健康检查</span>
+        </a>
+        <a href="/admin/audit" id="nav-audit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+          <span>操作日志</span>
+        </a>
+        <a href="/admin/friends" id="nav-friends">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          <span>友链管理</span>
         </a>
         <a href="/admin/queue" id="nav-queue">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
@@ -1093,6 +1105,7 @@ async function loadList() {
           </span>
           ${p.is_private ? '<span class="flag">私</span>' : p.hidden ? '<span class="flag">隐</span>' : ''}
           ${p.review_status === 'pending' ? '<span class="flag flag-review">待审</span>' : p.review_status === 'rejected' ? '<span class="flag flag-rejected">驳回</span>' : ''}
+          <a href="/admin/history?post=${encodeURIComponent(p.id)}" title="版本历史" class="btn sm">历史</a>
         </div>`;
         }).join('')
       : '<span class="empty-hint">还没有文章——从上方标题开始写第一篇</span>';
@@ -1100,6 +1113,7 @@ async function loadList() {
 }
 
 $('cat-list').addEventListener('click', (e) => {
+  if (e.target.closest('a')) return; // 行内「历史」链接自行跳转，别被整行点击拦截
   const item = e.target.closest('[data-id]');
   if (!item) return;
   if (dirty && !confirm('当前有未保存的改动，确定切换？')) return;

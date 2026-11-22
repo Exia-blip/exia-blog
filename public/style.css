@@ -1214,6 +1214,117 @@ body.editor-page, body.stat-page {
   .stat-page .admin-view-head { flex-direction: column; align-items: flex-start; }
 }
 
+/* ===== 后台审计 / 版本历史 / 友链 / 评论审核：新增样式，仅追加 =====
+   颜色一律走主题变量（含 color-mix 派生），亮暗自动适配；作用域限定 .stat-page。 */
+
+/* 审计日志表：窄屏横向滚动，时间 mono，详情单行截断，空态 */
+.stat-page .adm-audit-wrap { border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
+.stat-page .adm-audit-table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 13px; }
+.stat-page .adm-audit-table th {
+  text-align: left; font-weight: 500; color: var(--muted); font-size: 12px;
+  padding: 11px 14px; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.stat-page .adm-audit-table td {
+  padding: 11px 14px; border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  text-align: left; vertical-align: top;
+}
+.stat-page .adm-audit-table tr:last-child td { border-bottom: 0; }
+.stat-page .adm-audit-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.stat-page .adm-audit-action { white-space: nowrap; color: var(--fg); }
+.stat-page .adm-audit-detail { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.stat-page .adm-audit-empty { color: var(--muted); font-size: 13px; padding: 18px 0; margin: 0; }
+
+/* 版本历史：版本行 + 预览展开（只读 mono textarea）+ 回滚危险按钮 */
+.stat-page .adm-hist-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 14px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+}
+.stat-page .adm-hist-row:last-child { border-bottom: 0; }
+.stat-page .adm-hist-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.stat-page .adm-hist-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.stat-page .adm-hist-actor { font-size: 12.5px; color: var(--fg); }
+.stat-page .adm-hist-note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.stat-page .adm-hist-preview {
+  box-sizing: border-box; width: 100%; max-height: 320px; overflow: auto;
+  font-family: var(--mono); font-size: 12px; line-height: 1.6; resize: vertical;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); color: var(--fg);
+}
+.stat-page .adm-hist-rollback {
+  font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap;
+  padding: 6px 14px; border-radius: 7px;
+  border: 1px solid var(--red); background: var(--card); color: var(--red);
+  transition: background .15s;
+}
+.stat-page .adm-hist-rollback:hover { background: color-mix(in srgb, var(--red) 12%, transparent); }
+.stat-page .adm-hist-ops { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
+
+/* 友链管理：新增表单两列（窄屏一列）+ 列表行 + 状态徽章 + HTTP 码/延迟 + 操作组 */
+.stat-page .adm-fr-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.stat-page .adm-fr-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+}
+.stat-page .adm-fr-row:last-child { border-bottom: 0; }
+.stat-page .adm-fr-main { min-width: 0; flex: 1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.stat-page .adm-fr-badge {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 11.5px; line-height: 1.6; border: 1px solid var(--line); color: var(--muted);
+}
+.stat-page .adm-fr-badge.ok {
+  color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+.stat-page .adm-fr-badge.bad {
+  color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+.stat-page .adm-fr-code, .stat-page .adm-fr-latency { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.stat-page .adm-fr-ops { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
+.stat-page .adm-fr-op {
+  font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap;
+  padding: 6px 12px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--card); color: var(--fg);
+  transition: border-color .15s, background .15s;
+}
+.stat-page .adm-fr-op:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+/* 评论审核：开关行 + 待审行 + 内容预览 + 通过/驳回（绿/红描边）+ 空态 */
+.stat-page .adm-cmt-toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 0; font-size: 13px; color: var(--fg);
+}
+.stat-page .adm-cmt-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
+  padding: 14px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+}
+.stat-page .adm-cmt-row:last-child { border-bottom: 0; }
+.stat-page .adm-cmt-main { min-width: 0; flex: 1; }
+.stat-page .adm-cmt-meta { font-size: 11.5px; color: var(--muted); }
+.stat-page .adm-cmt-content { font-size: 13px; line-height: 1.6; color: var(--fg); margin: 6px 0 0; word-break: break-word; }
+.stat-page .adm-cmt-ops { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
+.stat-page .adm-cmt-approve, .stat-page .adm-cmt-reject {
+  font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap;
+  padding: 6px 14px; border-radius: 7px; background: var(--card);
+  transition: background .15s;
+}
+.stat-page .adm-cmt-approve { color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 45%, var(--line)); }
+.stat-page .adm-cmt-reject { color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 45%, var(--line)); }
+.stat-page .adm-cmt-approve:hover { background: color-mix(in srgb, var(--green) 12%, transparent); }
+.stat-page .adm-cmt-reject:hover { background: color-mix(in srgb, var(--red) 12%, transparent); }
+.stat-page .adm-cmt-empty { color: var(--muted); font-size: 13px; padding: 18px 0; margin: 0; }
+
+/* 窄屏：表单单列、行改纵向堆叠、按钮左对齐不溢出；表格保持横滑 */
+@media (max-width: 620px) {
+  .stat-page .adm-hist-row, .stat-page .adm-cmt-row { flex-direction: column; align-items: stretch; }
+  .stat-page .adm-hist-ops, .stat-page .adm-cmt-ops, .stat-page .adm-fr-ops { justify-content: flex-start; }
+  .stat-page .adm-fr-form { grid-template-columns: 1fr; }
+  .stat-page .adm-fr-row { flex-direction: column; align-items: stretch; }
+}
+
+/* 前台阅读时长 / 字数小字：读者侧，与相邻元信息留间隔，不影响其他样式 */
+.read-meta { font-size: 11.5px; color: var(--muted); margin-inline-start: 6px; white-space: nowrap; }
+
 .drop-hint {
   position: fixed; inset: 0; z-index: 200; display: none; place-items: center;
   background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(3px);

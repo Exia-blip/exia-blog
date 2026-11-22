@@ -224,3 +224,494 @@ export async function queuePage(env, request) {
   const site = await getSite(env);
   return html(renderQueue({ site, rows }), 200, { 'cache-control': 'no-store' });
 }
+
+/* ---------- 操作日志 ---------- */
+
+/** 纯渲染：单测喂假数据即可验证转义与结构。rows 是 audit_log 行。 */
+export function renderAudit({ site = {}, rows = [] }) {
+  const list = rows.length
+    ? `<div class="sv-table-wrap"><table class="sv-table adm-audit-table"><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>详情</th></tr></thead><tbody>${rows
+        .map(
+          (r) => `<tr>
+      <td class="sv-time">${esc(toCN(r.created_at))}</td>
+      <td class="adm-audit-actor">${esc(r.actor_login || (r.actor_id ? `#${r.actor_id}` : 'system'))}</td>
+      <td><span class="sv-pill adm-audit-action">${esc(r.action || '—')}</span></td>
+      <td class="adm-audit-target">${esc(r.target_type || '—')}${
+        r.target_id ? ` <span class="adm-audit-id">#${esc(r.target_id)}</span>` : ''
+      }</td>
+      <td class="adm-audit-detail">${esc(r.detail || '—')}</td>
+    </tr>`
+        )
+        .join('')}</tbody></table></div>`
+    : '<p class="sv-empty">还没有操作记录。文章增删改、审核、评论处置、友链变更与版本回滚都会记在这里。</p>';
+  const body = `<div class="wrap-s">
+<div class="admin-view-card">
+  <div class="admin-view-head">
+    <span>只增不改的后台操作流水</span>
+    <span class="view-tag">最近 ${rows.length} 条</span>
+  </div>
+  <div class="admin-view-body">
+    <p class="sv-note">记录谁在什么时候改了什么；最多显示最近 100 条。审计写入失败不会阻断操作，极个别操作可能没有留痕。</p>
+    ${list}
+  </div>
+</div>
+</div>`;
+  return renderAdminShell({
+    site,
+    active: 'audit',
+    title: '操作日志',
+    desc: '谁在什么时候改了什么',
+    body,
+  });
+}
+
+export async function auditPage(env, request) {
+  const { res } = await requireAdmin(env, request);
+  if (res) return res;
+
+  let rows = [];
+  try {
+    const r = await env.DB.prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT 100').all();
+    rows = r.results || [];
+  } catch (e) {
+    console.error('audit page', e?.message || e);
+  }
+  const site = await getSite(env);
+  return html(renderAudit({ site, rows }), 200, { 'cache-control': 'no-store' });
+}
+
+/* ---------- 版本历史 ---------- */
+
+/** 纯渲染：单测喂假数据即可验证转义与结构。script 里不插用户数据，id 全走 data-*。 */
+export function renderHistory({ site = {}, post = {}, rows = [] }) {
+  const list = rows.length
+    ? rows
+        .map(
+          (rev) => `<div class="adm-hist-row" data-rev="${esc(rev.id)}">
+    <div class="adm-hist-main">
+      <div class="adm-hist-line">
+        <strong class="adm-hist-title">${esc(rev.title || '（无标题）')}</strong>
+        <span class="adm-hist-meta">${esc(toCN(rev.saved_at))} · ${esc(rev.saved_by ? `用户 #${rev.saved_by}` : '系统')}</span>
+      </div>
+      ${rev.note ? `<p class="adm-hist-note">${esc(rev.note)}</p>` : ''}
+    </div>
+    <div class="adm-hist-ops">
+      <button type="button" class="rv-btn" data-act="preview">预览</button>
+      <button type="button" class="rv-btn no" data-act="restore">回滚到此版</button>
+    </div>
+    <div class="adm-hist-preview" hidden><textarea class="adm-hist-content" readonly>${esc(rev.content || '')}</textarea></div>
+    <span class="rv-msg" aria-live="polite"></span>
+  </div>`
+        )
+        .join('')
+    : '<p class="sv-empty">还没有历史版本。每次保存文章都会留一份快照，最多保留最近 30 版。</p>';
+  const body = `<div class="wrap-s">
+<div class="admin-view-card" data-post="${esc(post.id || '')}">
+  <div class="admin-view-head">
+    <span class="adm-hist-heading">《${esc(post.title || '（无标题）')}》的历史版本</span>
+    <span class="view-tag">${rows.length} / 30 版</span>
+  </div>
+  <div class="admin-view-body">
+    <p class="adm-hist-back"><a href="/editor?id=${encodeURIComponent(post.id || '')}">← 返回编辑器</a></p>
+    <p class="sv-note">回滚只改写文章的正文与状态，标签保持当前值；回滚前会先把当前内容另存成一个新版本。</p>
+    ${list}
+  </div>
+</div>
+</div>
+<script>
+(function(){
+  var card = document.querySelector('.admin-view-card[data-post]');
+  if (!card) return;
+  var postId = card.getAttribute('data-post');
+  var box = card.querySelector('.admin-view-body');
+  if (!box) return;
+  box.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-act]');
+    if (!btn || btn.disabled) return;
+    var row = btn.closest('.adm-hist-row');
+    if (!row) return;
+    var act = btn.getAttribute('data-act');
+    var revId = row.getAttribute('data-rev');
+    if (act === 'preview') {
+      var pv = row.querySelector('.adm-hist-preview');
+      if (!pv) return;
+      pv.hidden = !pv.hidden;
+      btn.textContent = pv.hidden ? '预览' : '收起';
+      return;
+    }
+    if (!window.confirm('确定回滚到这个版本？当前内容会先另存成一个新版本。')) return;
+    var msg = row.querySelector('.rv-msg');
+    btn.disabled = true;
+    fetch('/api/posts/' + encodeURIComponent(postId) + '/revisions/' + encodeURIComponent(revId) + '/restore', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' }
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (x) {
+        if (!x.ok || !x.d.ok) throw new Error((x.d && x.d.error) || '回滚失败');
+        location.reload();
+      })
+      .catch(function (err) {
+        if (msg) msg.textContent = err.message || '回滚失败';
+        btn.disabled = false;
+      });
+  });
+})();
+</script>`;
+  return renderAdminShell({
+    site,
+    active: 'history',
+    title: '版本历史',
+    desc: '误覆盖、误删之后从这里找回来',
+    body,
+  });
+}
+
+export async function historyPage(env, request) {
+  const { res } = await requireAdmin(env, request);
+  if (res) return res;
+
+  const url = new URL(request.url);
+  const id = parseInt(url.searchParams.get('post') || '', 10);
+  const site = await getSite(env);
+  const noStore = { 'cache-control': 'no-store' };
+  /* 参数缺失 / 文章已删：给一页带提示的页面，不抛 500。 */
+  if (!Number.isFinite(id) || id <= 0) return html(renderHistory({ site }), 200, noStore);
+
+  let post = null;
+  try {
+    post = await env.DB.prepare('SELECT id, title FROM posts WHERE id = ?').bind(id).first();
+  } catch (e) {
+    console.error('history post', e?.message || e);
+  }
+  if (!post) {
+    const body = `<div class="wrap-s">
+<div class="admin-view-card">
+  <div class="admin-view-head"><span>找不到这篇文章</span></div>
+  <div class="admin-view-body">
+    <p class="adm-hist-empty">文章不存在或已被删除，无法查看历史版本。</p>
+    <p class="adm-hist-back"><a href="/editor?panel=posts">← 返回文章列表</a></p>
+  </div>
+</div>
+</div>`;
+    return html(
+      renderAdminShell({ site, active: 'history', title: '版本历史', desc: '误覆盖、误删之后从这里找回来', body }),
+      200,
+      noStore
+    );
+  }
+
+  let rows = [];
+  try {
+    const r = await env.DB.prepare(
+      'SELECT * FROM post_revisions WHERE post_id = ? ORDER BY id DESC LIMIT 30'
+    )
+      .bind(post.id)
+      .all();
+    rows = r.results || [];
+  } catch (e) {
+    console.error('history revisions', e?.message || e);
+  }
+  return html(renderHistory({ site, post, rows }), 200, noStore);
+}
+
+/* ---------- 友链管理 ---------- */
+
+const frStatus = (s) => (Number(s) === 1 ? '可访问' : Number(s) === 2 ? '状态异常' : '未检测/不可访问');
+const frBadge = (s) => (Number(s) === 1 ? 'ok' : Number(s) === 2 ? 'warn' : 'bad');
+
+/** 纯渲染：单测喂假数据即可验证转义与结构。script 里不插用户数据，id 全走 data-*。 */
+export function renderFriendsAdmin({ site = {}, rows = [] }) {
+  const list = rows.length
+    ? rows
+        .map(
+          (f) => `<div class="adm-fr-row" data-id="${esc(f.id)}">
+    <div class="adm-fr-main">
+      <div class="adm-fr-line">
+        <strong class="adm-fr-name">${esc(f.name)}</strong>
+        <span class="sv-pill ${frBadge(f.status)}">${frStatus(f.status)}</span>
+      </div>
+      <div class="adm-fr-url"><a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.url)}</a></div>
+      <div class="adm-fr-meta">HTTP ${esc(f.http_status ?? 0)} · 延迟 ${esc(f.latency_ms ?? '—')} ms · 检测 ${esc(
+        toCN(f.checked_at)
+      )}</div>
+      ${f.desc ? `<p class="adm-fr-desc">${esc(f.desc)}</p>` : ''}
+    </div>
+    <div class="adm-fr-ops">
+      <button type="button" class="rv-btn" data-act="edit">编辑</button>
+      <button type="button" class="rv-btn" data-act="check">立即探测</button>
+      <button type="button" class="rv-btn no" data-act="delete">删除</button>
+    </div>
+    <form class="adm-fr-edit" hidden>
+      <label class="adm-fr-field">名称<input name="name" value="${esc(f.name)}" required></label>
+      <label class="adm-fr-field">网址<input name="url" type="url" value="${esc(f.url)}" required></label>
+      <label class="adm-fr-field">头像<input name="avatar" value="${esc(f.avatar || '')}"></label>
+      <label class="adm-fr-field">描述<input name="desc" value="${esc(f.desc || '')}"></label>
+      <span class="adm-fr-editops">
+        <button type="submit" class="rv-btn ok">保存</button>
+        <button type="button" class="rv-btn" data-act="cancel">取消</button>
+      </span>
+    </form>
+  </div>`
+        )
+        .join('')
+    : '<p class="sv-empty">还没有友链。用上面的表单添加第一条。</p>';
+  const body = `<div class="wrap-s">
+<div class="admin-view-card">
+  <div class="admin-view-head">
+    <span>新增友链</span>
+    <span class="view-tag">名称与网址必填</span>
+  </div>
+  <div class="admin-view-body">
+    <form class="adm-fr-add">
+      <label class="adm-fr-field">名称<input name="name" required placeholder="站点名称"></label>
+      <label class="adm-fr-field">网址<input name="url" type="url" required placeholder="https://example.com"></label>
+      <label class="adm-fr-field">头像<input name="avatar" placeholder="可选，头像地址"></label>
+      <label class="adm-fr-field">描述<input name="desc" placeholder="可选，一句话介绍"></label>
+      <button type="submit" class="rv-btn ok">添加友链</button>
+    </form>
+    <p class="sv-note adm-fr-msg" aria-live="polite"></p>
+  </div>
+</div>
+<div class="admin-view-card">
+  <div class="admin-view-head">
+    <span>现有友链</span>
+    <span class="view-tag">${rows.length} 条 · 状态来自最近一次探测</span>
+  </div>
+  <div class="admin-view-body adm-fr-list">
+    ${list}
+  </div>
+</div>
+</div>
+<script>
+(function(){
+  var msg = document.querySelector('.adm-fr-msg');
+  function fail(err) { if (msg) msg.textContent = (err && err.message) || '操作失败'; }
+  function send(url, opts) {
+    return fetch(url, opts).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+    }).then(function (x) {
+      if (!x.ok || !x.d.ok) throw new Error((x.d && x.d.error) || '操作失败');
+      return x.d;
+    });
+  }
+  function payload(form) {
+    var o = {};
+    new FormData(form).forEach(function (v, k) { o[k] = v; });
+    return JSON.stringify(o);
+  }
+  var add = document.querySelector('.adm-fr-add');
+  if (add) add.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var btn = add.querySelector('button[type=submit]');
+    if (btn) btn.disabled = true;
+    send('/api/friends', { method: 'POST', headers: { 'content-type': 'application/json' }, body: payload(add) })
+      .then(function () { location.reload(); })
+      .catch(function (err) { fail(err); if (btn) btn.disabled = false; });
+  });
+  var box = document.querySelector('.adm-fr-list');
+  if (!box) return;
+  box.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-act]');
+    if (!btn || btn.disabled) return;
+    var row = btn.closest('.adm-fr-row');
+    if (!row) return;
+    var act = btn.getAttribute('data-act');
+    var id = row.getAttribute('data-id');
+    if (act === 'edit' || act === 'cancel') {
+      var form = row.querySelector('.adm-fr-edit');
+      if (form) form.hidden = act === 'cancel';
+      return;
+    }
+    if (act === 'check') {
+      btn.disabled = true;
+      send('/api/friends/check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+        .then(function () { location.reload(); })
+        .catch(function (err) { fail(err); btn.disabled = false; });
+      return;
+    }
+    if (act === 'delete') {
+      if (!window.confirm('删除这条友链？')) return;
+      btn.disabled = true;
+      send('/api/friends/' + encodeURIComponent(id), { method: 'DELETE' })
+        .then(function () { location.reload(); })
+        .catch(function (err) { fail(err); btn.disabled = false; });
+    }
+  });
+  box.addEventListener('submit', function (e) {
+    var form = e.target.closest('.adm-fr-edit');
+    if (!form) return;
+    e.preventDefault();
+    var row = form.closest('.adm-fr-row');
+    var id = row && row.getAttribute('data-id');
+    var btn = form.querySelector('button[type=submit]');
+    if (btn) btn.disabled = true;
+    send('/api/friends/' + encodeURIComponent(id), {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: payload(form)
+    }).then(function () { location.reload(); })
+      .catch(function (err) { fail(err); if (btn) btn.disabled = false; });
+  });
+})();
+</script>`;
+  return renderAdminShell({
+    site,
+    active: 'friends',
+    title: '友链管理',
+    desc: '增删友链，并查看最近一次探测结果',
+    body,
+  });
+}
+
+export async function friendsAdminPage(env, request) {
+  const { res } = await requireAdmin(env, request);
+  if (res) return res;
+
+  let rows = [];
+  try {
+    const r = await env.DB.prepare('SELECT * FROM friends ORDER BY id').all();
+    rows = r.results || [];
+  } catch (e) {
+    console.error('friends admin', e?.message || e);
+  }
+  const site = await getSite(env);
+  return html(renderFriendsAdmin({ site, rows }), 200, { 'cache-control': 'no-store' });
+}
+
+/* ---------- 评论审核 ---------- */
+
+/** 纯渲染：单测喂假数据即可验证转义与结构。moderation='1' 表示当前已开启先审后发。 */
+export function renderCommentsAdmin({ site = {}, rows = [], moderation = '0' }) {
+  const on = moderation === true || String(moderation) === '1';
+  const list = rows.length
+    ? rows
+        .map(
+          (c) => `<div class="adm-cmt-row" data-id="${esc(c.id)}">
+    <div class="adm-cmt-main">
+      <div class="adm-cmt-line">
+        <strong class="adm-cmt-author">${esc(c.name || '匿名')}</strong>
+        <span class="adm-cmt-post">于《${esc(c.post_title || '（文章已删除）')}》</span>
+        <span class="adm-cmt-time">${esc(toCN(c.created_at))}</span>
+      </div>
+      <p class="adm-cmt-content">${esc(c.content || '')}</p>
+    </div>
+    <div class="adm-cmt-ops">
+      <button type="button" class="rv-btn ok" data-act="approve">通过</button>
+      <button type="button" class="rv-btn no" data-act="reject">驳回</button>
+    </div>
+  </div>`
+        )
+        .join('')
+    : '<p class="sv-empty">没有待审评论。开启先审后发后，普通用户的新评论会排在这里。</p>';
+  const body = `<div class="wrap-s">
+<div class="admin-view-card">
+  <div class="admin-view-head">
+    <span>评论先审后发</span>
+    <span class="view-tag adm-cmt-state">当前：${on ? '已开启' : '已关闭'}</span>
+  </div>
+  <div class="admin-view-body">
+    <label class="adm-cmt-toggle">
+      <input type="checkbox" class="adm-cmt-switch"${on ? ' checked' : ''}>
+      <span>开启评论审核</span>
+    </label>
+    <p class="sv-note">关闭时新评论直接公开；开启后普通用户的新评论需在这里放行。管理员自己发的评论不受影响。</p>
+    <p class="sv-note adm-cmt-msg" aria-live="polite"></p>
+  </div>
+</div>
+<div class="admin-view-card">
+  <div class="admin-view-head">
+    <span>待审评论</span>
+    <span class="view-tag">${rows.length} 条</span>
+  </div>
+  <div class="admin-view-body adm-cmt-list">
+    ${list}
+  </div>
+</div>
+</div>
+<script>
+(function(){
+  var msg = document.querySelector('.adm-cmt-msg');
+  var state = document.querySelector('.adm-cmt-state');
+  function fail(err) { if (msg) msg.textContent = (err && err.message) || '操作失败'; }
+  function send(url, opts) {
+    return fetch(url, opts).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+    }).then(function (x) {
+      if (!x.ok || !x.d.ok) throw new Error((x.d && x.d.error) || '操作失败');
+      return x.d;
+    });
+  }
+  var sw = document.querySelector('.adm-cmt-switch');
+  if (sw) sw.addEventListener('change', function () {
+    var enabled = sw.checked;
+    sw.disabled = true;
+    send('/api/comments/moderation', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: enabled })
+    }).then(function () {
+      sw.disabled = false;
+      if (state) state.textContent = '当前：' + (enabled ? '已开启' : '已关闭');
+      if (msg) msg.textContent = enabled ? '已开启评论审核' : '已关闭评论审核';
+    }).catch(function (err) {
+      sw.disabled = false;
+      sw.checked = !enabled;
+      fail(err);
+    });
+  });
+  var box = document.querySelector('.adm-cmt-list');
+  if (!box) return;
+  box.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-act]');
+    if (!btn || btn.disabled) return;
+    var row = btn.closest('.adm-cmt-row');
+    if (!row) return;
+    var act = btn.getAttribute('data-act');
+    btn.disabled = true;
+    send('/api/comments/' + encodeURIComponent(row.getAttribute('data-id')) + '/moderate', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: act })
+    }).then(function () {
+      row.remove();
+      if (!box.querySelector('.adm-cmt-row')) {
+        box.insertAdjacentHTML('beforeend', '<p class="sv-empty">待审队列已清空。</p>');
+      }
+    }).catch(function (err) {
+      fail(err);
+      btn.disabled = false;
+    });
+  });
+})();
+</script>`;
+  return renderAdminShell({
+    site,
+    active: 'comments',
+    title: '评论审核',
+    desc: '放行或驳回待审评论，并可开关先审后发',
+    body,
+  });
+}
+
+export async function commentsAdminPage(env, request) {
+  const { res } = await requireAdmin(env, request);
+  if (res) return res;
+
+  let moderation = '0';
+  let rows = [];
+  try {
+    const s = await env.DB.prepare("SELECT value FROM settings WHERE key = 'comment_moderation'").first();
+    if (s && s.value != null) moderation = String(s.value);
+  } catch (e) {
+    console.error('comments moderation', e?.message || e);
+  }
+  try {
+    const r = await env.DB.prepare(
+      `SELECT c.*, p.title AS post_title
+       FROM comments c JOIN posts p ON p.id = c.post_id
+       WHERE c.status = 'pending'
+       ORDER BY c.id DESC LIMIT 100`
+    ).all();
+    rows = r.results || [];
+  } catch (e) {
+    console.error('comments admin', e?.message || e);
+  }
+  const site = await getSite(env);
+  return html(renderCommentsAdmin({ site, rows, moderation }), 200, { 'cache-control': 'no-store' });
+}

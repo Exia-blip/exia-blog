@@ -190,6 +190,19 @@ export function nowISO() {
    那几个是喂机器的，ISO 8601 带 Z 和 RFC 822 带 GMT 才是对的。 */
 export const TZ_HOURS = 8;
 
+/* 字数：中文按字、西文按词，代码块与 Markdown 标记不算。
+   与 SQL 的 length(content) 口径不同，不能拿字节数冒充字数。 */
+export function wordCount(content) {
+  const plain = String(content || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[#>*_~|\-]/g, ' ');
+  const cjk = (plain.match(/[\u3400-\u9fff]/g) || []).length;
+  const latin = (plain.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*/g) || []).length;
+  return cjk + latin;
+}
+
 export function localParts(v) {
   const s = String(v || '').trim();
   if (!s) return { y: '', m: '', d: '', md: '', day: '', time: '' };

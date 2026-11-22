@@ -1,4 +1,4 @@
-import { json, err, pageParams, slugify, uniqueSlug, nowISO, setCookie, localParts, siteOrigin } from './utils.js';
+import { json, err, pageParams, slugify, uniqueSlug, nowISO, setCookie, localParts, siteOrigin, wordCount } from './utils.js';
 import { currentUser, requireUser, requireAdmin } from './auth.js';
 import { guard, record, banIp, verifyTurnstile, DID_MAX_AGE } from './antispam.js';
 import { renderBody, extractTags, extractCover, extractExcerpt, readingTime, searchSnippet } from '../public/md.js';
@@ -7,7 +7,8 @@ import { coverOf, thumbOf, bodyCoverFor } from './cover.js';
 import { bustPaths } from './cache.js';
 import { presignPut, makeKey, IMAGE_TYPES } from './s3.js';
 import { imageSize, withSize } from './img-size.js';
-import { notifyComment } from './webhook.js';
+import { notifyComment, notifyTodo } from './webhook.js';
+import { logAudit } from './audit.js';
 import { checkFriends } from './cron.js';
 import { getSite, setSite, THEME_IDS, MODE_IDS } from './settings.js';
 import { refreshSummary, generateSummary, contentHash, hasAI } from './ai.js';
@@ -142,6 +143,30 @@ const seriesOrderOf = (b) => {
   return Number.isFinite(n) && n > 0 ? Math.min(n, 999) : 0;
 };
 
+/* 保存前留快照。自动保存每 3 秒一次，只有内容/关键字段真变了才写，
+   否则版本表会被无变化的保存刷爆。每篇保留最近 30 版。 */
+async function snapshotPost(db, p, uid, note) {
+  await db
+    .prepare(
+      `INSERT INTO post_revisions (post_id, title, content, html_content, cover, cover_body, category,
+        series, series_order, is_private, hidden, review_status, published_at, saved_by, note)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    )
+    .bind(
+      p.id, p.title || '', p.content || '', p.html_content || '', p.cover || '', p.cover_body || '',
+      p.category || '', p.series || '', p.series_order || 0, p.is_private || 0, p.hidden || 0,
+      p.review_status || 'approved', p.published_at || '', uid || 0, note || ''
+    )
+    .run();
+  await db
+    .prepare(
+      `DELETE FROM post_revisions WHERE post_id = ? AND id NOT IN
+       (SELECT id FROM post_revisions WHERE post_id = ? ORDER BY id DESC LIMIT 30)`
+    )
+    .bind(p.id, p.id)
+    .run();
+}
+
 function shapePost(p, full = false) {
   const base = {
     id: p.id,
@@ -166,6 +191,8 @@ function shapePost(p, full = false) {
     avatar: p.avatar || '',
     // 归档查询没带正文，改用 SQL 算好的 content_len（口径与 readingTime 一致）
     reading: p.content_len != null ? Math.max(1, Math.round(Number(p.content_len) / 400)) : readingTime(p.content),
+    // 字数只从真实正文算；列表查询没带 content 就不给这个字段，不拿字节数冒充字数
+    words: p.content !== undefined ? wordCount(p.content) : undefined,
     series: p.series || '',
     series_order: p.series_order || 0,
     // 发布时间：草稿转发布那一刻定下。老数据没有这个字段时退回 created_at，
@@ -569,7 +596,7 @@ export async function handleApi(env, request, url, ctx) {
 
   /* ---- 审核：通过 / 驳回（仅管理员）---- */
   if (/^\/review\/\d+$/.test(path) && method === 'POST') {
-    const { res } = await requireAdmin(env, request);
+    const { user, res } = await requireAdmin(env, request);
     if (res) return res;
     const id = parseInt(path.split('/')[2], 10);
     const body = await request.json().catch(() => ({}));
@@ -579,6 +606,7 @@ export async function handleApi(env, request, url, ctx) {
     if (!p) return err('文章不存在', 404);
     const next = action === 'approve' ? 'approved' : 'rejected';
     await db.prepare('UPDATE posts SET review_status = ?, updated_at = ? WHERE id = ?').bind(next, nowISO(), id).run();
+    await logAudit(env, user, action === 'approve' ? 'review.approve' : 'review.reject', 'post', String(id), p.slug || '');
     if (ctx) ctx.waitUntil(bust(url, [p.slug]).catch(() => {}));
     return json({ ok: true, id, review_status: next });
   }
@@ -661,7 +689,7 @@ export async function handleApi(env, request, url, ctx) {
   }
 
 /* ---- 单篇文章 ---- */
-  if (path.startsWith('/posts/') && method === 'GET') {
+  if (path.startsWith('/posts/') && !path.includes('/revisions') && method === 'GET') {
     const slug = decodeURIComponent(path.slice('/posts/'.length));
     const p = await db
       .prepare(`SELECT p.*, ${AUTHOR_COLS} FROM posts p ${AUTHOR_JOIN} WHERE p.slug = ?`)
@@ -742,6 +770,7 @@ export async function handleApi(env, request, url, ctx) {
     }
 
     await syncTags(db, id, content);
+    await logAudit(env, u, 'post.create', 'post', String(id), title);
     if (ctx) ctx.waitUntil(bust(url, [slug, ...(await seriesSiblingSlugs(db, seriesOf(body)))], [category]));
     return json({ ok: true, id, slug, summary: manual, ai: hasAI(env), published_at: published });
   }
@@ -805,6 +834,15 @@ export async function handleApi(env, request, url, ctx) {
        - 管理员编辑视为认可，直接 approved。
        管理员审核通过/驳回走专门的 /admin/review API，不走这里。 */
     const review = u.is_admin ? 'approved' : 'pending';
+    // 自动保存每 3 秒一次，没变化的保存不写快照、不刷审计
+    const nextSeries = body.series !== undefined ? seriesOf(body) : p.series || '';
+    const changed =
+      content !== p.content || title !== p.title || slug !== p.slug ||
+      category !== (p.category || '') || nextSeries !== (p.series || '') ||
+      isPrivate !== p.is_private || isHidden !== p.hidden ||
+      published !== (p.published_at || '') || review !== (p.review_status || 'approved');
+    if (changed) await snapshotPost(db, p, u.id, '保存前');
+
     await db
       .prepare(
         `UPDATE posts SET slug=?, title=?, content=?, html_content=?, cover=?, cover_body=?, category=?, series=?, series_order=?, is_private=?, hidden=?, review_status=?, published_at=?, updated_at=?${sumSql} WHERE id=?`
@@ -817,7 +855,7 @@ export async function handleApi(env, request, url, ctx) {
         cover,
         coverBody,
         category,
-        body.series !== undefined ? seriesOf(body) : p.series || '',
+        nextSeries,
         body.series_order !== undefined ? seriesOrderOf(body) : p.series_order || 0,
         isPrivate,
         isHidden,
@@ -832,6 +870,7 @@ export async function handleApi(env, request, url, ctx) {
     if (needGen && ctx) ctx.waitUntil(refreshSummary(env, db, id, { title, content }));
 
     await syncTags(db, id, content);
+    if (changed) await logAudit(env, u, 'post.update', 'post', String(id), title);
     if (ctx) {
       const touched = [
         ...new Set([
@@ -842,6 +881,50 @@ export async function handleApi(env, request, url, ctx) {
       ctx.waitUntil(bust(url, [slug, p.slug, ...touched], [category, p.category]));
     }
     return json({ ok: true, id, slug, updated_at: nowISO(), published_at: published, ai: hasAI(env) });
+  }
+
+  /* ---- 版本历史：作者/管理员可读；回滚只有管理员能做（回滚会改已过审内容）---- */
+  if (/^\/posts\/\d+\/revisions$/.test(path) && method === 'GET') {
+    const { user: u, res } = await requireUser(env, request);
+    if (res) return res;
+    const id = parseInt(path.split('/')[2], 10);
+    const p = await db.prepare('SELECT id, author_id FROM posts WHERE id = ?').bind(id).first();
+    if (!p) return err('文章不存在', 404);
+    if (p.author_id !== u.id && !u.is_admin) return err('无权查看', 403);
+    const { results } = await db
+      .prepare(
+        'SELECT id, saved_at, saved_by, note, title, length(content) AS size FROM post_revisions WHERE post_id = ? ORDER BY id DESC LIMIT 30'
+      )
+      .bind(id)
+      .all();
+    return json({ ok: true, revisions: results });
+  }
+
+  if (/^\/posts\/(\d+)\/revisions\/(\d+)\/restore$/.test(path) && method === 'POST') {
+    const { user: u, res } = await requireAdmin(env, request);
+    if (res) return res;
+    const id = parseInt(path.split('/')[2], 10);
+    const rid = parseInt(path.split('/')[4], 10);
+    const p = await db.prepare('SELECT * FROM posts WHERE id = ?').bind(id).first();
+    const rev = await db.prepare('SELECT * FROM post_revisions WHERE id = ? AND post_id = ?').bind(rid, id).first();
+    if (!p || !rev) return err('版本不存在', 404);
+    // 回滚本身也是一次改动，先给当前内容留快照，避免回滚完又找不回来
+    await snapshotPost(db, p, u.id, `回滚 #${rid} 前`);
+    await db
+      .prepare(
+        `UPDATE posts SET title=?, content=?, html_content=?, cover=?, cover_body=?, category=?, series=?,
+         series_order=?, is_private=?, hidden=?, review_status=?, published_at=?, updated_at=? WHERE id=?`
+      )
+      .bind(
+        rev.title, rev.content, rev.html_content || '', rev.cover || '', rev.cover_body || '',
+        rev.category || '', rev.series || '', rev.series_order || 0, rev.is_private || 0, rev.hidden || 0,
+        rev.review_status || 'approved', rev.published_at || '', nowISO(), id
+      )
+      .run();
+    await syncTags(db, id, rev.content || '');
+    await logAudit(env, u, 'post.restore', 'post', String(id), `回滚到版本 #${rid}`);
+    if (ctx) ctx.waitUntil(bust(url, [p.slug]).catch(() => {}));
+    return json({ ok: true, id, restored_from: rid });
   }
 
   /* ---- 生成 / 重新生成 AI 摘要 ---- */
@@ -891,6 +974,7 @@ export async function handleApi(env, request, url, ctx) {
     const p = await db.prepare('SELECT * FROM posts WHERE id = ?').bind(id).first();
     if (!p) return err('文章不存在', 404);
     if (p.author_id !== u.id && !u.is_admin) return err('无权删除', 403);
+    await logAudit(env, u, 'post.delete', 'post', String(id), p.title || '');
 
     await db.batch([
       db.prepare('DELETE FROM post_tags WHERE post_id = ?').bind(id),
@@ -911,7 +995,7 @@ export async function handleApi(env, request, url, ctx) {
 
     const { results } = await db
       .prepare(
-        'SELECT id, parent_id, name, email, website, content, is_admin, ip, created_at FROM comments WHERE post_id = ? ORDER BY created_at ASC'
+        "SELECT id, parent_id, name, email, website, content, is_admin, ip, created_at FROM comments WHERE post_id = ? AND status = 'approved' ORDER BY created_at ASC"
       )
       .bind(p.id)
       .all();
@@ -953,6 +1037,9 @@ export async function handleApi(env, request, url, ctx) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('邮箱格式不正确');
 
     const isAdmin = user && user.is_admin ? 1 : 0;
+    // 先审后发是站点级开关（settings.comment_moderation），管理员发言不受限
+    const modRow = await db.prepare("SELECT value FROM settings WHERE key='comment_moderation'").first();
+    const status = !isAdmin && modRow?.value === '1' ? 'pending' : 'approved';
 
     /* ---- 防滥用：蜜罐 → Turnstile → 频率（管理员全部跳过）---- */
     let rate = null;
@@ -982,8 +1069,8 @@ export async function handleApi(env, request, url, ctx) {
 
     const info = await db
       .prepare(
-        `INSERT INTO comments (post_id, parent_id, name, email, website, content, is_admin, ip, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO comments (post_id, parent_id, name, email, website, content, is_admin, status, ip, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`
       )
       .bind(
         p.id,
@@ -993,6 +1080,7 @@ export async function handleApi(env, request, url, ctx) {
         String(body.website || '').slice(0, 200),
         content,
         isAdmin,
+        status,
         request.headers.get('cf-connecting-ip') || '',
         nowISO()
       )
@@ -1006,14 +1094,51 @@ export async function handleApi(env, request, url, ctx) {
     }
 
     const origin = siteOrigin(env, request);
-    await notifyComment(env, {
-      postTitle: p.title,
-      postUrl: `${origin}/p/${p.slug}`,
-      name,
-      content,
-    });
+    if (status === 'pending') {
+      await notifyTodo(env, `新评论待审：${name} 在《${p.title}》\n${origin}/admin/comments`);
+    } else {
+      await notifyComment(env, {
+        postTitle: p.title,
+        postUrl: `${origin}/p/${p.slug}`,
+        name,
+        content,
+      });
+    }
 
-    return json({ ok: true, id: info.meta.last_row_id }, 200, headers);
+    return json({ ok: true, id: info.meta.last_row_id, status }, 200, headers);
+  }
+
+  /* ---- 评论先审后发：开关与单条处置（仅管理员）---- */
+  if (path === '/comments/moderation' && method === 'POST') {
+    const { user, res } = await requireAdmin(env, request);
+    if (res) return res;
+    const body = await request.json().catch(() => ({}));
+    const enabled = body.enabled ? '1' : '0';
+    await db
+      .prepare(`INSERT INTO settings (key, value) VALUES ('comment_moderation', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+      .bind(enabled)
+      .run();
+    await logAudit(env, user, 'comment.moderation', 'settings', 'comment_moderation',
+      enabled === '1' ? '开启评论先审后发' : '关闭评论先审后发');
+    return json({ ok: true, enabled: enabled === '1' });
+  }
+
+  if (/^\/comments\/\d+\/moderate$/.test(path) && method === 'POST') {
+    const { user, res } = await requireAdmin(env, request);
+    if (res) return res;
+    const id = parseInt(path.split('/')[2], 10);
+    const body = await request.json().catch(() => ({}));
+    const action = String(body.action || '');
+    if (action !== 'approve' && action !== 'reject') return err('action 只能是 approve 或 reject');
+    const c = await db.prepare('SELECT id, post_id, status FROM comments WHERE id = ?').bind(id).first();
+    if (!c) return err('评论不存在', 404);
+    const next = action === 'approve' ? 'approved' : 'rejected';
+    await db.prepare('UPDATE comments SET status = ? WHERE id = ?').bind(next, id).run();
+    await logAudit(env, user, action === 'approve' ? 'comment.approve' : 'comment.reject',
+      'comment', String(id), `post=#${c.post_id}`);
+    if (ctx) ctx.waitUntil(bust(url, [], []).catch(() => {}));
+    return json({ ok: true, id, status: next });
   }
 
   /* ---- 批量删评论（管理员）：垃圾评论一般是一串，一条条点太慢 ---- */
@@ -1096,6 +1221,7 @@ export async function handleApi(env, request, url, ctx) {
       .run();
 
     checkFriends(env).catch(() => {});
+    await logAudit(env, u, 'friend.create', 'friend', String(info.meta.last_row_id), name);
     bustFriends(url, ctx);
     return json({ ok: true, id: info.meta.last_row_id });
   }
@@ -1103,7 +1229,7 @@ export async function handleApi(env, request, url, ctx) {
   /* 就地改。换 URL 时状态必须归零重测 —— 否则绿点会挂在一个从没探测过的新地址上，
      点进去是 404，而面板说「可访问」。只改名字/描述/头像则保留原检测结果。 */
   if (/^\/friends\/\d+$/.test(path) && (method === 'PATCH' || method === 'PUT')) {
-    const { res } = await requireAdmin(env, request);
+    const { user: u, res } = await requireAdmin(env, request);
     if (res) return res;
 
     const id = parseInt(path.split('/')[2], 10);
@@ -1129,23 +1255,26 @@ export async function handleApi(env, request, url, ctx) {
       await db.prepare('UPDATE friends SET name=?, url=?, avatar=?, desc=? WHERE id=?').bind(...fields, id).run();
     }
 
+    await logAudit(env, u, 'friend.update', 'friend', String(id), moved ? `${name}（换了链接）` : name);
     bustFriends(url, ctx);
     return json({ ok: true, recheck: moved });
   }
 
   if (/^\/friends\/\d+$/.test(path) && method === 'DELETE') {
-    const { res } = await requireAdmin(env, request);
+    const { user: u, res } = await requireAdmin(env, request);
     if (res) return res;
     const id = parseInt(path.split('/')[2], 10);
     await db.prepare('DELETE FROM friends WHERE id = ?').bind(id).run();
+    await logAudit(env, u, 'friend.delete', 'friend', String(id), '');
     bustFriends(url, ctx);
     return json({ ok: true });
   }
 
   if (path === '/friends/check' && method === 'POST') {
-    const { res } = await requireAdmin(env, request);
+    const { user: u, res } = await requireAdmin(env, request);
     if (res) return res;
     const r = await checkFriends(env);
+    await logAudit(env, u, 'friend.check', 'friend', '', '手动探测');
     bustFriends(url, ctx);
     return json({ ok: true, ...r });
   }

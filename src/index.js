@@ -1,6 +1,6 @@
 import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
-import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin } from './utils.js';
+import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin, wordCount } from './utils.js';
 import { checkFriends } from './cron.js';
 import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
@@ -14,7 +14,14 @@ import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.
 import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
 import { normalizePagePath } from './routes.js';
 import { statsPage, prunePv } from './stats.js';
-import { healthPage, queuePage } from './admin-pages.js';
+import {
+  healthPage,
+  queuePage,
+  auditPage,
+  historyPage,
+  friendsAdminPage,
+  commentsAdminPage,
+} from './admin-pages.js';
 import { dashboardPage } from './dashboard.js';
 import { reviewPage } from './review.js';
 import { postCacheGet, postCacheSet, postCacheDrop, postCacheStats } from './postcache.js';
@@ -1024,7 +1031,7 @@ async function servePostPage(env, request, slug) {
       // 匿名访客的 HTML 里不会出现这个字段
       `SELECT c.id, c.parent_id, c.name, c.email, c.website, c.content, c.is_admin, c.created_at
        FROM comments c JOIN posts p ON p.id = c.post_id
-       WHERE p.slug = ? ORDER BY c.created_at ASC`
+       WHERE p.slug = ? AND c.status = 'approved' ORDER BY c.created_at ASC`
     )
       .bind(slug)
       .all(),
@@ -1101,6 +1108,7 @@ async function servePostPage(env, request, slug) {
   const bodyHtml = post.html_content || sanitizeHtml(renderBody(post.content));
   const words = String(post.content || '').replace(/\s/g, '').length;
   const reading = readingTime(post.content);
+  const wordTotal = wordCount(post.content);
 
   const lead = post.summary
     ? `<aside class="post-lead"><span class="lead-tag">${post.summary_src === 'ai' ? 'AI 摘要' : '摘要'}</span><p>${esc(
@@ -1162,6 +1170,7 @@ async function servePostPage(env, request, slug) {
           <span>${esc(post.author_name || post.login || '')}</span>
           <span class="sep-dot">${esc(fmtDay(post.published_at || post.created_at))}</span>
           <span class="sep-dot">${reading} 分钟阅读</span>
+          <span class="sep-dot read-meta">${wordTotal} 字</span>
           ${
             post.updated_at && fmtDay(post.updated_at) !== fmtDay(post.published_at || post.created_at)
               ? `<span class="sep-dot">更新于 ${esc(fmtDay(post.updated_at))}</span>`
@@ -1450,6 +1459,8 @@ function postCard(p, i = 0) {
   }</h2>${p.excerpt ? `<p class="excerpt">${esc(p.excerpt)}</p>` : ''}<div class="meta"><span>${esc(
     fmtDay(p.published_at || p.created_at)
   )}</span><span class="sep-dot">${p.reading} 分钟</span>${
+    p.words ? `<span class="sep-dot read-meta">${p.words} 字</span>` : ''
+  }${
     p.comments ? `<span class="sep-dot">${p.comments} 条评论</span>` : ''
   }${p.category ? `<span class="tag cat-chip">${esc(p.category_name || catName(p.category))}</span>` : ''}${tags}</div></div></a>`;
 }
@@ -2271,6 +2282,36 @@ Sitemap: ${origin}/sitemap.xml
   });
 }
 
+/* llms.txt：给 AI 爬虫看的纯文本索引，只列已公开、已过审、已到点的文章。
+   站点名/摘要都过一遍转义，防止标题里的方括号破坏 Markdown 链接。 */
+async function serveLlms(env, request) {
+  const origin = siteOrigin(env, request);
+  const site = await getSite(env);
+  const { results } = await env.DB.prepare(
+    `SELECT slug, title, summary FROM posts
+     WHERE review_status = 'approved' AND is_private = 0 AND hidden = 0
+       AND published_at != '' AND published_at <= datetime('now')
+     ORDER BY published_at DESC LIMIT 100`
+  ).all();
+  const clean = (s) => String(s || '').replace(/[\[\]\r\n]/g, ' ').trim().slice(0, 160);
+  const lines = [
+    `# ${clean(site.name) || 'Exia Blog'}`,
+    '',
+    `> ${clean(site.desc) || '写字的地方'}`,
+    '',
+    '中文技术博客：Cloudflare Workers / D1 / R2 建站、缓存、安全与前端工程的实战记录。',
+    '',
+    '## 文章',
+    '',
+    ...results.map((p) => `- [${clean(p.title)}](${origin}/p/${encodeURIComponent(p.slug)})：${clean(p.summary)}`),
+    '',
+    `[完整站点地图](${origin}/sitemap.xml)`,
+  ];
+  return new Response(`${lines.join('\n')}\n`, {
+    headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=3600' },
+  });
+}
+
 async function serveManifest(env, request) {
   const s = await getSite(env);
   const data = {
@@ -2437,12 +2478,17 @@ async function route(request, env, ctx) {
   if (path === '/rss.xml') return await serveRss(env, request);
   if (path === '/sitemap.xml') return await serveSitemap(env, request);
   if (path === '/robots.txt') return serveRobots(env, request);
+  if (path === '/llms.txt') return await serveLlms(env, request);
   if (path === '/manifest.webmanifest') return await serveManifest(env, request);
   if (path === '/admin') return await dashboardPage(env, request);
   if (path === '/admin/review') return await reviewPage(env, request);
   if (path === '/admin/stats') return await statsPage(env, request);
   if (path === '/admin/health') return await healthPage(env, request);
   if (path === '/admin/queue') return await queuePage(env, request);
+  if (path === '/admin/audit') return await auditPage(env, request);
+  if (path === '/admin/history') return await historyPage(env, request);
+  if (path === '/admin/friends') return await friendsAdminPage(env, request);
+  if (path === '/admin/comments') return await commentsAdminPage(env, request);
 
   // 标签页 / 栏目页复用首页骨架，前端读路径
   if (path.startsWith('/tag/')) {

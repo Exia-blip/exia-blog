@@ -41,6 +41,7 @@ const svg = (name) =>
 export const ADMIN_NAV = [
   { key: 'dash', text: '工作台', href: '/admin', icon: 'grid', id: 'nav-dash' },
   { key: 'review', text: '投稿审核', href: '/admin/review', icon: 'check', id: 'nav-review' },
+  { key: 'cmts', text: '评论审核', href: '/admin/comments', icon: 'check', id: 'nav-cmts' },
   { key: 'write', text: '写作', href: '/editor', icon: 'write', id: 'nav-write' },
   { key: 'posts', text: '文章列表', href: '/editor?panel=posts', icon: 'list', id: 'nav-posts' },
   { key: 'checks', text: '发布自检', href: '/editor?panel=checks', icon: 'check', id: 'nav-checks' },
@@ -48,6 +49,8 @@ export const ADMIN_NAV = [
   { key: 'site', text: '站点设置', href: '/editor?panel=site', icon: 'gear', id: 'nav-site' },
   { key: 'stats', text: '访问统计', href: '/admin/stats', icon: 'chart', id: 'nav-stats' },
   { key: 'health', text: '健康检查', href: '/admin/health', icon: 'shield', id: 'nav-health' },
+  { key: 'audit', text: '操作日志', href: '/admin/audit', icon: 'list', id: 'nav-audit' },
+  { key: 'friends', text: '友链管理', href: '/admin/friends', icon: 'grid', id: 'nav-friends' },
   { key: 'queue', text: '定时队列', href: '/admin/queue', icon: 'clock', id: 'nav-queue' },
   { key: 'home', text: '返回站点', href: '/', icon: 'home', id: 'nav-home' },
 ];

@@ -25,13 +25,9 @@ export function webhookPayload(hook, plain) {
   }
 }
 
-export async function notifyComment(env, { postTitle, postUrl, name, content }) {
+async function sendWebhook(env, plain) {
   const hook = env.WEBHOOK_URL;
   if (!hook) return;
-
-  const plain = [`💬 新评论 · ${postTitle}`, `${name}：${String(content).slice(0, 300)}`, postUrl ? `🔗 ${postUrl}` : '']
-    .filter(Boolean)
-    .join('\n');
 
   try {
     const r = await fetch(hook, {
@@ -58,4 +54,16 @@ export async function notifyComment(env, { postTitle, postUrl, name, content }) 
   } catch (e) {
     console.error('webhook failed:', e.message);
   }
+}
+
+export async function notifyComment(env, { postTitle, postUrl, name, content }) {
+  const plain = [`💬 新评论 · ${postTitle}`, `${name}：${String(content).slice(0, 300)}`, postUrl ? `🔗 ${postUrl}` : '']
+    .filter(Boolean)
+    .join('\n');
+  await sendWebhook(env, plain);
+}
+
+/** 后台待办提醒：待审稿、友链挂掉。复用评论通知的同一个 webhook 与平台适配。 */
+export async function notifyTodo(env, text) {
+  await sendWebhook(env, `[待办] ${String(text).slice(0, 500)}`);
 }

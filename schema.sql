@@ -46,6 +46,28 @@ CREATE INDEX IF NOT EXISTS idx_posts_published ON posts(published_at);
 CREATE INDEX IF NOT EXISTS idx_posts_review ON posts(review_status);
 CREATE INDEX IF NOT EXISTS idx_posts_series ON posts(series, series_order);
 
+-- 文章版本快照：保存前留底，误覆盖可回滚。每篇保留最近 30 个版本。
+CREATE TABLE IF NOT EXISTS post_revisions (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id       INTEGER NOT NULL,
+  title         TEXT NOT NULL DEFAULT '',
+  content       TEXT NOT NULL DEFAULT '',
+  html_content  TEXT NOT NULL DEFAULT '',
+  cover         TEXT,
+  cover_body    TEXT NOT NULL DEFAULT '',
+  category      TEXT NOT NULL DEFAULT '',
+  series        TEXT NOT NULL DEFAULT '',
+  series_order  INTEGER NOT NULL DEFAULT 0,
+  is_private    INTEGER NOT NULL DEFAULT 0,
+  hidden        INTEGER NOT NULL DEFAULT 0,
+  review_status TEXT NOT NULL DEFAULT 'approved',
+  published_at  TEXT NOT NULL DEFAULT '',
+  saved_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  saved_by      INTEGER NOT NULL DEFAULT 0,
+  note          TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_revisions_post ON post_revisions(post_id, saved_at DESC);
+
 -- 标签
 CREATE TABLE IF NOT EXISTS tags (
   id    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +91,7 @@ CREATE TABLE IF NOT EXISTS comments (
   website     TEXT,
   content     TEXT NOT NULL,
   is_admin    INTEGER NOT NULL DEFAULT 0,
+  status      TEXT NOT NULL DEFAULT 'approved', -- approved 公开 / pending 待审 / rejected 驳回
   ip          TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -85,6 +108,7 @@ CREATE TABLE IF NOT EXISTS comment_guard (
 );
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_comments_ip   ON comments(ip);
+CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status, created_at);
 
 -- 友链
 CREATE TABLE IF NOT EXISTS friends (
@@ -127,3 +151,17 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_day  ON events(day);
 CREATE INDEX IF NOT EXISTS idx_events_name ON events(day, name);
+
+-- 后台操作审计：只增不改，覆盖文章/审核/评论/友链/回滚。
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_id    INTEGER NOT NULL DEFAULT 0,
+  actor_login TEXT NOT NULL DEFAULT '',
+  action      TEXT NOT NULL,
+  target_type TEXT NOT NULL DEFAULT '',
+  target_id   TEXT NOT NULL DEFAULT '',
+  detail      TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
