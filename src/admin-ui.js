@@ -29,6 +29,7 @@ const ICON = {
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   home: '<path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
 };
 
 const svg = (name) =>
@@ -38,6 +39,7 @@ const svg = (name) =>
    不再按「内容管理/站点运维/其它」切成三段，避免侧栏被标签切碎。
    key 用于测试比对，href 是真实落点。 */
 export const ADMIN_NAV = [
+  { key: 'dash', text: '工作台', href: '/admin', icon: 'grid', id: 'nav-dash' },
   { key: 'write', text: '写作', href: '/editor', icon: 'write', id: 'nav-write' },
   { key: 'posts', text: '文章列表', href: '/editor?panel=posts', icon: 'list', id: 'nav-posts' },
   { key: 'checks', text: '发布自检', href: '/editor?panel=checks', icon: 'check', id: 'nav-checks' },

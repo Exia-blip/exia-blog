@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { ADMIN_NAV, renderAdminNav, renderAdminShell, THEME_BOOT_JS } from '../src/admin-ui.js';
 import { renderHealth, renderQueue, webhookCheck } from '../src/admin-pages.js';
+import { renderDashboard } from '../src/dashboard.js';
 
 const editor = readFileSync('public/editor.html', 'utf8');
 const stats = readFileSync('src/stats.js', 'utf8');
@@ -190,5 +191,31 @@ assert.ok(!/<body[^>]*class="[^"]*(editor-page|stat-page)/.test(readFileSync('pu
 assert.match(stats, /h1\{font-family:var\(--sans\)/, '统计页 h1 应统一到 sans');
 assert.match(stats, /h2\{font-family:var\(--sans\)/, '统计页章节标题应统一到 sans');
 ok('后台字体精修：等宽数字/渲染优化限定后台，统计页标题归一 sans，读者侧零影响');
+
+// 9. 工作台：外壳/快捷入口/KPI/运行状态，转义与缺值都要稳
+const dash = renderDashboard({
+  site: { name: '<img>' },
+  user: { login: '<script>' },
+  kpi: { posts: 12, queue: 2, pv: 88, uv: 31, friendsUp: 3, friendsTotal: 4 },
+  recent: [{ id: 1, title: '<b>标题</b>', updated_at: '2026-11-22', is_private: 0 }],
+  sys: { d1: 'bad', friendDown: 1, today: '2026-11-22' },
+});
+assert.ok(dash.includes('class="stat-page"'), '工作台应复用 stat-page 外壳');
+assert.ok(dash.includes('id="nav-dash"') && /id="nav-dash"[^>]*aria-current|class="on"[^>]*id="nav-dash"/.test(dash), '工作台侧栏项应高亮');
+assert.ok(dash.includes('href="/admin/stats"'), '工作台缺统计入口');
+assert.ok(dash.includes('href="/admin/health"'), '工作台缺健康检查入口');
+assert.ok(dash.includes('href="/admin/queue"'), '工作台缺定时队列入口');
+assert.ok(dash.includes('href="/editor?panel=posts"'), '工作台缺文章列表入口');
+assert.ok(!dash.includes('<img>') && dash.includes('&lt;img&gt;'), '站名必须转义');
+assert.ok(dash.includes('&lt;script&gt;') && !dash.includes('管理员 <script>'), '用户名必须转义');
+assert.ok(!dash.includes('<b>标题</b>'), '文章标题必须转义');
+assert.ok(dash.includes('sv-summary bad') && dash.includes('有故障需要处理'), 'D1 故障必须按 bad 呈现');
+assert.ok(!dash.includes('<style'), '工作台不应内联样式');
+// 缺值：所有 KPI 给「—」，不出现 undefined / NaN
+const dashEmpty = renderDashboard({});
+assert.ok(!/undefined|NaN/.test(dashEmpty), '缺值不应渲染成 undefined/NaN');
+assert.ok((dashEmpty.match(/dash-kpi-v">—/g) || []).length >= 4, 'KPI 缺值应显示 —');
+assert.ok(dashEmpty.includes('还没有文章'), '空文章应有引导文案');
+ok('工作台渲染：外壳/入口/转义/缺值/状态分级正确');
 
 console.log(`\nadmin nav: ${pass} passed`);

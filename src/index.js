@@ -15,6 +15,7 @@ import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
 import { normalizePagePath } from './routes.js';
 import { statsPage, prunePv } from './stats.js';
 import { healthPage, queuePage } from './admin-pages.js';
+import { dashboardPage } from './dashboard.js';
 import { postCacheGet, postCacheSet, postCacheDrop, postCacheStats } from './postcache.js';
 import { assetVersion, assetCacheControl, stampAssets } from './assets.js';
 import { ASSET_HASH } from './assets.gen.js';
@@ -1886,7 +1887,7 @@ function analyticsTag(cfg) {
    否则部署后 CF 边缘还会吐最多 1 天的旧副本（s-maxage + swr），
    表现为「明明部署了，刷新还是旧界面」。后台是单人用的，没有缓存价值。 */
 export const isAdminPath = (p) =>
-  p === '/editor' || p.startsWith('/editor/') || p.startsWith('/admin/');
+  p === '/editor' || p.startsWith('/editor/') || p === '/admin' || p.startsWith('/admin/');
 
 /* 写作页服务端门禁：匿名访客不该拿到 55KB 的完整后台骨架（内含全部字段名和
    视图结构）。这些页本来就不进边缘缓存（isPagePath 不含 /editor，且带 sid 绕过），
@@ -2425,6 +2426,7 @@ async function route(request, env, ctx) {
   if (path === '/sitemap.xml') return await serveSitemap(env, request);
   if (path === '/robots.txt') return serveRobots(env, request);
   if (path === '/manifest.webmanifest') return await serveManifest(env, request);
+  if (path === '/admin') return await dashboardPage(env, request);
   if (path === '/admin/stats') return await statsPage(env, request);
   if (path === '/admin/health') return await healthPage(env, request);
   if (path === '/admin/queue') return await queuePage(env, request);
