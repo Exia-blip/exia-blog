@@ -93,4 +93,15 @@ assert.ok(idx.includes("path === '/llms.txt'"), '缺 llms.txt 路由');
 assert.ok(idx.includes("c.status = 'approved'"), 'SSR 评论缺审核闸门');
 ok('源码口径：评论闸门 / 回滚接口 / llms.txt 路由齐全');
 
+/* 关掉审核开关要放行存量 pending：这条是老板点名的口径，
+   漏掉的话开关关了、待审评论却永远卡在待审页。 */
+assert.ok(api.includes("UPDATE comments SET status = 'approved' WHERE status = 'pending'"), '关闭开关未批量放行 pending');
+assert.ok(api.includes('if (was && enabled === \'0\')'), '放行未限定 1→0 翻转，重复关闭会误放行');
+assert.ok(api.includes('放行 ${released} 条待审评论'), '审计未记放行条数');
+assert.ok(api.includes('released,\n    }\n  }') || api.includes('released });'), '响应未回释放条数');
+const cmSrc = readFileSync('src/admin-pages.js', 'utf8');
+assert.ok(cmSrc.includes('一并放行下面所有待审评论'), '后台未说明关闭会放行');
+assert.ok(cmSrc.includes('window.confirm'), '关闭前没有二次确认');
+ok('关闭审核开关：放行 pending / 翻转限定 / 审计留痕 / 二次确认');
+
 console.log(`\nadmin extras: ${pass} passed`);

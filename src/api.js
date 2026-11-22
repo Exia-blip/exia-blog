@@ -1117,14 +1117,33 @@ export async function handleApi(env, request, url, ctx) {
     if (res) return res;
     const body = await request.json().catch(() => ({}));
     const enabled = body.enabled ? '1' : '0';
+    const prev = await db.prepare("SELECT value FROM settings WHERE key='comment_moderation'").first();
+    const was = String(prev?.value ?? '0') === '1';
+
     await db
       .prepare(`INSERT INTO settings (key, value) VALUES ('comment_moderation', ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
       .bind(enabled)
       .run();
+
+    /* 关掉即全放行：开关只决定新评论的初始状态，不为存量负责。
+       若不同步放行，之前攒的 pending 会永远卡在待审页——开关关了，后台也不再显示它们
+       是「待审」的理由。只动 pending，驳回的是管理员的明确结论，不能被顺手撤销。
+       只在 1→0 翻转时做：重复点关闭不该产生额外写入，也不该在关闭状态下
+       放行后来手工留下的 pending。 */
+    let released = 0;
+    if (was && enabled === '0') {
+      const out = await db.prepare("UPDATE comments SET status = 'approved' WHERE status = 'pending'").run();
+      released = out.meta?.changes || 0;
+      // 放行后前台评论数与该显出来的正文都变了，边缘缓存跟着清
+      if (released && ctx) ctx.waitUntil(bust(url, [], []).catch(() => {}));
+    }
+
     await logAudit(env, user, 'comment.moderation', 'settings', 'comment_moderation',
-      enabled === '1' ? '开启评论先审后发' : '关闭评论先审后发');
-    return json({ ok: true, enabled: enabled === '1' });
+      enabled === '1'
+        ? '开启评论先审后发'
+        : `关闭评论先审后发${was ? `，放行 ${released} 条待审评论` : ''}`);
+    return json({ ok: true, enabled: enabled === '1', released });
   }
 
   if (/^\/comments\/\d+\/moderate$/.test(path) && method === 'POST') {

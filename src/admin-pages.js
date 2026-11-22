@@ -612,7 +612,7 @@ export function renderCommentsAdmin({ site = {}, rows = [], moderation = '0' }) 
       <input type="checkbox" class="adm-cmt-switch"${on ? ' checked' : ''}>
       <span>开启评论审核</span>
     </label>
-    <p class="sv-note">关闭时新评论直接公开；开启后普通用户的新评论需在这里放行。管理员自己发的评论不受影响。</p>
+    <p class="sv-note">关闭时新评论直接公开，并会一并放行下面所有待审评论（已驳回的不动）；开启后普通用户的新评论需在这里放行。管理员自己发的评论不受影响。</p>
     <p class="sv-note adm-cmt-msg" aria-live="polite"></p>
   </div>
 </div>
@@ -639,17 +639,25 @@ export function renderCommentsAdmin({ site = {}, rows = [], moderation = '0' }) 
       return x.d;
     });
   }
+  var pendingCount = ${rows.length};
   var sw = document.querySelector('.adm-cmt-switch');
   if (sw) sw.addEventListener('change', function () {
     var enabled = sw.checked;
+    // 关闭是有副作用的：待审评论会被批量放行。先让人确认，别一次误点把审核结论撤了。
+    if (!enabled && pendingCount > 0 && !window.confirm('关闭审核会同时放行当前 ' + pendingCount + ' 条待审评论（已驳回的不动），确定吗？')) {
+      sw.checked = true;
+      return;
+    }
     sw.disabled = true;
     send('/api/comments/moderation', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ enabled: enabled })
-    }).then(function () {
+    }).then(function (d) {
       sw.disabled = false;
       if (state) state.textContent = '当前：' + (enabled ? '已开启' : '已关闭');
-      if (msg) msg.textContent = enabled ? '已开启评论审核' : '已关闭评论审核';
+      var n = d && d.released ? d.released : 0;
+      if (msg) msg.textContent = enabled ? '已开启评论审核' : '已关闭评论审核' + (n ? '，放行 ' + n + ' 条待审评论' : '');
+      pendingCount = 0;
     }).catch(function (err) {
       sw.disabled = false;
       sw.checked = !enabled;
