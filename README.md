@@ -1,7 +1,8 @@
 # Exia Blog
 
 <p>
-  <a href="https://github.com/Exia-blip/exia-blog/actions/workflows/ci.yml"><img src="https://github.com/Exia-blip/exia-blog/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/CI-GitHub%20Actions-blue?logo=githubactions&logoColor=white" alt="CI: GitHub Actions">
+  <img src="https://img.shields.io/badge/version-v1.2.3-blue.svg" alt="version v1.2.3">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT">
   <img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white" alt="Cloudflare Workers">
   <img src="https://img.shields.io/badge/%E4%BE%9D%E8%B5%96-0-brightgreen.svg" alt="zero dependencies">
@@ -17,7 +18,7 @@
 
 | 上手 | 深入 |
 |---|---|
-| [功能](#功能) · [目录结构](#目录结构) · [部署](#部署) · [本地开发](#本地开发) | [性能与缓存](#性能与缓存) · [安全响应头](#安全响应头) · [评论防滥用](#评论防滥用) · [友链存活检测](#友链存活检测) · [常见问题](#常见问题) |
+| [功能](#功能) · [目录结构](#目录结构) · [部署](#部署) · [后台](#后台) · [本地开发](#本地开发) | [性能与缓存](#性能与缓存) · [安全响应头](#安全响应头) · [投稿审核](#投稿审核) · [评论防滥用](#评论防滥用) · [友链存活检测](#友链存活检测) · [常见问题](#常见问题) |
 
 ## 功能
 
@@ -44,6 +45,10 @@
 | 站点头像 | 导航栏左上角圆形头像，后台可上传 / 拖拽 / 粘贴 / 填外链，兼作 favicon |
 | 图表 | 正文里写 mermaid 代码块（围栏语言标 mermaid），读者侧按需加载自托管 mermaid 渲染成 SVG；无 JS 时显示源码 |
 | AI 摘要 | 保存/发布时自动生成导语，文章页顶部展示，同时作为列表简介、SEO description 与 RSS 描述；可手动改写或重新生成 |
+| 工作台 | `/admin`：已发布 / 待发布 / 今日 PV·UV / 友链在线 / 待审核五个 KPI、快捷入口、最近编辑与运行状态（仅管理员） |
+| 投稿审核 | 普通用户发文进 `pending`，管理员在 `/admin/review` 通过后才公开；作者改稿重置审核态，预览不会泄漏到匿名缓存 |
+| 定时发布 | 编辑器里选未来时间写进 `published_at`，到点自动进首页 / RSS / sitemap；不依赖 cron，管理视图单独看定时队列 |
+| D1 结构版本化 | 结构变更只走 `migrations/`；`check:schema` 在发版前比对线上库，缺列就停发（见「部署 → 3.1」） |
 
 额外：RSS（带 `content:encoded` 全文，站内相对链接自动补成绝对地址）、sitemap、移动端适配、文章内 `#标签` 自动转为可点击链接。
 
@@ -308,6 +313,36 @@ npm run deploy
 - 文章无封面时的 `og:image` 兜底
 
 `SITE_NAME` / `SITE_DESC` / `SITE_THEME` / `SITE_MODE` 只是没设置过时的兜底默认值。
+
+### 定时发布
+
+编辑器侧栏可以填未来的发布时间，写进 `posts.published_at`（UTC 裸字符串，北京时间 09:00 = 库里 01:00）。公开闸门统一是一条 SQL：
+
+```sql
+COALESCE(NULLIF(published_at, ''), created_at) <= datetime('now')
+```
+
+`src/api.js` 的 `timeGateSql()` 只做这一件事。首页、归档、标签、分类、单篇 API、SSR、RSS、sitemap 都带它；到点自动可见，不需要 cron 扫表改状态，也没有 `is_live` 这种需要维护的派生字段。
+
+工作台的「待发布」和编辑器文章列表用同一条 `timeGateSql()` 的反条件，能看到未来稿。这条口径不能和公开闸门混——公开列表多加一层审核态，管理队列不能加，否则待审稿会被自己的闸门滤掉。给人看的日期另走 `localDay()` / `localParts()` 固定 UTC+8，见「性能与缓存 → 时区」。
+
+### 投稿审核
+
+普通用户可以登录写文章，但公开需要管理员通过。审核态放在独立的 `posts.review_status`（`approved` / `pending` / `rejected`，默认 `approved` 保存量数据），**不复用 `hidden`**——`hidden` 是作者自控的「不列入首页」开关，作者随时能改回去，等于自己放行。
+
+公开闸门 = 定时闸门 + 审核态：
+
+```js
+export function liveSql(a = 'p') {
+  return `${timeGateSql(a)} AND ${a}.review_status = 'approved'`;
+}
+```
+
+未过审的文章在列表 API、单篇 API、SSR 文章页、RSS、sitemap 五路都不可见（逐路实测过）；作者和管理员凭会话可以预览。缓存这一层单独守：`postCacheSet` 只在 `review_status === 'approved'` 时写 LRU，否则作者预览一次之后匿名访客就能从实例缓存里读到未过审正文——边缘缓存那层由审核接口的 `bust()` 清。
+
+普通用户每次改稿（含驳回后重提）都把审核态重置为 `pending`，审核结论绑定的是内容版本；管理员编辑视为认可。接口：`GET /api/review/pending` 与 `POST /api/review/:id`（`approve` / `reject`），后台入口 `/admin/review`，工作台有待审 KPI 直达。
+
+新增列走 `migrations/0002_review_status.sql`。SQLite 不支持 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`，幂等靠 wrangler 的 `d1_migrations` 记录，别手写那句 SQL。
 
 ## 换域名
 
