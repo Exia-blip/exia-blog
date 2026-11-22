@@ -274,7 +274,7 @@ export async function archiveData(db, year = '') {
               p.series, p.series_order, p.is_private, p.hidden,
               p.published_at, p.created_at, p.updated_at,
               ${CONTENT_LEN} AS content_len,
-              ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
+              ${AUTHOR_COLS}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id AND c.status = 'approved') AS comment_count
        FROM posts p ${AUTHOR_JOIN}
        WHERE ${where.join(' AND ')}
        ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC, p.id DESC
@@ -412,7 +412,7 @@ export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q
   const [{ results }, totalRow] = await Promise.all([
     db
       .prepare(
-        `SELECT ${listCols}, ${AUTHOR_COLS}, ${TAG_AGG}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
+        `SELECT ${listCols}, ${AUTHOR_COLS}, ${TAG_AGG}, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id AND c.status = 'approved') AS comment_count
          FROM posts p ${AUTHOR_JOIN} WHERE ${whereSql}
          ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC, p.id DESC LIMIT ? OFFSET ?`
       )
@@ -1058,8 +1058,11 @@ export async function handleApi(env, request, url, ctx) {
 
     let parentId = null;
     if (body.parent_id) {
+      // 只能回复已放行的评论：不然新回复挂在 pending 父节点下，父节点永远不公开，
+      // 子评论即使自己通过审核也进不了前台的树（roots 只取 parent_id 为空的行），
+      // 结果就是作者以为发了、管理员放行后仍然看不见。
       const parent = await db
-        .prepare('SELECT id, parent_id FROM comments WHERE id = ? AND post_id = ?')
+        .prepare("SELECT id, parent_id FROM comments WHERE id = ? AND post_id = ? AND status = 'approved'")
         .bind(parseInt(body.parent_id, 10), p.id)
         .first();
       if (!parent) return err('父评论不存在');

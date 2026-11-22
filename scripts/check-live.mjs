@@ -478,6 +478,31 @@ console.log(`\n${ORIGIN}\n`);
   ok('HTML 不做浏览器长缓存', !/max-age=[1-9]\d{2,}/.test((h.get('cache-control') || '').split('s-maxage')[0]));
 }
 
+/* ---------- 11. 新增公开入口与后台门禁 ----------
+
+   七项功能上线后这批路由还没有体检覆盖：llms.txt 是给 AI 爬虫的索引，
+   一旦把未来稿/待审稿漏进去就是提前剧透；后台页则必须匿名一律 401。 */
+{
+  const { res, body, h } = await get('/llms.txt');
+  ok('/llms.txt 返回 200', res.status === 200, `HTTP ${res.status}`);
+  ok('/llms.txt 是纯文本', /text\/plain/.test(h.get('content-type') || ''), h.get('content-type') || '');
+
+  const { body: sitemap } = await get('/sitemap.xml');
+  const inSitemap = new Set([...sitemap.matchAll(/\/p\/([a-z0-9-]+)/g)].map((m) => m[1]));
+  const inLlms = [...body.matchAll(/\/p\/([a-z0-9-]+)/g)].map((m) => m[1]);
+  ok('/llms.txt 列了文章', inLlms.length > 0, `${inLlms.length} 篇`);
+  ok(
+    '/llms.txt 的每篇都在 sitemap 里（不提前剧透未来稿）',
+    inLlms.length > 0 && inLlms.every((s) => inSitemap.has(s)),
+    inLlms.filter((s) => !inSitemap.has(s)).join(', ')
+  );
+
+  for (const p of ['/admin', '/admin/review', '/admin/audit', '/admin/history', '/admin/friends', '/admin/comments']) {
+    const r = await fetch(ORIGIN + p, { method: 'HEAD', redirect: 'manual' });
+    ok(`${p} 匿名不可达`, r.status === 401 || r.status === 302, `HTTP ${r.status}`);
+  }
+}
+
 /* 体检有几十条，失败夹在中间的 ok 里很容易漏读。末尾把失败项单独列一遍。 */
 if (failed.length) {
   console.log('\n失败项：');

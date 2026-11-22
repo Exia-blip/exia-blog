@@ -2,6 +2,7 @@
 // 这几条以前没法测（函数没导出，线上又一条评论都没有），
 // 结果就是"删评论按钮到底会不会漏给访客"从来没被验证过。
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { renderComments, renderComment, commentActs } from '../src/index.js';
 import { avatarTone, safeWebsite } from '../public/avatar.js';
 
@@ -147,6 +148,26 @@ t('commentActs 对子评论只给管理按钮，不给回复', () => {
   const h = commentActs({ ...reply, parent_id: 10 }, { is_admin: 1 });
   assert.ok(!h.includes('data-reply='));
   assert.match(h, /data-del="11"/);
+});
+
+/* ---------- 审核态口径：SQL 层 ----------
+   这两条以前没有任何测试守着。评论先审后发上线后，列表的评论数还在数 pending/rejected，
+   卡片显示「3 条评论」点进去只有 1 条；回复还能挂在 pending 父评论上，子评论放行后
+   永远进不了前台的树。渲染函数测不到这两处，只能直接锁 SQL 文本。 */
+const apiSrc = readFileSync(new URL('../src/api.js', import.meta.url), 'utf8');
+
+t('列表评论数只算已放行评论（归档与分页两处）', () => {
+  const exprs = apiSrc.match(/\(SELECT COUNT\(\*\) FROM comments c WHERE c\.post_id = p\.id[^)]*\)/g) || [];
+  assert.equal(exprs.length, 2, `应有两处列表计数，实际 ${exprs.length}`);
+  for (const e of exprs) assert.match(e, /c\.status = 'approved'/, `未过滤审核态：${e}`);
+});
+
+t('回复的父评论必须是已放行的', () => {
+  assert.match(
+    apiSrc,
+    /SELECT id, parent_id FROM comments WHERE id = \? AND post_id = \? AND status = 'approved'/,
+    '父评论未过滤 status，会产生永不显示的孤儿子评论'
+  );
 });
 
 console.log(`\n${pass} 条通过`);
