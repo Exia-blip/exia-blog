@@ -1,7 +1,7 @@
 // 后台工作台 /admin：一屏看清站点近况 + 直达各管理入口。
 // 数据全部来自真实查询，查不到就显示「—」，不摆编造的空壳数字。
 // 样式复用 .stat-page 命名空间（renderAdminShell 提供外壳），不内联 <style>。
-import { html } from './utils.js';
+import { html, localParts } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { getSite } from './settings.js';
 import { renderAdminShell, esc, ADMIN_NAV } from './admin-ui.js';
@@ -18,6 +18,7 @@ const DESC = {
   stats: '访问、来源与设备',
   health: 'D1、密钥与友链状态',
   queue: '等待发布时间到达的稿件',
+  home: '回到前台首页',
 };
 
 /** 纯渲染：只吃数据，不碰数据库。单测喂假数据即可验证转义与结构。 */
@@ -31,7 +32,19 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
     { label: '友链在线', value: kpi.friendsUp, sub: kpi.friendsTotal != null ? `共 ${kpi.friendsTotal} 条` : '' },
   ];
 
-  const links = ADMIN_NAV.filter((it) => it.key !== 'dash' && it.key !== 'home')
+  // 待审 / 驳回优先于「公开」：审核态没过，列表里的「公开」是误导。
+  const postFlag = (p) => {
+    if (p.review_status === 'pending')
+      return '<a class="sv-pill warn dash-flag-link" href="/admin/review" title="去审核">待审</a>';
+    if (p.review_status === 'rejected') return '<span class="sv-pill bad">驳回</span>';
+    return esc(p.is_private ? '私密' : p.hidden ? '不列出' : '公开');
+  };
+  const whenOf = (p) => {
+    const t = localParts(p.when || p.updated_at || p.published_at || '');
+    return t.md && t.time ? `${t.md} ${t.time}` : t.md || '';
+  };
+
+  const links = ADMIN_NAV.filter((it) => it.key !== 'dash')
     .map(
       (it) => `<a class="dash-tile" href="${esc(it.href)}" id="dash-${it.key}">
         <span class="dash-tile-t">${esc(it.text)}</span>
@@ -47,9 +60,9 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
           (p) => `<div class="kv-row">
             <div class="kv-k">
               <a class="dash-post-t" href="/editor?id=${encodeURIComponent(p.id)}">${esc(p.title || '（无标题）')}</a>
-              <span class="kv-note">${esc(p.when || '')}</span>
+              <span class="kv-note">${esc(whenOf(p))}</span>
             </div>
-            <span class="kv-v">${p.is_private ? '私密' : p.hidden ? '不列出' : '公开'}</span>
+            <span class="kv-v">${postFlag(p)}</span>
           </div>`
         )
         .join('')}</div>`
@@ -60,7 +73,7 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
   if (sys.friendDown > 0) issues.push(`${sys.friendDown} 条友链探测失败`);
   const state = sys.d1 === 'bad' ? 'bad' : issues.length ? 'warn' : 'ok';
   const summaryText = state === 'bad' ? '有故障需要处理' : state === 'warn' ? '有项目需关注' : '全部正常';
-  const summarySub = state === 'ok' ? 'D1、会话与友链探测均正常' : issues.join(' · ');
+  const summarySub = state === 'ok' ? 'D1 连通、友链探测均正常' : issues.join(' · ');
 
   const body = `<div class="wrap-s">
 <div class="admin-view-card">
@@ -92,7 +105,7 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
 </div>
 
 <div class="admin-view-card">
-  <div class="admin-view-head"><span>运行状态</span></div>
+  <div class="admin-view-head"><span>运行状态</span><a class="dash-more" href="/admin/health">查看明细 →</a></div>
   <div class="admin-view-body">
     <div class="sv-summary ${state}">
       <span class="sv-summary-dot"></span>
@@ -133,7 +146,7 @@ export async function dashboardPage(env, request) {
     safe(
       () =>
         one(
-          `SELECT SUM(CASE WHEN is_private=0 AND hidden=0 AND published_at!='' AND published_at<=datetime('now') THEN 1 ELSE 0 END) published,
+          `SELECT SUM(CASE WHEN is_private=0 AND hidden=0 AND review_status='approved' AND published_at!='' AND published_at<=datetime('now') THEN 1 ELSE 0 END) published,
                   COUNT(*) total
            FROM posts`
         ),
@@ -141,7 +154,10 @@ export async function dashboardPage(env, request) {
     ),
     safe(() => one(`SELECT COUNT(*) c FROM posts WHERE review_status='pending'`), {}),
     safe(
-      () => one(`SELECT COUNT(*) c FROM posts WHERE published_at!='' AND published_at>datetime('now')`),
+      () =>
+        one(
+          `SELECT COUNT(*) c FROM posts WHERE is_private=0 AND hidden=0 AND review_status='approved' AND published_at!='' AND published_at>datetime('now')`
+        ),
       {}
     ),
     safe(() => one('SELECT COUNT(*) pv, COUNT(DISTINCT ip) uv FROM pv WHERE day = ?', today), {}),
@@ -159,7 +175,7 @@ export async function dashboardPage(env, request) {
       () =>
         db
           .prepare(
-            `SELECT id, title, published_at, updated_at, is_private, hidden
+            `SELECT id, title, published_at, updated_at, is_private, hidden, review_status
              FROM posts ORDER BY updated_at DESC LIMIT 6`
           )
           .all()

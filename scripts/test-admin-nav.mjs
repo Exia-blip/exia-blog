@@ -199,7 +199,11 @@ const dash = renderDashboard({
   site: { name: '<img>' },
   user: { login: '<script>' },
   kpi: { posts: 12, queue: 2, pv: 88, uv: 31, friendsUp: 3, friendsTotal: 4 },
-  recent: [{ id: 1, title: '<b>标题</b>', updated_at: '2026-11-22', is_private: 0 }],
+  recent: [
+    { id: 1, title: '<b>标题</b>', updated_at: '2026-11-22', is_private: 0 },
+    { id: 2, title: '待审稿', updated_at: '2026-11-22 01:00:00', review_status: 'pending' },
+    { id: 3, title: '驳回稿', updated_at: '2026-11-21 01:00:00', review_status: 'rejected' },
+  ],
   sys: { d1: 'bad', friendDown: 1, today: '2026-11-22' },
 });
 assert.ok(dash.includes('class="stat-page"'), '工作台应复用 stat-page 外壳');
@@ -214,6 +218,19 @@ assert.ok(dash.includes('&lt;script&gt;') && !dash.includes('管理员 <script>'
 assert.ok(!dash.includes('<b>标题</b>'), '文章标题必须转义');
 assert.ok(dash.includes('sv-summary bad') && dash.includes('有故障需要处理'), 'D1 故障必须按 bad 呈现');
 assert.ok(!dash.includes('<style'), '工作台不应内联样式');
+assert.ok(dash.includes('dash-home') && dash.includes('回到前台首页'), '工作台应有返回站点入口');
+assert.ok((dash.match(/href="\/admin\/health"/g) || []).length >= 2, '运行状态卡要给健康页明细链接');
+assert.ok(dash.includes('dash-flag-link') && dash.includes('待审'), '待审稿要能直达审核页');
+assert.ok(dash.includes('sv-pill bad') && dash.includes('驳回'), '驳回稿要有独立徽标，不能显示成公开');
+assert.ok(dash.includes('11-22 09:00'), '最近编辑时间要按北京时间显示（库里 01:00 → 09:00）');
+assert.ok(!dash.includes('会话'), '运行状态不能写没查过的会话结论');
+// 数据口径：KPI SQL 与公开闸门同口径，否则待审稿会混进「已发布」
+const dashSrc = readFileSync('src/dashboard.js', 'utf8');
+assert.ok(dashSrc.includes("review_status='approved' AND published_at!='' AND published_at<=datetime('now')"),
+  '已发布 KPI 缺审核闸门');
+assert.ok(dashSrc.includes("review_status='approved' AND published_at!='' AND published_at>datetime('now')"),
+  '待发布 KPI 缺审核闸门');
+assert.ok(dashSrc.includes('is_private, hidden, review_status'), '最近编辑查询没带审核态');
 // 缺值：所有 KPI 给「—」，不出现 undefined / NaN
 const dashEmpty = renderDashboard({});
 assert.ok(!/undefined|NaN/.test(dashEmpty), '缺值不应渲染成 undefined/NaN');

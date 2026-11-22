@@ -1137,7 +1137,8 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
 .stat-page .dash-kpi-link { text-decoration: none; color: inherit; transition: border-color .15s, background .15s; }
 .stat-page .dash-kpi-link:hover { border-color: var(--tok-n); background: color-mix(in srgb, var(--tok-n) 8%, var(--card)); }
 .stat-page .dash-kpi-link:hover .dash-kpi-v { color: var(--tok-n); }
-.stat-page .dash-links { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+/* 快捷入口 10 项（含返回站点）：宽屏 5×2，窄屏 2 列 5 排，末排不留孤儿。 */
+.stat-page .dash-links { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
 .stat-page .dash-tile {
   position: relative; display: flex; flex-direction: column; gap: 5px;
   padding: 14px 15px; border: 1px solid var(--line); border-radius: 10px;
@@ -1155,8 +1156,12 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
 .stat-page .dash-post-t:hover { color: var(--accent); border-bottom-color: var(--accent); }
 .stat-page .dash-more { font-size: 12px; color: var(--muted); text-decoration: none; white-space: nowrap; }
 .stat-page .dash-more:hover { color: var(--accent); }
+.stat-page .dash-flag-link { text-decoration: none; }
+.stat-page .dash-flag-link:hover { filter: brightness(1.15); }
 @media (max-width: 900px) {
   .stat-page .dash-kpis { grid-template-columns: repeat(3, 1fr); }
+  /* 5 个 KPI 在 3 列下会剩一个孤儿，末卡跨两列凑成 3+2。 */
+  .stat-page .dash-kpi:last-child { grid-column: span 2; }
   .stat-page .dash-links { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 620px) {
