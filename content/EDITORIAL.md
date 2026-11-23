@@ -169,6 +169,27 @@
 
 **明说的没做**：角色表 / ACL；入口与 handler 的 `users` 双查（2 次 D1 往返）未优化；白名单无线上演练（与 `READONLY_MODE` 同属「越过 HTTP 边界的那层靠推理」的系统性盲区）；`ALLOWED_LOGINS` 默认不配，等于没改。
 
+### 登录是唯一能打出站请求的入口，而它没有限流（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `login-rate-limit` | 登录是唯一能打出站请求的入口，而它没有限流 | 工程实录 | `cloudflare ratelimits per colo` / `x-forwarded-for 限流绕过` / `oauth 回调限流` | **材料那行 fail closed 是 fail open**（`c.env.ENVIRONMENT === 'production'` 依赖一个可能不存在的变量，本站就没有）；CF 文档原文 `in a single Cloudflare location` + `Requests can exceed this threshold`；`/X-Cache/.test(resHint.headers)` 对 `Headers` 对象恒为 `[object Headers]`；**P-014 编号已被 image key gate 占用**；**文章 HTML 走 no-store 会废掉全部边缘缓存**（本站 nonce + s-maxage=300 并存的前提是「可缓存页面零反射面」）；全站入口按「能否触发对外请求」排表，登录是唯一裸的那个 |
+
+**这篇带一处生产修复 + 十条新断言**：
+
+1. `src/auth.js`：`loginRedirect` 与 `handleCallback` 各接一道限流。回调的计数卡在 `state` 校验之后、第一次 `fetch` 之前——垃圾请求不耗额度，但要打 GitHub 就必须计数。
+2. `src/antispam.js`：新增 `guardLogin` / `recordLogin` / `LOGIN_DAY_MAX=60`，复用 `comment_guard` 表、key 前缀 `auth:ip:`，**零迁移**。与评论的关键差别：评论的额度在落库成功后记，登录的额度必须在发起尝试时记（每次尝试都有出站成本）。
+3. `src/utils.js`：新增 `clientIp()`，唯一取法 `cf-connecting-ip`。
+4. `src/stats.js`：删掉 `|| x-forwarded-for` 回退（伪造它 = 每个请求一个新桶）。
+5. `scripts/test-login-guard.mjs`：LG-01~10，能测行为就测行为（假 D1 + 假 Request），只有跨函数顺序才退回源码切片。
+6. `PITFALLS.md` 新增 P-033，对账 33 条。
+
+**注入验证**：删 `loginRedirect` 限流三行 → `LG-01` 红；`recordLogin` 挪到 token 交换之后 → `LG-02` 红并报出两个下标；`stats.js` 加回 XFF 回退 → `LG-04` 红并报 `stats.js:40`。
+
+**材料口径**：五步里四步在本站无对应物（`/api/tags`、`/api/archive` 不存在；失效挂写路径早已在做；`[[ratelimits]]` 是 per-colo 软限且需改 wrangler）。错的四处：fail closed 写法（依赖不存在的 `ENVIRONMENT`）、「跨 isolate 计数」（per-colo）、「文章 HTML 走 no-store」（会废掉全部边缘缓存）、`/X-Cache/.test(Headers)`（恒假）。编号 P-014~P-017 全部撞车，顺延 P-033 / LG-01~10。
+
+**明说的没做**：没加 `[[ratelimits]]`（`wrangler.jsonc` 未动）；没引 Hono（`dependencies` 仍为空）；没改文章页缓存策略；没建 KV；没重测首屏；`check-live` 四条仍红（未部署）。
+
 ### 结构重排会让四条断言一起失明（2026-11-23 完成，未入库）
 
 | slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
