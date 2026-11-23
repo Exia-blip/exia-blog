@@ -29,21 +29,35 @@ const MIME = {
 // 后台依赖的接口一律返回最小可用的假数据，让模块跑到底（没登录会被踢到 /login）
 let postWrites = [];
 let failNextWrite = false;
-const stub = (p, method) => {
+let writeDelay = 0;          // 多文档段用：让写请求在途，好验证「切走之后响应不串到别人头上」
+let nextId = 100;
+const postStore = [
+  { id: 1, title: 'A 文', slug: 'a', content: 'AAA 正文', category: '', series: '', series_order: 0, is_private: 0, hidden: 0, summary: '', published_at: '', updated_at: '2026-01-01 00:00:00' },
+  { id: 2, title: 'B 文', slug: 'b', content: 'BBB 正文', category: '', series: '', series_order: 0, is_private: 0, hidden: 0, summary: '', published_at: '', updated_at: '2026-01-01 00:00:00' },
+];
+const writeLog = [];         // {url, method, body}：用来验一篇的内容有没有被写进另一篇
+const stub = (p, method, body) => {
   if (p === '/api/me') return { user: { id: 1, name: 'tester', is_admin: true, avatar: '' } };
-  if (p === '/api/mine') return { posts: [] };
+  if (p === '/api/mine') return { posts: postStore };
   if (p.startsWith('/api/taxonomy')) return { categories: [], seed: [] };
   if (p.startsWith('/api/settings')) return { name: '测试站', desc: '', avatar: '', theme: 'paper', mode: 'auto' };
   // 提交防重复锁：统计真实写请求数，并能模拟一次服务端失败
   if (p === '/api/posts' && method === 'POST') {
     postWrites.push(Date.now());
+    writeLog.push({ url: p, method, body });
     if (failNextWrite) { failNextWrite = false; return { __err: '模拟保存失败' }; }
-    return { id: 42, slug: 'probe', published_at: '' };
+    const id = ++nextId;
+    postStore.push({ ...(body || {}), id, slug: 'probe' + id, summary: '', published_at: '', updated_at: '2026-01-01 00:00:00' });
+    return { id, slug: 'probe' + id, published_at: '' };
   }
   if (/^\/api\/posts\/\d+$/.test(p) && method === 'PUT') {
     postWrites.push(Date.now());
+    writeLog.push({ url: p, method, body });
     if (failNextWrite) { failNextWrite = false; return { __err: '模拟保存失败' }; }
-    return { id: 42, slug: 'probe', published_at: '' };
+    const id = parseInt(p.split('/').pop(), 10);
+    const row = postStore.find((x) => x.id === id);
+    if (row && body) Object.assign(row, body);
+    return { id, slug: (row && row.slug) || 'probe', published_at: (body && body.publish_at) || '' };
   }
   return {};
 };
@@ -52,9 +66,19 @@ const server = createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   const p = decodeURIComponent(u.pathname);
   if (p.startsWith('/api/')) {
-    const d = stub(p, req.method);
-    res.writeHead(d.__err ? 500 : 200, { 'content-type': 'application/json; charset=utf-8' });
-    return res.end(JSON.stringify(d.__err ? { error: d.__err } : d));
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', async () => {
+      let body = null;
+      if (/application\/json/.test(req.headers['content-type'] || '')) {
+        try { body = raw ? JSON.parse(raw) : null; } catch {}
+      }
+      if (writeDelay && /^(POST|PUT)$/.test(req.method || '')) await new Promise((r) => setTimeout(r, writeDelay));
+      const d = stub(p, req.method, body);
+      res.writeHead(d.__err ? 500 : 200, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(d.__err ? { error: d.__err } : d));
+    });
+    return;
   }
   const file = join(PUB, p.replace(/^\/+/, '') || 'index.html');
   if (!existsSync(file)) {
@@ -247,6 +271,110 @@ try {
   t('自动保存显示「保存中…」而非「发布中…」',
     autoTexts.includes('保存中…') && !autoTexts.includes('发布中…'), JSON.stringify(autoTexts));
   t('自动保存最终也解锁', await page.evaluate(() => !document.getElementById('btn-save').disabled));
+
+  /* ---------- 多文档：切换不串味、定时器不跨文档 ---------- */
+  writeDelay = 180;              // 让写请求在途，切页签时响应还没回来
+  writeLog.length = 0;
+  postWrites = [];
+
+  await page.goto(base + '/editor.html?id=1', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForFunction(() => document.querySelector('.pane.left.mon-ready'), { timeout: 60000 }).catch(() => {});
+  await new Promise((r) => setTimeout(r, 600));
+
+  const first = await page.evaluate(() => ({
+    tabs: document.querySelectorAll('.doc-tab').length,
+    visible: getComputedStyle(document.getElementById('doc-tabs')).display !== 'none',
+    content: document.getElementById('md-input').value,
+    id: new URLSearchParams(location.search).get('id'),
+  }));
+  t('打开一篇：不显示页签条（单篇不占那行），正文是它自己的', first.tabs === 0 && !first.visible && first.content.includes('AAA'), JSON.stringify(first));
+  t('URL 带文章 id', first.id === '1', String(first.id));
+
+  await page.click('#btn-new');
+  await new Promise((r) => setTimeout(r, 250));
+  await page.click('#btn-new');   // 已有空白页签 → 复用，不叠第二个
+  await new Promise((r) => setTimeout(r, 250));
+  const afterNew = await page.evaluate(() => ({
+    tabs: document.querySelectorAll('.doc-tab').length,
+    content: document.getElementById('md-input').value,
+    title: document.getElementById('title').value,
+  }));
+  t('新建：多一个页签，正文与标题清空', afterNew.tabs === 2 && afterNew.content === '' && afterNew.title === '', JSON.stringify(afterNew));
+
+  await page.evaluate(() => {
+    window.monaco.editor.getEditors()[0].getModel().setValue('SECOND_ONLY 新文档内容');
+    const tEl = document.getElementById('title');
+    tEl.value = '第二篇';
+    tEl.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  await page.evaluate(() => document.querySelectorAll('.doc-tab')[0].click());
+  await new Promise((r) => setTimeout(r, 700));
+  const backA = await page.evaluate(() => ({
+    content: document.getElementById('md-input').value,
+    title: document.getElementById('title').value,
+    tabs: document.querySelectorAll('.doc-tab').length,
+  }));
+  t(
+    '切回第一篇：正文/标题都是它自己的',
+    backA.content.includes('AAA') && !backA.content.includes('SECOND_ONLY') && backA.title === 'A 文',
+    JSON.stringify(backA)
+  );
+
+  await page.evaluate(() => document.querySelectorAll('.doc-tab')[1].click());
+  await new Promise((r) => setTimeout(r, 500));
+  const backB = await page.evaluate(() => ({
+    content: document.getElementById('md-input').value,
+    title: document.getElementById('title').value,
+    models: window.monaco.editor.getModels().length,
+  }));
+  t('切回第二篇：内容原样保留', backB.content === 'SECOND_ONLY 新文档内容' && backB.title === '第二篇', JSON.stringify(backB));
+  t('每篇一个 Monaco model（撤销栈互不干扰）', backB.models >= 2, String(backB.models));
+
+  // 定时保存归属：第二篇里敲完立刻切走，3 秒定时器不能把内容存进第一篇
+  const beforeTimer = writeLog.length;
+  await page.evaluate(() => window.monaco.editor.getEditors()[0].getModel().setValue('TIMER_LEAK_PROBE'));
+  await new Promise((r) => setTimeout(r, 120));
+  await page.evaluate(() => document.querySelectorAll('.doc-tab')[0].click());
+  await new Promise((r) => setTimeout(r, 4200));
+  const leaked = writeLog
+    .slice(beforeTimer)
+    .filter((w) => w.url === '/api/posts/1' && String((w.body && w.body.content) || '').includes('TIMER_LEAK_PROBE'));
+  // 切走时那一次 flush 会立刻发出去；3 秒定时器如果没被清，4 秒窗口里会出现第二次
+  const probes = writeLog.filter((w) => String((w.body && w.body.content) || '').includes('TIMER_LEAK_PROBE'));
+  t(
+    '切页签只触发一次保存（3 秒定时器已随文档清掉）',
+    probes.length === 1,
+    `${probes.length} 次 · ` + JSON.stringify(probes.map((w) => w.url))
+  );
+  t('第二篇的内容没有被写进第一篇', leaked.length === 0, JSON.stringify(leaked.map((w) => w.url)));
+  t(
+    '切走时把第二篇自己存了（内容没丢）',
+    writeLog.some((w) => w.url !== '/api/posts/1' && String((w.body && w.body.content) || '').includes('TIMER_LEAK_PROBE'))
+  );
+
+  // 关闭页签：不弹 confirm，直接收
+  const closeRes = await page.evaluate(() => {
+    const before = document.querySelectorAll('.doc-tab').length;
+    window.__confirmCalls = 0;
+    window.confirm = () => { window.__confirmCalls++; return true; };
+    const x = document.querySelectorAll('.doc-tab')[1].querySelector('.dt-x');
+    x.click();
+    return new Promise((r) =>
+      setTimeout(
+        () =>
+          r({
+            before,
+            after: document.querySelectorAll('.doc-tab').length,
+            confirms: window.__confirmCalls,
+            content: document.getElementById('md-input').value,
+          }),
+        500
+      )
+    );
+  });
+  t('关闭页签不弹 confirm，页签条随剩下一篇收起', closeRes.confirms === 0 && closeRes.after < closeRes.before, JSON.stringify(closeRes));
+  t('关掉后留在写作视图、正文是保留那篇的', closeRes.content.includes('AAA'), JSON.stringify(closeRes.content.slice(0, 30)));
 } catch (e) {
   console.log('  异常：' + e.message);
   fails.push('运行时异常');

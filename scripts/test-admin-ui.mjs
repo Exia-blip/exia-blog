@@ -20,7 +20,7 @@ assert.match(editor, /saveBtn\.disabled = busy/, '置灰未接 disabled');
 assert.match(editor, /manual \? '发布中…' : '保存中…'/, '两条文案必须都可达（旧写法 SAVE_LABEL 恒为「发布」，保存中…是死代码）');
 assert.ok(!/SAVE_LABEL\.includes\('发布'\)/.test(editor), '不应残留恒真的按钮文案判断');
 assert.match(editor, /setSaveBusy\(true, manual\)/, '在途未把 manual 传进状态切换');
-assert.match(editor, /if \(saving\) \{ scheduleSave\(\); return; \}/, '在途重复点击未拦截');
+assert.match(editor, /if \(d\.saving\) \{ d\.queued = true; return; \}/, '在途重复保存未排队（直接 return 会丢掉这次改动）');
 assert.match(editor, /setSaveBusy\(false\)[\s\S]{0,40}\/\/ 成功 \/ 报错都解锁/, 'finally 未解锁');
 assert.ok(css.includes('.btn:disabled'), '应复用现有 .btn:disabled 样式');
 ok('① 提交防重复锁：上锁/解锁/双文案/在途拦截齐全');

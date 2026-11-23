@@ -97,6 +97,7 @@
     </header>
 
 <section class="view active" data-view="write" id="view-write">
+<div class="doc-tabs" id="doc-tabs" role="tablist" aria-label="正在编辑的文章"></div>
 <div class="publish-card">
   <div class="pub-head">
     <div class="pub-actions">
@@ -326,6 +327,8 @@ const $ = (id) => document.getElementById(id);
 })();
 
 /* 侧栏点击切主视图：每个菜单项都像「写作」一样独占整块主内容区 */
+/* 视图切换入口外提：左栏点文章 / 点页签时要先切回写作视图再开文档 */
+let showView = () => {};
 (function initViews() {
   const TITLES = { write: '写作', posts: '文章列表', checks: '发布自检', series: '系列', site: '站点设置' };
   const DESCS = {
@@ -358,6 +361,7 @@ const $ = (id) => document.getElementById(id);
     if (descEl) descEl.textContent = DESCS[name] || '';
     if (!keepQuery) history.replaceState(null, '', name === 'write' ? '/editor' : '/editor?panel=' + name);
   }
+  showView = show;
   for (const a of links) a.addEventListener('click', (e) => { e.preventDefault(); show(a.dataset.view); });
   show(new URLSearchParams(location.search).get('panel') || 'write', true, true);
 })();
@@ -423,18 +427,8 @@ function edInsert(text) {
   const { s, e } = edSelection();
   edReplace(text, s, e);
 }
-/* 整篇换掉：只在载入草稿 / 切换文章时用。Monaco 的 setValue 会清空撤销栈，
-   场景本来就该清 —— 换了一篇文章还留着上一篇的 Ctrl+Z 是更坏的行为。 */
-function edSetText(t) {
-  // 存量文章可能是 CRLF（早年编辑器留下的），进来先统一，别再传染出去
-  t = String(t || '').replace(/\r\n?/g, '\n');
-  if (inputEl.value !== t) inputEl.value = t;
-  if (monaco) {
-    monoSyncing = true;
-    monaco.setValue(t);
-    monoSyncing = false;
-  }
-}
+/* 整篇换掉这件事现在归 paint() + docModel()：切页签走 setModel（撤销栈按文档各留一份），
+   恢复本地草稿走 model.setValue（该清栈）。所以这里不再有 edSetText。 */
 /* 当前光标所在行的行首偏移（工具栏的 ## / > / - 都往这里插） */
 function edLineStart() {
   if (monaco) {
@@ -455,14 +449,41 @@ const stateText = $('state-text');
 const sumEl = $('summary');
 const sumStateEl = $('sum-state');
 
+/* ---------- 多文档：一个编辑器里同时开几篇，各存各的 ----------
+   DOM 永远只显示「当前文档」这一篇。切页签 = 先把 DOM 抓回旧文档（capture），
+   再把新文档铺上去（paint）。字段、脏标记、定时器、Monaco model 全挂在 doc 上，
+   保存链路因此不用知道有多个文档，改动面最小。
+
+   真正会串味的只有异步：定时保存、AI 摘要、图片上传在途时切页签，响应回来
+   会写到别人头上。所以每个异步入口都先 `const d = S`，回写前比一次 `S === d`。 */
+const DOC_TMP = 'draft:tmp:';
+const docs = new Map();   // key -> doc；Map 的插入序就是页签顺序
+let docSeq = 0;
+let tabSeq = 0;
+
+function newDoc(over = {}) {
+  return Object.assign({
+    key: 'n:' + (++docSeq),
+    postId: null, slug: '', slugShown: '',
+    title: '', content: '', summary: '', sumTouched: false,
+    sumBusy: false, sumState: '',
+    category: '', series: '', seriesOrder: '',
+    isPrivate: false, hidden: false,
+    publishAt: '', pubInput: null,
+    dirty: false, rev: 0, saving: false, queued: false, timer: null,
+    draftKey: DOC_TMP + (++tabSeq),
+    model: null, view: null, stateKind: '', stateText: '',
+  }, over);
+}
+let S = newDoc();       // 当前文档
+
+// 以下全局是 S 的镜像：渲染层与保存链路沿用旧名，切文档时由 paint 重灌
 let postId = null;      // 服务端 id
 let currentSlug = '';
 let dirty = false;
 let rev = 0;            // 每次输入 +1：用来判断一次保存的响应是否已经过期
 let saving = false;
-let saveTimer = null;
-let draftKey = 'draft:new';
-let hasServerRecord = false;
+let draftKey = '';
 // 站点头像预览：声明要在 boot 之前，否则 initSiteSettings 早于赋值语句执行会踩 TDZ
 let paintAvatar = () => {};
 let sumTouched = false; // 手动改过摘要就不让 AI 覆盖
@@ -484,11 +505,15 @@ function localInputToUtc(v) {
   if (Number.isNaN(d.getTime())) return '';
   return new Date(d.getTime() - BJ_MS).toISOString().slice(0, 19).replace('T', ' ');
 }
-// pubAt 是否已到点（到点即锁定，不能再改）
-function pubAtLocked() {
-  if (!pubAt) return false;
-  const t = Date.parse(String(pubAt).replace(' ', 'T') + 'Z');
+// 发布时间是否已到点（到点即锁定，不能再改）。传值时按值算 —— 多文档下
+// 全局 pubAt 是当前文档的镜像，判断别的文档必须用 doc 里的值。
+function pubLockedFor(v) {
+  if (!v) return false;
+  const t = Date.parse(String(v).replace(' ', 'T') + 'Z');
   return Number.isFinite(t) && t <= Date.now();
+}
+function pubAtLocked() {
+  return pubLockedFor(pubAt);
 }
 
 function setPubState(v) {
@@ -510,33 +535,230 @@ let sumBusy = false;
 let TAX = { categories: [], seed: [] };
 let wantedCat = '';     // 选项还没加载完时先记下要选哪个栏目
 
+/* ---------- 文档切换：capture / paint ---------- */
+const tabName = (d) => {
+  const t = String(d.title || '').trim();
+  if (t) return t.length > 26 ? t.slice(0, 26) + '…' : t;
+  return d.postId ? '（无标题）' : '新文章';
+};
+
+/* DOM → doc。故意全字段抄一遍：只要有一项漏了，切回来就会被上一篇的值顶掉，
+   而且是「看起来正常」的那种错，最难查。 */
+function capture() {
+  const d = S;
+  const pubEl = $('publish-at');
+  d.title = titleEl.value;
+  d.content = inputEl.value;
+  d.summary = sumEl.value;
+  d.slug = slugEl.value;
+  d.category = catEl.value;
+  d.series = seriesEl.value;
+  d.seriesOrder = seriesEl2.value;
+  d.isPrivate = privateEl.checked;
+  d.hidden = hiddenEl.checked;
+  d.publishAt = pubAt;
+  d.pubInput = pubEl ? pubEl.value : null;
+  d.sumTouched = sumTouched;
+  d.sumBusy = sumBusy;
+  d.sumState = sumStateEl.textContent || '';
+  d.dirty = dirty;
+  d.rev = rev;
+  d.saving = saving;
+  d.postId = postId;
+  d.stateKind = String(stateEl.className || '').replace(/^save-state\s*/, '');
+  d.stateText = stateText.textContent || '';
+  return d;
+}
+
+/* doc → DOM。正文走 Monaco 的 model 切换（撤销栈、光标、滚动都跟着 model 走），
+   没有 Monaco 就铺 textarea。 */
+function paint(d) {
+  if (!d) return S;
+  const prev = S;
+  if (monaco && prev && prev !== d) {
+    try { prev.view = monaco.saveViewState(); } catch {}
+  }
+  if (!monaco && prev && prev !== d) prev.content = inputEl.value;
+
+  S = d;
+  postId = d.postId;
+  currentSlug = d.slugShown || d.slug || '';
+  dirty = !!d.dirty;
+  rev = d.rev || 0;
+  saving = !!d.saving;
+  draftKey = d.draftKey;
+  pubAt = d.publishAt || '';
+  sumTouched = !!d.sumTouched;
+  sumBusy = !!d.sumBusy;
+
+  titleEl.value = d.title || '';
+  slugEl.value = d.slug || '';
+  setCategory(d.category || '');
+  seriesEl.value = d.series || '';
+  seriesEl2.value = d.seriesOrder ? String(d.seriesOrder) : '';
+  privateEl.checked = !!d.isPrivate;
+  hiddenEl.checked = !!d.hidden;
+  sumEl.value = d.summary || '';
+  setSumState(d.sumState || '');
+  setPubState(pubAt);
+  const pubEl = $('publish-at');
+  if (pubEl && d.pubInput != null) pubEl.value = d.pubInput;
+
+  if (monaco) {
+    const m = docModel(d);
+    monoSyncing = true;
+    monaco.setModel(m);
+    if (m.getValue() !== (d.content || '')) m.setValue(d.content || '');
+    monoSyncing = false;
+    inputEl.value = m.getValue();
+    try { monaco.restoreViewState(d.view || null); } catch {}
+  } else {
+    const t = String(d.content || '').replace(/\r\n?/g, '\n');
+    if (inputEl.value !== t) inputEl.value = t;
+  }
+
+  const shown = d.slugShown || d.slug;
+  slugEl.placeholder = shown ? `/${shown}` : '如 about → /about';
+  $('btn-view').href = d.postId ? '/p/' + encodeURIComponent(shown || '') : '#';
+
+  setState(d.stateKind || '', d.stateText || '');
+  setSaveBusy(!!d.saving, false);
+
+  updatePreview();
+  renderTabs();
+  syncUrl();
+  return d;
+}
+
+/* 每篇一个 Monaco model：切页签时 setModel，撤销栈、光标、滚动位置全是现成的，
+   不用自己存一份再恢复。EOL 统一 LF —— 空 model 默认给 CRLF，混进正文会传染。 */
+function docModel(d) {
+  if (d.model) return d.model;
+  d.model = monacoApi.editor.createModel(String(d.content || '').replace(/\r\n?/g, '\n'), 'markdown');
+  try {
+    if (d.model.getEOL() !== '\n') d.model.setEOL(monacoApi.editor.EndOfLineSequence.LF);
+  } catch {}
+  return d.model;
+}
+
+let tabSig = '';   // 页签的渲染指纹：内容没变就不重建 DOM（每次按键都重建会打断 hover）
+function renderTabs() {
+  const box = $('doc-tabs');
+  if (!box) return;
+  // 只有一篇时不显示页签条：没得切就别占那一行，单篇编辑的视觉与以前一致
+  const multi = docs.size > 1;
+  const sig = multi
+    ? [...docs.values()].map((d) => `${d.key}\u0001${d.dirty ? 1 : 0}\u0001${d === S ? 1 : 0}\u0001${tabName(d)}`).join('\u0002')
+    : '';
+  if (sig === tabSig) return;
+  tabSig = sig;
+  box.classList.toggle('multi', multi);
+  if (!multi) { box.innerHTML = ''; return; }
+  box.innerHTML = [...docs.values()].map((d) => {
+    const on = d === S;
+    const name = tabName(d);
+    return `<div class="doc-tab${on ? ' on' : ''}" data-key="${esc(d.key)}" role="tab" tabindex="${on ? 0 : -1}" aria-selected="${on ? 'true' : 'false'}" title="${esc(String(d.title || '').trim() || name)}"><span class="dt-name">${esc(name)}</span>${d.dirty ? '<span class="dt-dot" aria-label="有未保存改动"></span>' : ''}<button class="dt-x" type="button" data-close="${esc(d.key)}" title="关闭" aria-label="关闭 ${esc(name)}">×</button></div>`;
+  }).join('');
+}
+
+/* URL 只跟当前文档走；不 pushState —— 切五次页签不该在历史里留五条 */
+function syncUrl() {
+  const writeOn = $('view-write') && $('view-write').classList.contains('active');
+  if (!writeOn) return;
+  const want = '/editor' + (S.postId ? '?id=' + S.postId : '');
+  if (location.pathname + location.search !== want) history.replaceState(null, '', want);
+}
+
+/* 切换：先把当前文档落盘（脏的话立刻发一次，不等 3 秒定时器），再铺新的。
+   切走等于「提前自动保存」，所以不再弹 confirm 问要不要丢改动。 */
+function openDoc(d) {
+  if (!d) return S;
+  if (d === S) { syncUrl(); return S; }
+  const from = capture();
+  if (docs.has(from.key)) {
+    clearTimeout(from.timer);
+    from.timer = null;
+    if (from.dirty) flushDoc(from, false);
+  }
+  return paint(d);
+}
+
+function openBlank(seed) {
+  // 已有一个空白的未落库页签就复用，别点两次「新建」出现两个「新文章」
+  if (!seed) {
+    for (const d of docs.values()) {
+      if (!d.postId && !String(d.title || '').trim() && !String(d.content || '').trim()) return openDoc(d);
+    }
+  }
+  const d = newDoc(seed || {});
+  d.stateText = '新文章';
+  docs.set(d.key, d);
+  return openDoc(d);
+}
+
+/* 关闭：脏的先落盘（内容不丢），空白的直接扔；关掉当前页签就切到相邻一篇 */
+function closeDoc(d, force = false) {
+  if (!d) return;
+  if (d === S) capture();
+  clearTimeout(d.timer);
+  d.timer = null;
+  const blank = !d.postId && !String(d.title || '').trim() && !String(d.content || '').trim();
+  if (!force && !blank && d.dirty) flushDoc(d, false);
+  if (blank) {
+    try { localStorage.removeItem(d.draftKey); } catch {}
+  }
+  if (d.model) {
+    try { d.model.dispose(); } catch {}
+    d.model = null;
+  }
+  docs.delete(d.key);
+  if (d === S || !docs.size) {
+    const next = [...docs.values()].find((x) => x !== d) || null;
+    if (next) paint(next);
+    else {
+      const nd = newDoc();
+      nd.stateText = '新文章';
+      docs.set(nd.key, nd);
+      paint(nd);
+    }
+  }
+  renderTabs();
+  loadList();
+}
+
 /* ---------- 状态提示 ---------- */
 function setState(kind, text) {
   stateEl.className = 'save-state ' + kind;
   stateText.textContent = text;
 }
 
-/* ---------- 本地草稿 ---------- */
-function snapshot() {
+/* ---------- 本地草稿：一篇一个 key，互不覆盖 ---------- */
+function docSnapshot(d) {
   return {
-    id: postId,
-    title: titleEl.value,
-    content: inputEl.value,
-    slug: slugEl.value,
-    category: catEl.value,
-    series: seriesEl.value,
-    series_order: seriesEl2.value,
-    is_private: privateEl.checked,
-    hidden: hiddenEl.checked,
-    publish_at: pubAt,
+    id: d.postId,
+    title: d.title,
+    content: d.content,
+    summary: d.summary,
+    sum_touched: !!d.sumTouched,
+    slug: d.slug,
+    category: d.category,
+    series: d.series,
+    series_order: d.seriesOrder,
+    is_private: !!d.isPrivate,
+    hidden: !!d.hidden,
+    publish_at: d.publishAt,
     at: Date.now(),
   };
 }
 
-function saveLocal() {
+function saveLocalDoc(d) {
   try {
-    localStorage.setItem(draftKey, JSON.stringify(snapshot()));
+    localStorage.setItem(d.draftKey, JSON.stringify(docSnapshot(d)));
   } catch {}
+}
+
+function saveLocal() {
+  saveLocalDoc(capture());
 }
 
 function readLocal(key) {
@@ -547,18 +769,9 @@ function readLocal(key) {
   }
 }
 
-function applyDraft(d) {
-  if (!d) return;
-  titleEl.value = d.title || '';
-  edSetText(d.content || '');
-  slugEl.value = d.slug || '';
-  setCategory(d.category || '');
-  seriesEl.value = d.series || '';
-  seriesEl2.value = d.series_order || '';
-  privateEl.checked = !!d.is_private;
-  hiddenEl.checked = !!d.hidden;
-  if (d.publish_at !== undefined) setPubState(d.publish_at);
-}
+/* 本地草稿的恢复分两条路：已落库的走 fillDoc()（比对服务器时间），
+   从没落库的走 openBlankOrDraft()（捡旧的 draft:new）。都直接铺进 doc，
+   不再有单独的 applyDraft —— 三处各写一遍等于三处会分叉。 */
 
 /* ---------- 预览 ---------- */
 let previewTimer = null;
@@ -631,105 +844,156 @@ function clearFieldError(inputId) {
   if (slot) { slot.hidden = true; slot.textContent = ''; }
 }
 
-/* ---------- 保存到服务端 ---------- */
-async function saveNow(manual = false) {
-  clearTimeout(saveTimer);              // 手动保存时把排队中的定时器收掉
-  // 正在存又有新改动：别直接吞掉，重新排一次队，否则这次改动要等下一个按键才会上云
-  if (saving) { scheduleSave(); return; }
-  if (!dirty && !manual) return;
-  saving = true;
-  setSaveBusy(true, manual);
-  const myRev = rev;
-  setState('saving', '保存中…');
-
+/* ---------- 保存到服务端 ----------
+   一律从 doc 读、回 doc 写，不从 DOM 读。切了页签之后在途请求回来，
+   既不会把内容写错人，也不会把别人的按钮/状态栏刷掉。 */
+function buildPayload(d) {
   const payload = {
-    title: titleEl.value.trim() || '无标题',
-    content: inputEl.value,
-    slug: slugEl.value.trim(),
-    category: catEl.value.trim(),
-    series: seriesEl.value.trim(),
-    series_order: parseInt(seriesEl2.value, 10) || 0,
-    is_private: privateEl.checked,
-    hidden: hiddenEl.checked,
+    title: String(d.title || '').trim() || '无标题',
+    content: d.content || '',
+    slug: String(d.slug || '').trim(),
+    category: String(d.category || '').trim(),
+    series: String(d.series || '').trim(),
+    series_order: parseInt(d.seriesOrder, 10) || 0,
+    is_private: !!d.isPrivate,
+    hidden: !!d.hidden,
   };
   // 定时：已上线的文章锁定，不回传（服务端也会拦）；输入框有值才带，留空＝取消排期
   let pubError = '';
-  if (!pubAtLocked()) {
-    const pubEl = $('publish-at');
-    const utc = localInputToUtc(pubEl && pubEl.value);
+  if (!pubLockedFor(d.publishAt)) {
+    const utc = localInputToUtc(d.pubInput == null ? '' : d.pubInput);
     if (utc) {
       const delta = Date.parse(utc.replace(' ', 'T') + 'Z') - Date.now();
       if (delta <= 60_000) pubError = '定时须晚于当前时间 1 分钟以上';
       else if (delta > 366 * 86400_000) pubError = '最多提前 366 天定时';
       else payload.publish_at = utc;
-    } else if (pubAt) {
+    } else if (d.publishAt) {
       // 原本有定时、现在清空输入框 → 显式传空串取消排期
       payload.publish_at = '';
     }
   }
+  // 只有手动改过摘要才回传，否则交给服务端按正文变化自动生成
+  if (d.sumTouched) payload.summary = String(d.summary || '').trim();
+  return { payload, pubError };
+}
+
+/* 首次落库：临时草稿 key 迁到 draft:<id>，URL 换成可收藏的形态 */
+function adoptServerId(d, id) {
+  if (!id || d.postId) return;
+  d.postId = id;
+  const old = d.draftKey;
+  d.draftKey = 'draft:' + id;
+  const cached = readLocal(old);
+  if (cached) {
+    try {
+      localStorage.setItem(d.draftKey, JSON.stringify({ ...cached, id }));
+      localStorage.removeItem(old);
+    } catch {}
+  }
+  if (S === d) {
+    postId = id;
+    draftKey = d.draftKey;
+    syncUrl();
+  }
+  renderTabs();
+}
+
+async function flushDoc(d, manual = false) {
+  if (!d) d = S;
+  clearTimeout(d.timer);
+  d.timer = null;
+  // 正在存又有新改动：别直接吞掉，标一个排队，收尾时补一次
+  if (d.saving) { d.queued = true; return; }
+  if (!d.dirty && !manual) return;
+
+  const { payload, pubError } = buildPayload(d);
   if (pubError) {
-    showFieldError('publish-at', pubError);
-    setState('error', pubError);
-    $('publish-at').focus();
-    saving = false;
-    setSaveBusy(false);
+    if (S === d) {
+      showFieldError('publish-at', pubError);
+      setState('error', pubError);
+      $('publish-at').focus();
+    }
     return;
   }
-  clearFieldError('publish-at');
-  // 只有手动改过摘要才回传，否则交给服务端按正文变化自动生成
-  if (sumTouched) payload.summary = sumEl.value.trim();
+  if (S === d) clearFieldError('publish-at');
+
+  d.saving = true;
+  const myRev = d.rev;
+  if (S === d) {
+    saving = true;
+    setSaveBusy(true, manual);
+    setState('saving', '保存中…');
+  }
 
   try {
     let res;
-    if (postId) {
-      res = await api('/api/posts/' + postId, { method: 'PUT', body: payload });
+    if (d.postId) {
+      res = await api('/api/posts/' + d.postId, { method: 'PUT', body: payload });
     } else {
       res = await api('/api/posts', { method: 'POST', body: payload });
-      postId = res.id;
-      // 迁移本地草稿 key，避免新建后丢失
-      const old = draftKey;
-      draftKey = 'draft:' + postId;
-      const d = readLocal(old);
-      if (d) {
-        localStorage.setItem(draftKey, JSON.stringify({ ...d, id: postId }));
-        localStorage.removeItem(old);
-      }
-      history.replaceState(null, '', '/editor?id=' + postId);
-      hasServerRecord = true;
+      adoptServerId(d, res.id);
     }
 
     // 发布时间以服务端落库值为准，前端不猜：草稿存回来是空串，首次公开才会变成时间
-    if (res && res.published_at !== undefined) setPubState(res.published_at);
-
-    currentSlug = res.slug || currentSlug;
-    slugEl.placeholder = currentSlug ? `/${currentSlug}` : '如 about → /about';
-    $('btn-view').href = '/p/' + encodeURIComponent(currentSlug || '');
-
-    if (sumTouched && !sumEl.value.trim()) sumTouched = false;  // 用户清空了 → 让 AI 重写
-    // 响应回来时比对版本号：中间又敲过字就不能清 dirty，否则最后几个字永远进不了云端
-    if (rev === myRev) {
-      dirty = false;
-    } else {
-      scheduleSave();      // 这份响应已过期，重新排队
+    if (res && res.published_at !== undefined) {
+      d.publishAt = res.published_at || '';
+      d.pubInput = utcToLocalInput(d.publishAt);
     }
-    saveLocal();
-    setState('', '已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
-    if (manual) toast('已保存');
+    d.slug = res.slug || d.slug;
+    d.slugShown = d.slug;
+
+    // 响应回来时比对版本号：中间又敲过字就不能清 dirty，否则最后几个字永远进不了云端
+    d.dirty = d.rev !== myRev;
+
+    if (S === d) {
+      pubAt = d.publishAt;
+      currentSlug = d.slug;
+      dirty = d.dirty;
+      setPubState(d.publishAt);
+      slugEl.placeholder = d.slug ? `/${d.slug}` : '如 about → /about';
+      $('btn-view').href = '/p/' + encodeURIComponent(d.slug || '');
+      setState('', '已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
+      if (manual) toast('已保存');
+      if (d.dirty) scheduleSave();
+    }
+    saveLocalDoc(d);
+    renderTabs();
     loadList();
-    if (!sumTouched && postId) fetchSummary(false);   // 后台补摘要，不挡保存
+    if (S === d && !d.sumTouched && d.postId) fetchSummary(false);   // 后台补摘要，不挡保存
   } catch (e) {
-    setState('error', e.message || '保存失败');
-    toast(e.message || '保存失败');
+    const msg = e.message || '保存失败';
+    if (S === d) {
+      setState('error', msg);
+      toast(msg);
+    } else {
+      toast(`《${tabName(d)}》保存失败：${msg}`);
+    }
   } finally {
-    saving = false;
-    setSaveBusy(false);                  // 成功 / 报错都解锁，失败可原样重试
+    d.saving = false;
+    if (S === d) {
+      saving = false;
+      setSaveBusy(false);                // 成功 / 报错都解锁，失败可原样重试
+    }
+    if (d.queued) {
+      d.queued = false;
+      flushDoc(d, false);
+    }
   }
 }
 
+function saveNow(manual = false) {
+  return flushDoc(capture(), manual);
+}
+
+/* 定时器挂在文档上：切走的文档不会把 3 秒后的写入甩给新文档 */
 function scheduleSave() {
-  clearTimeout(saveTimer);
+  const d = S;
+  clearTimeout(d.timer);
   setState('', '编辑中…');
-  saveTimer = setTimeout(() => saveNow(false), 3000);
+  d.timer = setTimeout(() => {
+    d.timer = null;
+    flushDoc(d, false);
+  }, 3000);
 }
 
 /* ---------- AI 摘要 ---------- */
@@ -737,45 +1001,64 @@ function setSumState(text) {
   sumStateEl.textContent = text || '';
 }
 
+/* AI 摘要同样按文档走：请求在途时切页签，结果只落回发起它的那篇，
+   不覆盖当前文档的简介框，也不把「生成中…」的提示留在别人头上。 */
 async function fetchSummary(force = false) {
-  if (!postId || sumBusy || sumTouched) return;
-  if (!inputEl.value.trim()) {
+  const d = S;
+  if (!d.postId || d.sumBusy || d.sumTouched) return;
+  if (!String(d.content || '').trim()) {
+    d.sumState = '';
     setSumState('');
     return;
   }
+  d.sumBusy = true;
   sumBusy = true;
   const btn = $('btn-sum');
   btn.disabled = true;
-  setSumState(force ? '重新生成中…' : '生成中…');
+  const busyText = force ? '重新生成中…' : '生成中…';
+  d.sumState = busyText;
+  setSumState(busyText);
   try {
-    const r = await api('/api/posts/' + postId + '/summary', {
+    const r = await api('/api/posts/' + d.postId + '/summary', {
       method: 'POST',
-      body: { title: titleEl.value.trim() || '无标题', content: inputEl.value, force },
+      body: { title: String(d.title || '').trim() || '无标题', content: d.content || '', force },
     });
-    if (!sumTouched) sumEl.value = r.summary || '';
-    setSumState(r.cached ? '已是最新' : r.src === 'ai' ? '刚生成' : '已生成（无模型，按正文截取）');
+    const text = r.cached ? '已是最新' : r.src === 'ai' ? '刚生成' : '已生成（无模型，按正文截取）';
+    d.sumState = text;
+    if (!d.sumTouched) d.summary = r.summary || '';
+    if (S === d) {
+      if (!d.sumTouched) sumEl.value = d.summary;
+      setSumState(text);
+    }
   } catch (e) {
-    setSumState('生成失败：' + (e.message || '未知错误'));
+    const text = '生成失败：' + (e.message || '未知错误');
+    d.sumState = text;
+    if (S === d) setSumState(text);
   } finally {
-    sumBusy = false;
+    d.sumBusy = false;
+    sumBusy = S === d ? false : sumBusy;
     btn.disabled = false;
   }
 }
 
 sumEl.addEventListener('input', () => {
   sumTouched = true;
+  S.sumTouched = true;
   setSumState('手动改写，保存后生效');
 });
 
 $('btn-sum').onclick = () => {
   if (!postId) return toast('先保存一次，再生成摘要');
   sumTouched = false;
+  S.sumTouched = false;
   fetchSummary(true);
 };
 
 $('btn-sum-clear').onclick = () => {
   sumEl.value = '';
   sumTouched = true;
+  S.sumTouched = true;
+  S.summary = '';
   setSumState('已清空，保存后重新生成');
 };
 
@@ -783,9 +1066,14 @@ $('btn-sum-clear').onclick = () => {
 function onInput() {
   dirty = true;
   rev++;
-  saveLocal();          // 每次输入即写 localStorage
+  S.dirty = true;
+  S.rev = rev;
+  S.content = inputEl.value;
+  S.title = titleEl.value;
+  saveLocal();          // 每次输入即写 localStorage（capture 会补齐其余字段）
   schedulePreview();
   scheduleSave();       // 停顿 3 秒落库
+  renderTabs();         // 页签上的标题与脏点跟着走
 }
 
 titleEl.addEventListener('input', onInput);
@@ -821,10 +1109,13 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// 离开前提醒
+// 离开前提醒：每一篇的草稿都各自写一份，不能只存当前这一篇
 window.addEventListener('beforeunload', (e) => {
-  saveLocal();
-  if (dirty) {
+  if (S) {
+    capture();
+    for (const d of docs.values()) if (d.dirty) saveLocalDoc(d);
+  }
+  if (dirty || [...docs.values()].some((d) => d.dirty)) {
     e.preventDefault();
     e.returnValue = '';
   }
@@ -885,6 +1176,8 @@ async function uploadFile(file) {
     toast('图片超过 12MB');
     return null;
   }
+  // 上传可能几秒，期间可能切了页签：先认下发起它的那篇，插回原位而不是插给当前这篇
+  const target = S;
   const conv = await toWebp(file);
   file = conv.file;
 
@@ -929,8 +1222,7 @@ async function uploadFile(file) {
     /* 别把原始文件名塞进 alt：微信图片_20241221225808.jpg 这种会被读屏逐字念完。
        清洗不出语义就留空 —— 空 alt 是「装饰图跳过」的合法语义。 */
     const alt = cleanAltName(file.name || '');
-    insertAtCursor(`\n![${alt}](${url})\n`);
-    toast('图片已插入');
+    insertAtCursor(`\n![${alt}](${url})\n`, target);
     return url;
   } catch (e) {
     toast('上传失败：' + e.message);
@@ -938,7 +1230,24 @@ async function uploadFile(file) {
   }
 }
 
-function insertAtCursor(text) {
+/* 插到指定文档。不是当前文档就只改数据（连同它的 model），不改 DOM ——
+   否则图片会插进正在看的那篇，一篇的图跑到另一篇正文里。 */
+function insertAtCursor(text, into = S) {
+  if (into !== S) {
+    // 上传途中关了那篇页签：图已经进 R2 了，但没有落点，别硬塞进当前这篇
+    if (!docs.has(into.key)) {
+      toast(`《${tabName(into)}》已关闭，图片地址：${text.trim().replace(/^!\[[^\]]*\]\(|\)$/g, '')}`);
+      return;
+    }
+    into.content = String(into.content || '') + text;
+    if (into.model) {
+      try { into.model.setValue(into.content); } catch {}
+    }
+    into.dirty = true;
+    renderTabs();
+    toast(`图片已插入《${tabName(into)}》`);
+    return;
+  }
   edInsert(text);
 }
 
@@ -1111,42 +1420,126 @@ async function loadList() {
   } catch {}
 }
 
+/* 页签点击：切换 / 关闭。关闭不弹 confirm —— 内容已经落盘或本地有草稿，
+   真正会丢的只有「空白页签」，那种直接扔。 */
+$('doc-tabs').addEventListener('click', (e) => {
+  const close = e.target.closest('[data-close]');
+  if (close) {
+    e.stopPropagation();
+    const d = [...docs.values()].find((x) => x.key === close.dataset.close);
+    if (d) closeDoc(d);
+    return;
+  }
+  const tab = e.target.closest('[data-key]');
+  if (!tab) return;
+  const d = [...docs.values()].find((x) => x.key === tab.dataset.key);
+  if (!d) return;
+  showView('write');
+  openDoc(d);
+});
+
 $('cat-list').addEventListener('click', (e) => {
   if (e.target.closest('a')) return; // 行内「历史」链接自行跳转，别被整行点击拦截
   const item = e.target.closest('[data-id]');
   if (!item) return;
-  if (dirty && !confirm('当前有未保存的改动，确定切换？')) return;
-  location.href = '/editor?id=' + item.dataset.id;
+  const id = parseInt(item.dataset.id, 10);
+  if (!Number.isFinite(id)) return;
+  showView('write');
+  const opened = [...docs.values()].find((d) => d.postId === id);
+  if (opened) { openDoc(opened); return; }
+  openPostById(id);      // 已经在页签里就不再开第二个，切过去就行
 });
 
 /* ---------- 载入 ---------- */
-function resetEditor() {
-  postId = null;
-  currentSlug = '';
-  draftKey = 'draft:new';
-  titleEl.value = '';
-  edSetText('');
-  slugEl.value = '';
-  setCategory('');
-  seriesEl.value = '';
-  seriesEl2.value = '';
-  privateEl.checked = false;
-  hiddenEl.checked = false;
-  setPubState('');
-  sumEl.value = '';
-  sumTouched = false;
-  setSumState('');
-  $('btn-view').href = '#';
-  dirty = false;
-  setState('', '新文章');
-  updatePreview();
-  history.replaceState(null, '', '/editor');
+function fillDoc(d, p) {
+  d.title = p.title || '';
+  d.content = String(p.content || '').replace(/\r\n?/g, '\n');
+  d.slug = p.slug || '';
+  d.slugShown = p.slug || '';
+  d.category = p.category || '';
+  d.series = p.series || '';
+  d.seriesOrder = p.series_order ? String(p.series_order) : '';
+  d.isPrivate = !!p.is_private;
+  d.hidden = !!p.hidden;
+  // 用落库原值：private 草稿的 published_at 在接口里会退回 created_at，那是展示兜底
+  d.publishAt = p.published_at_raw ?? p.published_at ?? '';
+  d.pubInput = null;
+  d.summary = p.summary || '';
+  d.sumTouched = false;
+  d.sumState = p.summary ? (p.summary_src === 'manual' ? '手动' : '') : '';
+  d.dirty = false;
+  d.stateKind = '';
+  d.stateText = '已同步';
+
+  // 本地草稿比服务器新 → 恢复本地
+  const cached = readLocal(d.draftKey);
+  const serverTime = new Date(String(p.updated_at).replace(' ', 'T') + 'Z').getTime();
+  if (cached && cached.at > serverTime + 1000 && (cached.title !== p.title || cached.content !== p.content)) {
+    d.title = cached.title || '';
+    d.content = String(cached.content || '');
+    d.summary = cached.summary || '';
+    d.sumTouched = !!cached.sum_touched;
+    d.slug = cached.slug || d.slug;
+    d.category = cached.category || d.category;
+    d.series = cached.series || d.series;
+    d.seriesOrder = cached.series_order || d.seriesOrder;
+    d.isPrivate = !!cached.is_private;
+    d.hidden = !!cached.hidden;
+    if (cached.publish_at !== undefined) d.publishAt = cached.publish_at || '';
+    d.dirty = true;
+    d.stateText = '已恢复本地草稿';
+    d.restored = true;
+  }
+  return d;
+}
+
+async function openPostById(id) {
+  let data;
+  try {
+    const { posts } = await api('/api/mine');
+    data = posts.find((x) => x.id === id);
+    if (!data) throw new Error('文章不存在');
+  } catch (e) {
+    toast(e.message || '加载失败');
+    if (!docs.size) openBlankOrDraft();
+    return null;
+  }
+  const d = fillDoc(newDoc({ postId: id, draftKey: 'draft:' + id }), data);
+  docs.set(d.key, d);
+  paint(d);
+  if (d.restored) toast('已恢复未同步的本地草稿');
+  loadList();
+  return d;
+}
+
+/* 新建（或恢复上一次没落库的草稿）。旧版本只有 draft:new 一个键，先捡回来再迁到
+   本页签的临时键 —— 否则两个空白页签会互相覆盖同一份草稿。 */
+function openBlankOrDraft() {
+  const legacy = readLocal('draft:new');
+  if (legacy && (legacy.title || legacy.content)) {
+    S.title = legacy.title || '';
+    S.content = String(legacy.content || '');
+    S.summary = legacy.summary || '';
+    S.slug = legacy.slug || '';
+    S.category = legacy.category || '';
+    S.series = legacy.series || '';
+    S.seriesOrder = legacy.series_order || '';
+    S.isPrivate = !!legacy.is_private;
+    S.hidden = !!legacy.hidden;
+    if (legacy.publish_at !== undefined) S.publishAt = legacy.publish_at || '';
+    S.dirty = true;
+    S.stateText = '已恢复本地草稿';
+    try { localStorage.removeItem('draft:new'); } catch {}
+  } else {
+    S.stateText = '新文章';
+  }
+  docs.set(S.key, S);
+  paint(S);
 }
 
 $('btn-new').onclick = () => {
-  if (dirty && !confirm('当前有未保存的改动，确定新建？')) return;
-  resetEditor();
-  loadList();
+  showView('write');
+  openBlank();
   titleEl.focus();
 };
 
@@ -1162,23 +1555,26 @@ $('btn-view').addEventListener('click', (e) => {
 });
 
 $('btn-del').onclick = async () => {
-  if (!postId) return toast('还没保存，无需删除');
+  const d = S;
+  if (!d.postId) return toast('还没保存，无需删除');
   if (!confirm('删除这篇文章？不可恢复。')) return;
   try {
-    await api('/api/posts/' + postId, { method: 'DELETE' });
-    localStorage.removeItem('draft:' + postId);
+    await api('/api/posts/' + d.postId, { method: 'DELETE' });
+    try { localStorage.removeItem('draft:' + d.postId); } catch {}
     toast('已删除');
-    dirty = false;
-    resetEditor();
-    loadList();
+    d.dirty = false;
+    closeDoc(d, true);
   } catch (e) {
     toast(e.message);
   }
 };
 
-// 切到后台时先把本地草稿写死
+// 切到后台时把每一篇的草稿各自写死；别的文档在切页签时已经落过盘
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden' && dirty) saveLocal();
+  if (document.visibilityState === 'hidden' && S) {
+    capture();
+    for (const d of docs.values()) if (d.dirty) saveLocalDoc(d);
+  }
 });
 
 const user = await me();
@@ -1187,61 +1583,12 @@ if (!user) {
   location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
 } else {
   const idParam = new URLSearchParams(location.search).get('id');
-
   if (idParam && /^\d+$/.test(idParam)) {
-    postId = parseInt(idParam, 10);
-    draftKey = 'draft:' + postId;
-    hasServerRecord = true;
-
-    try {
-      const { posts } = await api('/api/mine');
-      const p = posts.find((x) => x.id === postId);
-      if (!p) throw new Error('文章不存在');
-
-      titleEl.value = p.title;
-      edSetText(p.content || '');
-      slugEl.value = p.slug;
-      setCategory(p.category || '');
-      seriesEl.value = p.series || '';
-      seriesEl2.value = p.series_order ? String(p.series_order) : '';
-      privateEl.checked = !!p.is_private;
-      hiddenEl.checked = !!p.hidden;
-      // 用落库原值：private 草稿的 published_at 在接口里会退回 created_at，那是展示兜底
-      setPubState(p.published_at_raw ?? p.published_at ?? '');
-      sumEl.value = p.summary || '';
-      sumTouched = false;
-      setSumState(p.summary ? (p.summary_src === 'manual' ? '手动' : '') : '');
-      currentSlug = p.slug;
-      $('btn-view').href = '/p/' + encodeURIComponent(p.slug);
-      slugEl.placeholder = `/${p.slug}`;
-
-      // 本地草稿比服务器新 → 恢复本地
-      const d = readLocal(draftKey);
-      const serverTime = new Date(String(p.updated_at).replace(' ', 'T') + 'Z').getTime();
-      if (d && d.at > serverTime + 1000 && (d.title !== p.title || d.content !== p.content)) {
-        applyDraft(d);
-        dirty = true;
-        setState('', '已恢复本地草稿');
-        toast('已恢复未同步的本地草稿');
-      } else {
-        setState('', '已同步');
-      }
-    } catch (e) {
-      toast(e.message);
-      resetEditor();
-    }
+    await openPostById(parseInt(idParam, 10));
   } else {
-    // 新建：若有未保存的本地草稿则恢复
-    const d = readLocal('draft:new');
-    if (d && (d.title || d.content)) {
-      applyDraft(d);
-      dirty = true;
-      setState('', '已恢复本地草稿');
-    } else {
-      setState('', '新文章');
-    }
+    openBlankOrDraft();
   }
-
+  if (!docs.size) openBlankOrDraft();
   updatePreview();
   loadList();
   loadTaxonomy();
@@ -1255,14 +1602,13 @@ async function loadTaxonomy() {
     catEl.innerHTML =
       '<option value="">未分类</option>' +
       TAX.categories.map((c) => `<option value="${c.slug}">${esc(c.name)} — ${esc(c.hint || '')}</option>`).join('');
-    // 老文章里可能是中文栏目名，原样留着回传，别在页面上被悄悄改成「未分类」
-    if (wantedCat && !TAX.categories.some((c) => c.slug === wantedCat)) {
-      const o = document.createElement('option');
-      o.value = wantedCat;
-      o.textContent = `${wantedCat}（旧栏目名）`;
-      catEl.appendChild(o);
+    // 重建 options 会清掉原先补的临时项，按当前文档的栏目重新选一次。
+    // 老文章里可能是中文栏目名，原样留着回传，别在页面上被悄悄改成「未分类」。
+    setCategory(S.category || '');
+    if (wantedCat && !TAX.categories.some((c) => c.slug === wantedCat) && catEl.value === wantedCat) {
+      const opt = [...catEl.options].find((o) => o.value === wantedCat);
+      if (opt && !/（旧栏目名）$/.test(opt.textContent)) opt.textContent = `${wantedCat}（旧栏目名）`;
     }
-    catEl.value = wantedCat;
     $('tag-options').innerHTML = (TAX.seed || []).map((t) => `<option value="${esc(t)}">`).join('');
     updateCatHint();
     renderTagPreview(inputEl.value);
@@ -1296,6 +1642,14 @@ $('series-list').addEventListener('click', (e) => {
 
 function setCategory(v) {
   wantedCat = v || '';
+  if (!wantedCat) { catEl.value = ''; return; }
+  // 选项还没到（或老文章的中文栏目名不在列表里）先补一个，否则 select 会把值吞成空串
+  if (![...catEl.options].some((o) => o.value === wantedCat)) {
+    const o = document.createElement('option');
+    o.value = wantedCat;
+    o.textContent = wantedCat;
+    catEl.appendChild(o);
+  }
   catEl.value = wantedCat;
 }
 
@@ -1570,7 +1924,8 @@ async function initMonaco() {
   const dark = document.documentElement.getAttribute('data-mode') === 'dark';
 
   monaco = monacoApi.editor.create(host, {
-    value: inputEl.value,
+    // 每一篇一个 model：切页签 setModel 就够，撤销栈/光标/滚动都不用自己搬
+    model: docModel(S),
     language: 'markdown',
     theme: dark ? 'vs-dark' : 'vs',
     automaticLayout: true, // 双栏/单栏切换、窗口缩放都不用自己算尺寸
@@ -1593,13 +1948,13 @@ async function initMonaco() {
     placeholder: '开始写作… 支持 Markdown，拖拽或粘贴图片可直接上传。',
     ariaLabel: '正文',
   });
-  /* 换行统一成 LF。库里存量文章都是 \n，而 Monaco 对一个空文档默认给 CRLF，
-     混进来以后正文里会出现看不见的 \r —— 字数统计、diff、正则全被它带偏。
-     create() 的 defaultEOL 在这里不生效（它只在能从内容推断时才用），
-     只能建完 model 再显式改。放在挂监听之前，避免这次改动被当成用户输入。 */
+  /* 换行统一成 LF —— 每个 model 都在 docModel() 里设过一遍，这里只是给编辑器
+     自己那个初始 model 兜一次底（万一 create 时传的 model 被替换了）。
+     存量文章是 \n，混进看不见的 \r 会把字数统计、diff、正则一起带偏。 */
   try {
     monaco.getModel().setEOL(monacoApi.editor.EndOfLineSequence.LF);
   } catch {}
+  inputEl.value = monaco.getValue();   // textarea 还得跟 model 对齐：保存链路读的是它
   pane.classList.add('mon-ready');
 
   /* 编辑 → 影子 textarea → 现有逻辑。

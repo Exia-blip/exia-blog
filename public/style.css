@@ -773,6 +773,46 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .pub-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .publish-card .save-state { margin-left: 0; }
 
+/* 多文档页签：一行横滑，不开第二个窗口也能几篇来回切。
+   脏标记只给一个小圆点 —— 标题是内容，别用颜色去背状态。 */
+.doc-tabs {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 2px;
+  padding: 5px 24px 0; border-bottom: 1px solid var(--line); background: var(--bg-soft);
+  overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
+}
+.doc-tabs::-webkit-scrollbar { display: none; }
+/* 单篇时整条不出现：没有可切的东西就不占那一行高度 */
+.doc-tabs:not(.multi) { display: none; }
+.doc-tab {
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  max-width: 210px; padding: 6px 7px 6px 11px; margin-bottom: -1px;
+  border: 1px solid transparent; border-bottom-color: transparent; border-radius: 9px 9px 0 0;
+  color: var(--muted); font-size: 12.5px; cursor: pointer; user-select: none;
+  background: transparent;
+}
+.doc-tab:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 4%, transparent); }
+.doc-tab.on {
+  color: var(--fg); background: var(--card);
+  border-color: var(--line); border-bottom-color: var(--card);
+}
+.doc-tab .dt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-tab .dt-dot {
+  flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent); opacity: .85;
+}
+.doc-tab .dt-x {
+  flex: 0 0 auto; width: 17px; height: 17px; padding: 0; border: 0; border-radius: 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.doc-tab .dt-x:hover { background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); }
+.doc-tab .dt-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.doc-tab.on .dt-x { color: var(--muted); }
+@media (max-width: 720px) {
+  .doc-tabs { padding: 4px 12px 0; }
+  .doc-tab { max-width: 150px; }
+}
+
 /* 编辑器卡：单一宽面 + 顶部工具栏与标签 */
 .editor-body { flex: 1; display: flex; min-height: 0; padding: 14px 24px 18px; }
 .editor-card {

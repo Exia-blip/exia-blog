@@ -74,12 +74,14 @@ t('编辑器：有 datetime-local 输入、就近报错槽与北京时间换算'
 });
 
 t('编辑器：定时值进快照、错误值拦保存、到点锁定不回传', () => {
-  assert.ok(/publish_at: pubAt/.test(ed), '本地草稿要记住定时值');
+  // 多文档之后一切都按 doc 取：全局 pubAt 只是当前文档的镜像，
+  // 判断「别的文档有没有锁定」必须用 d.publishAt，否则会把 A 的状态套到 B 上。
+  assert.ok(/publish_at: d\.publishAt/.test(ed), '本地草稿要记住定时值（按文档存）');
   assert.ok(ed.includes('payload.publish_at = utc'), '有值时提交 UTC');
   assert.ok(ed.includes("payload.publish_at = ''"), '清空时显式取消排期');
-  assert.ok(ed.includes('if (!pubAtLocked())'), '已上线不回传定时');
+  assert.ok(ed.includes('if (!pubLockedFor(d.publishAt))'), '已上线不回传定时（按文档值判断）');
   assert.ok(ed.includes("showFieldError('publish-at', pubError)"), '非法值就近报错');
-  assert.ok(ed.includes('setPubState(res.published_at)'), '保存后回显落库值');
+  assert.ok(ed.includes('setPubState(d.publishAt)'), '保存后回显本文档的落库值');
 });
 
 t('样式：定时输入有样式且不污染读者侧', () => {
