@@ -18,6 +18,7 @@
     "shots": "node scripts/shot.mjs",
     "check:ld": "node scripts/check-ld.mjs",
     "verify:a11y": "node scripts/verify-a11y-perf.mjs",
+  "check:a11y": "node scripts/check-contrast.mjs",
     "exp:css": "node scripts/exp-css-split.mjs",
     "build:sri": "node scripts/build-sri.mjs",
     "assets": "node scripts/optimize-assets.mjs",

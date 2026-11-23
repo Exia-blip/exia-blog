@@ -28,6 +28,9 @@ jobs:
           done
           echo "语法 OK"
 
+      - name: a11y 对比度断言（构建后扫 CSS 变量，14 组主题×明暗）
+        run: npm run check:a11y
+
       - name: 单元测试
         run: npm test
 
