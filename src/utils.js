@@ -80,6 +80,61 @@ export function err(message, status = 400) {
   return json({ ok: false, error: message }, status);
 }
 
+/* ---------- 请求体闸门 ----------
+ * 应用内限流保护的是「数据正确性」，保护不了额度：请求进到 Worker 就已经开始计费。
+ * 这里能做的是别再把一个几十 MB 的包整个读进 128MB 的 isolate 里解析 ——
+ * 那是免费送出去的 CPU、内存和 OOM。
+ *
+ * 两道：
+ *   bodyTooLarge()  只看 content-length，便宜，但客户端可以谎报（也能 chunked 不给）；
+ *   readJsonLimited() 按流边读边数，超了立刻 cancel，谎报绕不过去。
+ * 前者挡诚实的大包（一次 header 就结束），后者挡伪报的小包。
+ */
+export const BODY_LIMIT_JSON = 64 * 1024;
+
+export function bodyTooLarge(request, max = BODY_LIMIT_JSON) {
+  const cl = Number(request.headers.get('content-length') || 0);
+  return Number.isFinite(cl) && cl > max;
+}
+
+/** 读 JSON，超 max 字节就停。返回 { body } / { tooBig:true } / { bad:true }，不抛异常。 */
+export async function readJsonLimited(request, max = BODY_LIMIT_JSON) {
+  if (bodyTooLarge(request, max)) return { tooBig: true };
+  const stream = request.body;
+  if (!stream) return { body: {} };
+
+  const reader = stream.getReader();
+  const chunks = [];
+  let n = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      n += value.byteLength;
+      if (n > max) {
+        // 后面的字节一个都不读，直接断流：这正是要省下来的那部分
+        reader.cancel().catch(() => {});
+        return { tooBig: true };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return { bad: true };
+  }
+
+  const buf = new Uint8Array(n);
+  let at = 0;
+  for (const c of chunks) {
+    buf.set(c, at);
+    at += c.byteLength;
+  }
+  try {
+    return { body: JSON.parse(new TextDecoder().decode(buf)) };
+  } catch {
+    return { bad: true };
+  }
+}
+
 export function parseCookies(request) {
   const raw = request.headers.get('cookie') || '';
   const out = {};

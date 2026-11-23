@@ -136,8 +136,17 @@ export function turnstileMode(env = {}) {
 /**
  * Turnstile 校验。没配就整层跳过 —— 这也是默认状态，
  * 页面因此不会引入任何第三方脚本。
+ *
+ * expect.host / expect.action 是 token 的「出处」核对：
+ * siteverify 回 success 只说明「有一枚有效 token 被兑换了」。同一个 sitekey
+ * 也能在别人的页面里渲染（sitekey 是公开的），攻击者在自己站上弹一个框、
+ * 过了验证，把 token 拿来打你的接口 —— 只要你不看 hostname/action，
+ * 这一层就等于「任何人的真人都能替你投票」。两项都在 siteverify 的响应里，
+ * 核对它们不用再发一次请求。
  */
-export async function verifyTurnstile(env, token, ip) {
+export const TURNSTILE_ACTION = 'comment';
+
+export async function verifyTurnstile(env, token, ip, expect = {}) {
   const mode = turnstileMode(env);
   if (mode === 'off') return { ok: true, skipped: true };
   if (mode === 'site-only') {
@@ -164,8 +173,20 @@ export async function verifyTurnstile(env, token, ip) {
       body: form,
     });
     const d = await r.json();
-    if (d.success) return { ok: true };
-    return { ok: false, error: '人机验证没通过，刷新页面再试一次' };
+    if (!d.success) return { ok: false, error: '人机验证没通过，刷新页面再试一次' };
+
+    /* 严格比较：响应里没有 hostname / action 一律按不匹配处理。
+       缺字段就放行的话，攻击者只要挑一条不返回该字段的路径（旧 token、别的 widget 类型）
+       就能整体绕过这条复核。 */
+    if (expect.host && d.hostname !== expect.host) {
+      console.warn('[antispam] turnstile hostname 不符：', d.hostname, '!=', expect.host);
+      return { ok: false, error: '人机验证来源不对，刷新页面再试一次' };
+    }
+    if (expect.action && d.action !== expect.action) {
+      console.warn('[antispam] turnstile action 不符：', d.action, '!=', expect.action);
+      return { ok: false, error: '人机验证来源不对，刷新页面再试一次' };
+    }
+    return { ok: true };
   } catch {
     // 校验服务自己挂了，不能连累评论功能 —— 记一笔降级，放行
     console.warn('[antispam] turnstile siteverify 不可达，本次降级放行');

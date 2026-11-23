@@ -363,7 +363,10 @@ async function mountTurnstile() {
       s.onerror = reject;
       document.head.appendChild(s);
     });
-    window.turnstile.render(slot, { sitekey: key, language: 'zh-cn', size: 'flexible' });
+    /* action 必须和 Worker 里核对的那个字符串一致（src/antispam.js 的
+       TURNSTILE_ACTION）。它证明这枚 token 是在「评论表单」上签的，
+       不是在同一个 sitekey 的别的 widget 上签的。 */
+    window.turnstile.render(slot, { sitekey: key, action: 'comment', language: 'zh-cn', size: 'flexible' });
   } catch {
     // 组件没下来就别装作"请勾选"——那个框用户根本看不见，报错得说实话
     tsFailed = true;

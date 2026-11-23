@@ -1,4 +1,18 @@
-import { json, err, pageParams, slugify, uniqueSlug, nowISO, setCookie, localParts, siteOrigin, wordCount } from './utils.js';
+import {
+  json,
+  err,
+  pageParams,
+  slugify,
+  uniqueSlug,
+  nowISO,
+  setCookie,
+  localParts,
+  siteOrigin,
+  wordCount,
+  bodyTooLarge,
+  readJsonLimited,
+  BODY_LIMIT_JSON,
+} from './utils.js';
 import { currentUser, requireUser, requireAdmin } from './auth.js';
 import { guard, record, banIp, verifyTurnstile, DID_MAX_AGE } from './antispam.js';
 import { renderBody, extractTags, extractCover, extractExcerpt, readingTime, searchSnippet } from '../public/md.js';
@@ -477,11 +491,29 @@ export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q
 
 /* ---------- 主路由 ---------- */
 
+/* 按路由给请求体上限。全局一刀切会把编辑器的正文保存和图片上传一起挡死；
+   反过来只按 64KB 放行，超限的大包在进 Worker 时照样已经烧过一遍额度 ——
+   所以这里能做的只有「尽快结束、少读一个字节」，不是「不算这次请求」。 */
+const CAP_UPLOAD = 8 * 1024 * 1024;
+const CAP_POST = 1024 * 1024;
+
+export function bodyCapFor(path) {
+  if (/^\/(upload|upload-url|settings\/(avatar|cover))$/.test(path)) return CAP_UPLOAD;
+  if (/^\/posts(\/\d+)?$/.test(path)) return CAP_POST;
+  return BODY_LIMIT_JSON;
+}
+
 export async function handleApi(env, request, url, ctx) {
   const db = env.DB;
   const path = url.pathname.replace(/^\/api/, '') || '/';
   const method = request.method;
   const user = await currentUser(env, request);
+
+  /* 闸门放在鉴权之后、解析之前：content-length 诚实的超大包在这里就结束，
+     一个字节都不进 JSON.parse。伪报的走各自的 readJsonLimited()。 */
+  if (method !== 'GET' && method !== 'HEAD' && bodyTooLarge(request, bodyCapFor(path))) {
+    return json({ ok: false, error: '请求体太大' }, 413, { 'cache-control': 'no-store' });
+  }
 
   /* ---- 访问统计上报（匿名，不走鉴权） ---- */
   if (path === '/pv' && method === 'POST') return await recordPv(env, request, ctx);
@@ -1048,7 +1080,12 @@ export async function handleApi(env, request, url, ctx) {
 
   /* ---- 发评论 ---- */
   if (path === '/comments' && method === 'POST') {
-    const body = await request.json();
+    /* 这个接口是全站唯一「匿名人可以往里灌数据」的入口，所以用按流读的那道闸门：
+       content-length 谎报成 3 字节、实际传 50MB，request.json() 照样全读进内存。 */
+    const rd = await readJsonLimited(request);
+    if (rd.tooBig) return err('请求体太大', 413);
+    if (!rd.body) return err('请求格式不正确');
+    const body = rd.body;
     const slug = String(body.slug || '');
     const content = String(body.content || '').trim();
 
@@ -1082,7 +1119,13 @@ export async function handleApi(env, request, url, ctx) {
       // 真人看不见这个框，它是给自动填表的脚本填的
       if (String(body.hp || '').trim()) return err('验证没通过，刷新页面再试一次', 400);
 
-      const tv = await verifyTurnstile(env, body.turnstile_token, request.headers.get('cf-connecting-ip') || '');
+      const ip = request.headers.get('cf-connecting-ip') || '';
+      /* host / action 一起交给 siteverify 的复核：光有 success 只能证明
+         「有人在自己站上点过一次验证」，证明不了这次验证属于这里。 */
+      const tv = await verifyTurnstile(env, body.turnstile_token, ip, {
+        host: new URL(siteOrigin(env, request)).host,
+        action: 'comment',
+      });
       if (!tv.ok) return err(tv.error, 400);
 
       rate = await guard(db, request, Math.floor(Date.now() / 1000));

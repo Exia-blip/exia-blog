@@ -8,7 +8,7 @@
 // 想换成 umami / 其他服务也行：把 UMAMI_SCRIPT、UMAMI_SITE_ID 两个变量写上，
 // 页面会注入那段 script，同时不再往这里记 —— 两套同时开着只会让数字互相矛盾。
 
-import { html, umamiOn } from './utils.js';
+import { html, umamiOn, readJsonLimited } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { postCacheStats } from './postcache.js';
 import { getSite } from './settings.js';
@@ -72,12 +72,11 @@ export async function recordPv(env, request, ctx) {
 
   if (!ua || BOT_RE.test(ua)) return noContent;
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return noContent;
-  }
+  /* 上报口是匿名的，同样吃 readJsonLimited：一个谎报 content-length 的
+     大包不能在这里被 whole-body 解析。超限当没收，静默 204。 */
+  const rd = await readJsonLimited(request);
+  if (!rd.body) return noContent;
+  const body = rd.body;
 
   let path = String(body?.p || '');
   if (!path.startsWith('/')) return noContent;
@@ -155,12 +154,11 @@ export async function recordEvent(env, request, ctx) {
   if (umamiOn(env)) return noContent;
   if (!ua || BOT_RE.test(ua)) return noContent;
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return noContent;
-  }
+  /* 上报口是匿名的，同样吃 readJsonLimited：一个谎报 content-length 的
+     大包不能在这里被 whole-body 解析。超限当没收，静默 204。 */
+  const rd = await readJsonLimited(request);
+  if (!rd.body) return noContent;
+  const body = rd.body;
 
   const name = String(body?.n || '');
   if (!EVENT_NAMES.has(name)) return noContent;
