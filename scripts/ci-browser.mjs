@@ -31,6 +31,7 @@ const CHECKS = [
   { name: '滚动件滞回', script: 'check-scroll-ui.mjs', args: [`${BASE}/p/ci-fixture`] },
   { name: '目录吸顶', script: 'check-toc-sticky.mjs', args: [`${BASE}/p/ci-fixture`] },
   { name: '目录进度条像素', script: 'check-toc-bar.mjs', args: [`${BASE}/p/ci-fixture`] },
+  { name: 'CSS 基线 computed style', script: 'check-css-baseline.mjs', args: [BASE] },
 ];
 
 const run = (script, args, env = {}) =>
