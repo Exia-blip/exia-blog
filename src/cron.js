@@ -1,5 +1,20 @@
 import { nowISO } from './utils.js';
 import { notifyTodo } from './webhook.js';
+import { liveSql } from './api.js';
+
+/* 自站存活断言：不 fetch 自己域名 —— 文件头第 4 条实测过会绕回本 Worker 拿 522。
+   改成直接查 D1：能查出「公开文章存在 + 关键字可命中」就等于首页/文章页的数据源活着。
+   这是数据层存活，不等于 HTTP 层 200；HTTP 层的 522/530 由 CF 边缘自己报，
+   这里不重复造一个会自环的探测器。
+   关键字取一个必定存在的：站点名 SITE_NAME 或固定词，查不到就报，不猜。 */
+export async function checkSelfHealth(env) {
+  const where = `is_private = 0 AND hidden = 0 AND ${liveSql('posts')}`;
+  const [total, sample] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM posts WHERE ${where}`).first(),
+    env.DB.prepare(`SELECT slug FROM posts WHERE ${where} ORDER BY COALESCE(published_at, created_at) DESC LIMIT 1`).first(),
+  ]);
+  return { live: Number(total?.n || 0), latest: sample?.slug || '', ok: Number(total?.n || 0) > 0 && !!sample?.slug };
+}
 
 /* 友链存活检测：每 20 分钟一轮（wrangler.jsonc 的 triggers.crons）。
 

@@ -1,7 +1,7 @@
 import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
 import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin, wordCount } from './utils.js';
-import { checkFriends } from './cron.js';
+import { checkFriends, checkSelfHealth } from './cron.js';
 import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
 import { coverOf, autoThumb, isAutoCover, isCardCover, thumbOf } from './cover.js';
@@ -23,6 +23,7 @@ import {
   commentsAdminPage,
 } from './admin-pages.js';
 import { dashboardPage } from './dashboard.js';
+import { requestLog, emit } from './observe.js';
 import { reviewPage } from './review.js';
 import { postCacheGet, postCacheSet, postCacheDrop, postCacheStats } from './postcache.js';
 import { assetVersion, assetCacheControl, stampAssets } from './assets.js';
@@ -175,6 +176,12 @@ function missingImage(reason = 'missing') {
    真正缺图反而被噪音盖住。 */
 const BAD_KEY = /(^\/|\/\/|\\|\u0000|[\u0001-\u001f\u007f])/;
 const MAX_KEY = 512;
+/* /img/ 代理直取 R2 对象，key 没有白名单。备份 SQL（含正文与邮箱）若和图片同桶，
+   必须在这里挡住，否则 /img/backups/d1.sql 就是公开下载。导出供单测穷举绕过写法。 */
+export function isPrivateImageKey(key) {
+  const s = decodeURIComponent(String(key || '')).toLowerCase().replace(/\\/g, '/').replace(/\/{2,}/g, '/');
+  return s === 'backups' || s.startsWith('backups/') || s.includes('/backups/');
+}
 
 /* 变体地址 → 回退链。抽成纯函数是为了能单独测：
    这条链错一步的后果是「给不认 avif 的浏览器发 avif」，或者「永远退到原图、
@@ -217,7 +224,7 @@ async function serveImage(env, key) {
   } catch {
     return new Response('bad image path', { status: 400 });
   }
-  if (!path || path.length > MAX_KEY || BAD_KEY.test(path) || path.includes('..')) {
+  if (!path || path.length > MAX_KEY || BAD_KEY.test(path) || path.includes('..') || isPrivateImageKey(path)) {
     return new Response('bad image path', { status: 400 });
   }
 
@@ -1469,9 +1476,9 @@ function pagerHtml(page, pages, total, base) {
   if (pages <= 1) return '';
   const href = (p) => `${base}?page=${p}`;
   return [
-    page > 1 ? `<a class="btn sm" href="${href(page - 1)}">← 上一页</a>` : '',
-    `<span class="page-info">${page} / ${pages}　共 ${total} 篇</span>`,
-    page < pages ? `<a class="btn sm" href="${href(page + 1)}">下一页 →</a>` : '',
+    page > 1 ? `<a class="btn sm" href="${href(page - 1)}" rel="prev" aria-label="上一页（第 ${page - 1} 页）">← 上一页</a>` : '',
+    `<span class="page-info" aria-live="polite">${page} / ${pages}　共 ${total} 篇</span>`,
+    page < pages ? `<a class="btn sm" href="${href(page + 1)}" rel="next" aria-label="下一页（第 ${page + 1} 页）">下一页 →</a>` : '',
   ].join('');
 }
 
@@ -1655,7 +1662,14 @@ function fillSeo(body, site, url) {
      统一过 metaDesc：换行压平、超长截断、空值兜底。 */
   const isTag = !!(url && url.pathname.startsWith('/tag/'));
   const desc = metaDesc(cat ? cat.desc : isTag ? `${label} 标签下的全部文章` : '', site.desc || `${site.name} · 记录思考、代码与生活`);
-  const canonical = url ? new URL(url.pathname, url.origin).toString() : '';
+  /* canonical 保留页码：第 2 页的规范地址是 /?page=2 而不是首页，
+     否则搜索引擎把分页当首页的重复内容。其余 query（搜索词、utm、缓存穿透参数）
+     一律丢掉，只留纯页码 —— 否则每一份 ?cb= 都成一个新的规范地址。 */
+  const canonicalUrl = url ? new URL(url.pathname, url.origin) : null;
+  if (canonicalUrl && /^\d+$/.test(url.searchParams.get('page') || '')) {
+    canonicalUrl.searchParams.set('page', url.searchParams.get('page'));
+  }
+  const canonical = canonicalUrl ? canonicalUrl.toString() : '';
   const origin = url ? url.origin : '';
   // 分享图固定用本站那张 1200×630：尺寸、域名、可用性都在自己手里
   const ogImage = `${origin}/og-default.jpg`;
@@ -2569,7 +2583,22 @@ async function route(request, env, ctx) {
 }
 
 export default {
+  /* 请求日志在最外层包一层，所有返回分支（含重定向、边缘缓存命中、500）
+     都自然经过这里，不用在每个 return 前插一行。日志不阻塞响应：
+     console 是运行时自带的 sink，observability 已开，7 天可检索。 */
   async fetch(request, env, ctx) {
+    const startedAt = Date.now();
+    let res;
+    try {
+      res = await this.handleFetch(request, env, ctx);
+    } catch (e) {
+      res = json({ ok: false, error: e.message }, 500);
+    }
+    emit(requestLog({ request, response: res, durationMs: Date.now() - startedAt }));
+    return res;
+  },
+
+  async handleFetch(request, env, ctx) {
     /* HEAD 一律按 GET 走一遍，最后再把 body 丢掉。
        不这么做的后果很隐蔽：Workers 运行时对 HEAD 请求会先把 body 置空，
        withEtag 里 `await res.text()` 拿到的是空串 —— 所有页面的 HEAD 响应
@@ -2577,7 +2606,7 @@ export default {
        监控、SEO 工具、CDN 预检都爱用 HEAD，拿着这个假 tag 做校验，
        要么永远命中 304、要么永远不命中，而 GET 一切正常，很难怀疑到这里。 */
     if (request.method === 'HEAD') {
-      const res = await this.fetch(
+      const res = await this.handleFetch(
         new Request(request.url, { method: 'GET', headers: request.headers, redirect: request.redirect }),
         env,
         ctx
@@ -2691,6 +2720,11 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(checkFriends(env));
+    ctx.waitUntil(
+      checkSelfHealth(env).then((r) => {
+        if (!r.ok) return notifyTodo(env, `自站内容源异常：公开文章 ${r.live} 篇，最新 slug=${r.latest || '空'}`);
+      }).catch((e) => notifyTodo(env, `自站内容源探测失败：${e.message}`))
+    );
     // 统计明细保留 90 天。cron 每 20 分钟一轮，没必要每轮都删一次，
     // 挑 UTC 20:00（北京 04:00）那一轮做日更清理。
     const utcHour = new Date(event.scheduledTime || Date.now()).getUTCHours();

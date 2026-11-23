@@ -122,6 +122,70 @@ console.log('\n[3] 首页搜索框');
   await page.close();
 }
 
+/* ---------- 三之二、导航语义 / 分页 / 触摸目标 / 焦点环裁切 ---------- */
+console.log('\n[3b] 导航语义与触摸目标');
+{
+  const page = await browser.newPage();
+
+  // 导航当前项 aria-current（首页有「首页」项，文章页靠栏目高亮）
+  await page.goto(ORIGIN + '/?cb=' + Math.random(), { waitUntil: 'domcontentloaded' });
+  const cur = await page.$$eval('nav.top [aria-current="page"]', (els) =>
+    els.map((e) => e.textContent.trim())
+  );
+  check(cur.length >= 1, `导航当前项有 aria-current="page"（${cur.join('、') || '无'}）`);
+
+  // 分页：第 2 页的 nav / rel / canonical 带页码
+  await page.goto(ORIGIN + '/?page=2&cb=' + Math.random(), { waitUntil: 'domcontentloaded' });
+  const pg = await page.evaluate(() => {
+    const nav = document.querySelector('nav.pagination[aria-label="分页"]');
+    const canon = document.querySelector('link[rel="canonical"]');
+    return {
+      nav: !!nav,
+      prev: !!document.querySelector('nav.pagination a[rel="prev"]'),
+      next: !!document.querySelector('nav.pagination a[rel="next"]'),
+      info: !!document.querySelector('.page-info[aria-live="polite"]'),
+      canonical: canon ? canon.getAttribute('href') : '',
+    };
+  });
+  check(pg.nav && pg.prev && pg.info, `分页容器/上一页/页码提示齐全（nav=${pg.nav} prev=${pg.prev} info=${pg.info}）`);
+  check(/[?&]page=2(?:&|$)/.test(pg.canonical), `第 2 页 canonical 带页码（${pg.canonical}）`);
+
+  // 触摸目标：分页按钮与标签云胶囊的最小命中区 ≥24px（WCAG 2.5.8 AA）
+  const taps = await page.evaluate(() => {
+    const els = [...document.querySelectorAll('nav.pagination a.btn, .tagbar a, .tagbar button, nav.top a')];
+    return els.map((el) => {
+      const r = el.getBoundingClientRect();
+      return { t: (el.textContent || '').trim().slice(0, 12), w: Math.round(r.width), h: Math.round(r.height) };
+    }).filter((x) => x.w > 0 && x.h > 0);
+  });
+  const small = taps.filter((x) => x.h < 24 || x.w < 24);
+  check(small.length === 0, `${taps.length} 个交互元素触摸区 ≥24px（偏小 ${small.length}：${small.slice(0, 4).map((x) => `${x.t} ${x.w}×${x.h}`).join('、')}）`);
+
+  // 焦点环不被 overflow:hidden 裁掉：逐个聚焦，看 outline 是否落在祖先裁剪区外
+  const clipped = await page.evaluate(() => {
+    const out = [];
+    for (const el of document.querySelectorAll('nav.top a, nav.pagination a, .tagbar a, .tagbar button')) {
+      el.focus();
+      const st = getComputedStyle(el);
+      if (st.outlineStyle === 'none' || parseFloat(st.outlineWidth) < 2) continue;
+      const r = el.getBoundingClientRect();
+      let p = el.parentElement;
+      while (p && p !== document.body) {
+        const ps = getComputedStyle(p);
+        if (/hidden|clip/.test(ps.overflowX + ps.overflowY)) {
+          const pr = p.getBoundingClientRect();
+          if (r.top < pr.top - 1 || r.bottom > pr.bottom + 1) out.push(el.textContent.trim().slice(0, 12));
+          break;
+        }
+        p = p.parentElement;
+      }
+    }
+    return out;
+  });
+  check(clipped.length === 0, `焦点环未被 overflow 裁切（裁切 ${clipped.length}：${clipped.slice(0, 4).join('、')}）`);
+  await page.close();
+}
+
 /* ---------- 四、阻塞 CSS 用掉多少 ---------- */
 console.log('\n[4] CSS 覆盖率（禁缓存后重新加载，按样式表统计）');
 {

@@ -280,6 +280,18 @@ npm run deploy
 
 `manifest.json` 只记 secrets 的**名字**不记值——密钥必须在新账号重新 `put`。导出目录含文章全文与用户邮箱，`.gitignore` 已排除，别外传。
 
+### 自动备份（D1 → R2，滚动 7 份）
+
+```bash
+node scripts/backup-upload.mjs --dry-run   # 只导出并打印计划
+node scripts/backup-upload.mjs             # 真跑：导出 → 上传 → 滚动保留 7 份
+node scripts/backup-drill.mjs              # 恢复演练：空库重放导出 SQL 并校验
+```
+
+备份写入同桶的 `backups/` 前缀，`/img/backups/*` 已被 `isPrivateImageKey()` 挡住，不会被图片代理公开读取（有断言守着）。滚动状态记在 `backups/_manifest.json`，不依赖 wrangler CLI 没有的 `r2 object list`。`backup-drill` 只读导出、在内存库重建，不碰线上数据——2026-11-23 已用真实导出演练通过（13 表 / 40 篇 / 非空正文全部有 html_content）。
+
+定时执行交给外部调度器（GitHub Actions cron 或本机 cron），本项目不含自动触发配置——备份脚本需要 wrangler 的已登录态，CI 里要先注入 `CLOUDFLARE_API_TOKEN`。
+
 ---
 
 ## 后台
