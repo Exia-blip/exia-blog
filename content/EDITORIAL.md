@@ -169,6 +169,25 @@
 
 **明说的没做**：角色表 / ACL；入口与 handler 的 `users` 双查（2 次 D1 往返）未优化；白名单无线上演练（与 `READONLY_MODE` 同属「越过 HTTP 边界的那层靠推理」的系统性盲区）；`ALLOWED_LOGINS` 默认不配，等于没改。
 
+### 模板性能数字不是你的数字（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `template-perf-numbers` | 模板的 15ms 不是你的 96ms：五个候选里只有一条判断能用 | 工程实录 | `cloudflare northstar 模板` / `durable objects rate limit subrequest` | **Northstar 是个人仓库**（`jroth1111/cloudflare_template`，最后提交 2025-12-19），且带 Tailwind v4，与 3KB CSS 冲突；**「DO 更省 subrequest」是错的**——DO 调用本身就计一次，不占的是 `[[ratelimits]]` binding（per-PoP，10/60 秒窗）；**TinyMCE 顶掉的是编辑器不是渲染器**；材料把 96 当「你的首屏数字」，正好犯了 13 篇正文批判过的「两个实验互相背书」 |
+
+**这篇带一处生产修复 + 一条新断言**：
+
+1. `src/api.js:696`（审核放行）：`bust(url, [p.slug], [], db)` → `[p.category]`。SELECT 补 `category`。投稿放行是它第一次进 `/cat/<栏目>`，此前那页压着 300 秒旧 HTML。
+2. `src/api.js:1012`（版本回滚）：→ `[p.category, rev.category]`。回滚会连 `category` 一起改回旧值，新旧两个栏目都得清。
+3. `scripts/test-cache-bust.mjs`：新增 `CB-10`，禁止 `bust(url, [<非空>], [])` 形状。9 → 10 条。
+4. `PITFALLS.md` 新增 P-031，对账 31 条全绿。
+
+**注入验证**：审核那行改回 `[]` → `CB-10` 红并报 `api.js:698`；改回 → 10/10。
+
+**材料口径**：五候选（SonicJS / flare-stack / Cloudcore / CFBlog / cf-astro-blog-starter / Northstar）逐条对过。错的四条：Northstar「Cloudflare 官方」（个人仓库、近一年未更新、带 Tailwind 4）、DO 省 subrequest、TinyMCE 顶掉渲染器、CSP Report-Only（第三次）。对的四条：模板数字不能当基线、KV 写路径主动失效、首用户即管理员该删、lumi-cms 默认口令（README 原文核实）。「549→96」的引用方式违反 13 篇自身论点。
+
+**明说的没做**：没重测首屏基线（要两次部署 + 双 tail，本轮不做）；KV / DO / Service Binding 一行没加（`wrangler.jsonc` 仍五个绑定）；CSP 没退回 Report-Only；CFBlog 仍未核实；`bust()` 签名未改（先让 CB-10 守形状）；`check-live` 四条仍红。
+
 ### 四候选对账：说好的三张权限表只有一列（2026-11-23 完成，未入库）
 
 | slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
