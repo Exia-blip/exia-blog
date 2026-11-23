@@ -2524,6 +2524,42 @@ a{display:inline-block;padding:10px 22px;border-radius:999px;background:#1b1f24;
 <a href="/">回到首页</a></div></body></html>`;
 }
 
+/* 500 的唯一出口。三个观众三种回法：
+     浏览器（GET/HEAD + Accept: text/html）→ 静态 500 页，不带任何异常片段；
+     API 调用方（/api/ 开头）→ 原文 `e.message`，前端要拿它显示「保存失败：xxx」；
+     其余（curl、监控探针、爬虫）→ 一句通版话，不给表名和 SQL 方言。
+
+   为什么抽成函数：这条规则本来只写在 handleFetch 内层的 catch 里，外层那个
+   catch（handleFetch 自己抛出时才会走到）还是裸的 `error: e.message` ——
+   同一份判断写在两处，改一处漏一处，P-030 记过一次，这次是第二次。
+
+   `new URL()` 本身也可能抛（畸形请求），外层 catch 存在的意义正是兜这种意外，
+   所以它抛了不能再往上甩：拿不到路径就按「非 API」处理。 */
+function fatalResponse(request, e) {
+  console.error(e);
+  let here = '';
+  try {
+    here = new URL(request.url).pathname;
+  } catch {}
+  const wantsHtml =
+    !here.startsWith('/api/') &&
+    (request.method === 'GET' || request.method === 'HEAD') &&
+    /text\/html/.test(request.headers.get('accept') || '');
+  if (wantsHtml) {
+    return new Response(serverErrorPage(), {
+      status: 500,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+        'retry-after': '60',
+      },
+    });
+  }
+  return here.startsWith('/api/')
+    ? json({ ok: false, error: e.message }, 500)
+    : json({ ok: false, error: '服务器错误' }, 500);
+}
+
 /* 给最终 HTML 补 ETag。
  *
  * 为什么不在 html() 里算：那个 body 之后还要被 injectTheme（塞 __POST__/__ARCH__）
@@ -2714,7 +2750,10 @@ export default {
     try {
       res = await this.handleFetch(request, env, ctx);
     } catch (e) {
-      res = json({ ok: false, error: e.message }, 500);
+      /* 兜底的兜底：handleFetch 自己抛出来的异常（HEAD 预处理、URL 解析、
+         日志上报）到不了内层那个 catch，会一路掉到这里。回法必须和内层一致，
+         所以走同一个 fatalResponse —— 别在这儿再写一遍分支。 */
+      res = fatalResponse(request, e);
     }
     emit(requestLog({ request, response: res, durationMs: Date.now() - startedAt }));
     return res;
@@ -2829,29 +2868,8 @@ export default {
       return maybe304(res, request);
     } catch (e) {
       console.error(e);
-      /* API 还是回 JSON（调用方是前端脚本，解析 HTML 只会更糟）；
-         页面请求回那张 500 页，别把人扔到 Cloudflare 的英文白屏上。 */
-      const here = new URL(request.url).pathname;
-      const wantsHtml =
-        !here.startsWith('/api/') &&
-        (request.method === 'GET' || request.method === 'HEAD') &&
-        /text\/html/.test(request.headers.get('accept') || '');
-      if (wantsHtml) {
-        return new Response(serverErrorPage(), {
-          status: 500,
-          headers: {
-            'content-type': 'text/html; charset=utf-8',
-            'cache-control': 'no-store',
-            'retry-after': '60',
-          },
-        });
-      }
-      /* 非 HTML 的页面请求（curl、监控探针、爬虫不带 Accept）拿到的仍是 JSON，
-         但不给原文：那是 SQL、表名、SQLite 的报错文案。API 保持原样 ——
-         前端要 message 才能把「保存失败：xxx」说清楚。 */
-      return here.startsWith('/api/')
-        ? json({ ok: false, error: e.message }, 500)
-        : json({ ok: false, error: '服务器错误' }, 500);
+      /* 回法与最外层 catch 共用一个函数，见 fatalResponse 的注释。 */
+      return fatalResponse(request, e);
     }
   },
 

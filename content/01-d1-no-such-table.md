@@ -110,4 +110,6 @@ D1 的 `--local` 和 `--remote` 不是「同一个库的两种访问方式」，
 
 系列里的另外两篇：[wrangler deploy 失败对照](/p/wrangler-deploy-errors)、[Cannot perform I/O on behalf of a different request](/p/workers-io-different-request)。
 
+补一句后话：这个报错原文该出现在日志里，不该出现在页面路径的响应体里。不带 `Accept` 的请求要是也能拿到 `D1_ERROR: no such table: posts`，表名和 SQL 方言就一起送出去了 —— 那一处修完，回头写一篇专门讲 500 的分流。
+
 #cloudflare #d1 #debugging #sqlite

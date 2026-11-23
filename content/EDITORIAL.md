@@ -217,6 +217,7 @@
 
 **旧文回补链接改到上线日做**：`comment-anti-spam` 与 `sticky-toc-grid-align-items` 已各加一句文字预告（不带 href），因为新文 2027-02-10 才开闸，现在挂链接就是三个月 404。上线当天把那两处改成 `[文字](/p/gate-only-covered-the-honest-half)` 即可，句子的位置已经标好。
 
+
 | slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
 |---|---|---|---|---|
 | `gate-only-covered-the-honest-half` | 六条断言查了五条：材料把我们自己的 CI 当成了文章 | 工程实录 | `content-length 谎报 请求体 上限` / `cloudflare worker request.json 内存` | **六条要求里五条已在 CI**（渲染器顺序哨兵 `escAt<imgAt`、`isPartOf` 自指、`[P-024]` 安全头逐指令、sticky 真机、`/img/` nosniff）；**材料把蜜罐返回值写反了**（说 200，本站 400）；**闸门的判据（`content-length` 是声明）与它保护的动作（读流是事实）不在同一层** → 13 个写分支里 12 个还裸 `request.json()`；**`check-toc-sticky.mjs` 从不在 `npm test` 里**（要浏览器+线上地址），而那条回归只有长文章看得出来，CI 里没有长文章；CSP 第四次被判「没有」，实际 enforcing |
@@ -235,6 +236,24 @@
 **材料口径**：材料列的六条断言里，渲染器顺序守护（`test-md-guard.mjs` 的 M1/M2 变异 + 源码顺序哨兵）、`isPartOf` 自指（`test-seo-series.mjs` + `check-ld.mjs`）、安全头（`test-headers.mjs` `[P-024]` 逐指令）、`/img/` nosniff（`test-headers` / `test-svg`）**都已存在**；`/img/` 不发任何出站请求（只读 R2），「拒绝内网」那条真正的位置是 `cron.js` 的 `isBlockedHost()`。三个功能缺口里，评论 Webhook（四平台）与两级回复（`parent_id`）已上线，多文隔离上一轮完成。`visibility` 不加：`published_at`/`is_private`/`review_status`/`hidden` 已把可见性拆成四个正交维度。CSP 是 enforcing，改 Report-Only 是拆防线一周。
 
 **明说的没做**：WAF / Bot Fight Mode 未开（部署 token 无 Firewall 写权限，面板开关，代码绕不过）；没加 `[[ratelimits]]` binding（per-colo 软限，加了要部署才验得了，本轮不部署）；没拆 `features/`（`public/md.js` 双端共用）；没引 sanitize 库 / Hono / KV；没重测首屏；`check-live` 四条仍红（未部署）。
+
+### 两个都不报错的错：越界页码 200 + MAX 写成标量（2026-11-24 完成，**已入库** id 59，2027-02-17 09:00 上线）
+
+入库脚本 `scripts/seed-56.mjs` → `scripts/seed-56.sql`（`ON CONFLICT(slug) DO NOTHING` 可重放）。排期接在 55 篇（2027-02-10）之后，周三 09:00。回补对象是 `ld-self-reference` 与 `d1-no-such-table`，各加一句不带 href 的预告，上线当天改成链接。
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `scalar-max-and-out-of-range-page` | 两个都不报错的错：越界页码 200，MAX 写成了标量 | 工程实录 | `sqlite max(a,b) group by` / `分页 越界 404 canonical` | **`MAX(a,b)` 在 `GROUP BY` 里是标量**（`node:sqlite` 内存库实测：`log` 组单层给 11-21、双层给次年 02-03，差 74 天）；**越界页码是软 404**（线上 6 条地址全 200 且 canonical 自指，本地修后 404/归一逐条对照）；线上 18 篇里 1 篇 `lastmod` 早于 `datePublished`（11-13 对 11-21）；**500 的出口有两处，上一轮只改了一处**（`handleFetch` 首行注入 throw，`curl` 拿到 53B 的 `D1_ERROR` 原文）；`size` 参数页面侧完全不认（`?size=1&page=5` 仍 404） |
+
+**这篇带两处生产修复 + 两条新断言**：
+
+1. `src/index.js`：新增 `fatalResponse(request, e)`，内层 catch（route 分发）与外层 catch（handleFetch 自身）共用；`new URL()` 解析失败时按非 API 处理，不在兜底里二次抛出。
+2. `scripts/test-route-boundaries.mjs`：`RB-07` 加两条 —— 调用点 ≥ 2（排除函数定义行）、catch 块里不许再有第二份 `error: e.message` 实现。
+3. `PITFALLS.md` 新增 P-045，对账 45 条。
+
+**注入验证**：外层 catch 改回 `json({ error: e.message }, 500)` → RB-07 双红（`只有 1 处调用` / `1 个 catch 又自己拼了 e.message`）；还原 → 32 条全绿。上一轮的 P-042 五条线上断言在旧线上代码上 5 红（已部署后复跑）。
+
+**明说的没做**：`/archive` 不分页；标签页 60 秒 404 缓存不动；404 文案不分类；没验证爬虫侧的实际反应（软 404 的抓取预算影响只到推断）。
 
 ### 缓存键里唯一被请求头决定的，是 host（2026-11-23 完成，未入库）
 

@@ -202,6 +202,22 @@ check('RB-07', '非 API 的 500 不回异常原文',
   /here\.startsWith\('\/api\/'\)/.test(idxAll) && /error: '服务器错误'/.test(idxAll),
   /here\.startsWith\('\/api\/'\)/.test(idxAll) ? '按路径分流' : '又变成一律回 e.message 了');
 
+/* 上一版只守了「有一条分流」，没守「几处 catch 都走它」。
+   实测：把异常扔在 handleFetch 开头（HEAD 预处理、URL 解析那一层），
+   内层 catch 够不着，落到最外层那个裸 catch —— 它当时还是 `error: e.message`，
+   于是同一个站两种 500，一种有防护一种把表名送出去。
+   同一条规则写在两处只改一处，是 P-030 记过的老毛病，这条防它第三次。 */
+const callSites = (idxAll.match(/(?:res = |return )fatalResponse\(request, e\)/g) || []).length;
+check('RB-07', '两个 catch 共用同一个 500 出口（≥2 处调用）', callSites >= 2,
+  callSites >= 2 ? `${callSites} 处调用` : `只有 ${callSites} 处调用，最外层 catch 可能又自己写了一份`);
+
+// 兜底形状：catch 块里不许再出现裸的 e.message 回包。
+// fatalResponse 本体当然要用它，所以只扫两个 catch 的内部。
+const catches = idxAll.match(/catch \(e\) \{[\s\S]{0,600}?\n    \}/g) || [];
+const leakers = catches.filter((c) => /error: e\.message/.test(c) && !/return fatalResponse/.test(c));
+check('RB-07', 'catch 块里没有第二份 500 分支实现', leakers.length === 0,
+  leakers.length ? `${leakers.length} 个 catch 又自己拼了 e.message` : `${catches.length} 个 catch 都走统一出口`);
+
 /* ---------- 汇总 ---------- */
 console.log('');
 if (warnList.length) console.log(`${warn} 条警告（不失败）：\n  ${warnList.join('\n  ')}`);

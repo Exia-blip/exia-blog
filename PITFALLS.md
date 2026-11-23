@@ -399,6 +399,15 @@
 - **教训**：**错误信息也是响应体，要按观众分级**。「给调用方看」和「给调试用」是两拨人：堆栈进日志（observability 可查），API 回可执行的原因，给普通请求回一句通版话。反过来的错也常见 —— 为了「方便排查」把 `e.message` 回给所有人，等于把内部结构贴到门口。
 - **出处**：站务记录（本文件，2026-11-24）；`src/index.js` 的 `serverErrorPage()` 与 `handleFetch` 的 catch；`scripts/test-route-boundaries.mjs`
 
+## P-045 500 的出口有两个，P-044 只修了内层那个
+
+- **现象**：P-044 修完、断言全绿。这一轮为了复验，把 `throw` 扔在 `handleFetch` 第一行（内层 `try` 之外），`curl` 不带 `Accept` 拿到的仍是 `{"ok":false,"error":"D1_ERROR: no such table: posts"}`，53 字节，表名和 SQL 方言一个不少。带 `Accept: text/html` 的那条路反而正常 —— 因为内层 catch 挡得住，只有外层漏。同一份故障，同一天，两种回包。
+- **根因**：`handleFetch` 里的 `try` 只包住了 `route()` 分发那一段。异常如果抛在它前面（HEAD 预处理、URL 解析）或者后面（ETag 重算、日志上报），到不了内层那个已经改好的 catch，一路掉到 `fetch()` 最外层。那里还是 `json({ ok: false, error: e.message }, 500)` —— 判断写了两份，改的时候只改了一份。P-030 同族。
+- **复现**：本地 `wrangler dev`，`handleFetch` 首行临时插 `if (new URL(request.url).pathname === '/__boom') throw new Error('D1_ERROR: no such table: posts')`。修前：无 `Accept` → 500 + 53B 原文；`Accept: text/html` → 500 + 1109B 静态页（`D1_ERROR` 出现 0 次）；`/api/` 路径 → 500 + 原文（本来就该）。修后：前者变成 `{"ok":false,"error":"服务器错误"}`，另两条不变。注入行验证完已删除。
+- **断言**：`scripts/test-route-boundaries.mjs` RB-07 新增两条 —— `(res = |return )fatalResponse(request, e)` 的调用点 ≥ 2（排除函数定义行本身）；catch 块里出现 `error: e.message` 且块内没有 `return fatalResponse` 即红。注入验证：外层 catch 改回裸写法 → 双红；还原 → 32 条全绿。
+- **教训**：**「修好了」要再问一句：这条规则有几份实现**。一处在内层 catch，一处在最外层，第三处可能在 `scheduled` 或别的手工入口。收口的标准不是「路径测试通过」，是「只剩一处能写出这个回包」。所以这次不补分支，抽 `fatalResponse()`，两个 catch 都调它 —— 判断合并，控制流不动。
+- **出处**：站务记录（本文件，2026-11-24）；`src/index.js` 的 `fatalResponse()`（内层 catch 与外层 catch 共用）；`scripts/test-route-boundaries.mjs`；正文 `/p/scalar-max-and-out-of-range-page`
+
 ---
 
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
