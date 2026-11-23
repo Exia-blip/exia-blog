@@ -142,6 +142,32 @@ t('analytics 传 null 不炸（未配置时的正常路径）', () => {
   assert.ok(c.startsWith("default-src 'self'"), c);
 });
 
+/* ---------- [P-020] CSP 与 Turnstile 的联动 ----------
+   只放行 script-src 是不够的：组件在 iframe 里，frame-src 少了它就是白框；
+   校验要走 connect-src。三处少一处，表现都是「验证框空白、评论发不出去」，
+   而控制台里只有一行被拦的 URL —— 很容易被当成 Turnstile 自己的问题。 */
+const TS = 'https://challenges.cloudflare.com';
+
+t('开启 Turnstile 时 script-src / connect-src / frame-src 三处都要放行', () => {
+  const c = cspOf({ turnstile: true });
+  for (const d of ['script-src', 'connect-src', 'frame-src']) {
+    assert.ok(dir(c, d).includes(TS), `${d} 没放行 ${TS}：${dir(c, d)}`);
+  }
+});
+
+t('没配 Turnstile 时一个字节都不放（默认零第三方）', () => {
+  const c = cspOf({ turnstile: false });
+  assert.ok(!c.includes('challenges.cloudflare.com'), c);
+  assert.ok(!cspOf({}).includes('challenges.cloudflare.com'), '默认参数下也不该出现');
+});
+
+t('style-src 的 unsafe-inline 是已知债务，但 script-src 不许有', () => {
+  const c = cspOf({ turnstile: true });
+  assert.ok(dir(c, 'style-src').includes("'unsafe-inline'"), '样式内联是当前设计（Markdown style 属性）');
+  assert.ok(!dir(c, 'script-src').includes('unsafe-inline'), `script-src 出现 unsafe-inline：${dir(c, 'script-src')}`);
+  assert.ok(!dir(c, 'script-src').includes('unsafe-eval'), `script-src 出现 unsafe-eval：${dir(c, 'script-src')}`);
+});
+
 let pass = 0;
 for (const [name, fn] of cases) {  try {
     fn();
@@ -153,3 +179,4 @@ for (const [name, fn] of cases) {  try {
   }
 }
 console.log(`\n[P-012] ${pass}/${cases.length} passed`);
+console.log(`[P-020] CSP / Turnstile 联动 3 条：三处放行 / 关时零放行 / script-src 无 unsafe-*`);

@@ -503,10 +503,29 @@ export function bodyCapFor(path) {
   return BODY_LIMIT_JSON;
 }
 
+/* 只读开关：出事时把写接口一次性关掉，静态页与文章照常读。
+   为什么是环境变量而不是后台开关：后台开关本身也要写库，正是出事时最不该依赖的东西；
+   变量改完下一次请求即生效，不用发版，也不占 D1。
+   取值宽松一点（1/true/on），省得因为写成 "TRUE " 就不生效 —— 这个开关失效的代价比误判大。 */
+export function readonlyMode(env = {}) {
+  const v = String(env.READONLY_MODE || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'on' || v === 'yes';
+}
+
 export async function handleApi(env, request, url, ctx) {
   const db = env.DB;
   const path = url.pathname.replace(/^\/api/, '') || '/';
   const method = request.method;
+
+  /* 写在最前面，先于鉴权：只读时要省掉的正是那一次 users 查询。
+     GET/HEAD/OPTIONS 一律放行 —— 只读模式的意思是「还能看」，不是「全站 503」。 */
+  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && readonlyMode(env)) {
+    return json({ ok: false, error: '站点维护中，暂时无法提交' }, 503, {
+      'cache-control': 'no-store',
+      'retry-after': '600',
+    });
+  }
+
   const user = await currentUser(env, request);
 
   /* 闸门放在鉴权之后、解析之前：content-length 诚实的超大包在这里就结束，

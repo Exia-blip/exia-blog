@@ -149,6 +149,30 @@
 - **断言**：`npm run check:dom` → 只匹配 `rel` 含 `stylesheet|preload|modulepreload|icon|manifest` 的 link 和 `<script src>`；canonical 不计入。
 - **出处**：站务记录（本文件，2026-11-23）
 
+## P-018 只读开关关过头
+
+- **现象**：出事时打开 `READONLY_MODE`，站点整片 503，连文章页都打不开——本来只想挡住写入。
+- **根因**：开关写在业务 handler 里而不是入口，或者没排除 `GET/HEAD/OPTIONS`；再或者取值写成 `TRUE `（带空格）就静默不生效。
+- **复现**：`READONLY_MODE=1` 后 `curl -s -o /dev/null -w '%{http_code}' /api/site`，应得 404（路由兜底），不该是 503。
+- **断言**：`npm test` → `test-readonly.mjs` 输出 `[P-018]`：RO-03 写接口 503 且带 `retry-after` + `no-store`；RO-05 `GET/OPTIONS` 不被拦；RO-01 对 `1/true/on/yes` 与前后空格都认。
+- **出处**：站务记录（本文件，2026-11-23）
+
+## P-019 没验证过会失败的断言等于没写
+
+- **现象**：27 条 XSS 探针全绿，但把 `esc()` 改成恒等函数、把协议白名单拆掉，测试依然全绿。
+- **根因**：断言只比对「输出等于昨天的输出」，快照本身由被测代码生成——函数坏了，快照跟着坏，两边一起错就永远看不出来。
+- **复现**：`node scripts/test-md-guard.mjs`，它自己就是复现：复制 `md.js` 做单点变异再跑同一批探针。
+- **断言**：原版 0 违反；`esc` 失效至少红 5 条（实测 7）；`safeUrl` 白名单失效至少红 3 条（实测 3）；`s = esc(s);` 必须早于 `IMG_RE` / `LINK_RE` 替换——这一条是全文唯一的顺序断言。
+- **出处**：站务记录（本文件，2026-11-23）
+
+## P-020 CSP 与 Turnstile 脱钩
+
+- **现象**：配好 Turnstile 两把 key，验证框一片空白、评论发不出去；控制台只有一行被 CSP 拦掉的 URL。
+- **根因**：Turnstile 的组件在 iframe 里、校验走 XHR，`script-src` 放行了不等于能渲染——`frame-src` 少一个源就是白框，`connect-src` 少了就是「勾了也提交不了」。反过来，没配 Turnstile 时多放行这三个源，等于平白给第三方开三个口子。
+- **复现**：`csp(nonce, { turnstile: true })` 之后删掉 `frame-src` 里的 `challenges.cloudflare.com`，页面依旧 200，只有浏览器控制台报错。
+- **断言**：`npm test` → `test-security.mjs` 输出 `[P-020]`：开启时 `script-src` / `connect-src` / `frame-src` 三处都必须含该源；关闭时整条头里不许出现该字符串；`script-src` 不许出现 `unsafe-inline` / `unsafe-eval`（`style-src` 的内联是已知债务，单独断言）。
+- **出处**：《评论区防滥用》`content/11-comment-anti-spam.md`；`src/security.js` 的 `csp()`
+
 ---
 
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
