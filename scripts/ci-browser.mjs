@@ -32,6 +32,9 @@ const CHECKS = [
   { name: '目录吸顶', script: 'check-toc-sticky.mjs', args: [`${BASE}/p/ci-fixture`] },
   { name: '目录进度条像素', script: 'check-toc-bar.mjs', args: [`${BASE}/p/ci-fixture`] },
   { name: 'CSS 基线 computed style', script: 'check-css-baseline.mjs', args: [BASE] },
+  // 结构化 DOM 断言必须打真实 SSR 页面：public/index.html 是模板，
+  // aria-current 由服务端填充，拿模板跑会假红。
+  { name: 'DOM 基线（h1 / CLS / 语义 / 无外链）', script: 'check-dom.mjs', args: [`${BASE}/`] },
 ];
 
 const run = (script, args, env = {}) =>

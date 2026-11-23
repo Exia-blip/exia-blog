@@ -27,7 +27,10 @@ for (const [label, url] of [
   ['文章页', `${base}/p/ci-fixture`],
 ]) {
   const page = await browser.newPage();
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  // 本地 Worker 的 HTML 会命中 LRU（cache:HIT），不加 cache-buster 量到的是上一版模板
+  const fresh = new URL(url);
+  fresh.searchParams.set('cb', String(Date.now() + Math.random()));
+  await page.goto(fresh.toString(), { waitUntil: 'domcontentloaded', timeout: 30000 });
   const r = await page.evaluate(() => {
     const bg = getComputedStyle(document.body).backgroundColor;
     const h1 = document.querySelector('h1');

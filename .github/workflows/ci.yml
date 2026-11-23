@@ -31,6 +31,9 @@ jobs:
       - name: a11y 对比度断言（构建后扫 CSS 变量，14 组主题×明暗）
         run: npm run check:a11y
 
+      - name: CSS 体积预算（绝对值 + 基线不许涨超 10%）
+        run: npm run check:size
+
       - name: 单元测试
         run: npm test
 
