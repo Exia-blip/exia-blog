@@ -211,6 +211,27 @@
 
 **明说的没做**：没迁目录；没引 Hono/KV/vitest；`/api/archive` 不加缓存（冷路径）；`/api/posts` 不加缓存（`?tag=&cat=&q=` 组合无穷、`?q=` 能被刷出无限 key，与 CB-04 同一条理由）；没重测首屏；`check-live` 四条仍红（未部署）。
 
+### 缓存键里唯一被请求头决定的，是 host（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `cache-key-host-normalization` | 缓存键里唯一被请求头决定的，是 host | 工程实录 | `cloudflare cache key host header` / `sqlite offset datatype mismatch` | **材料的白名单只解决参数名无限、没解决值域无限**（`page=1..100000` 每个都是合法键）；**本站 `bust` 是精确删除、立刻生效，KV 版本号要 60 秒传播**（对本站是退步）；**本站缓存键的 origin 来自 Host 头**，配了 `SITE_ORIGIN` 但键不认它 → 两个域名两套缓存 + bust 只清一套；**`?page=1e21` 让列表页变成 200 的骨架屏**（SQLite `datatype mismatch` 被 SSR catch 兜成 `data:null`）；**`n \|\| 默认值` 把 `size=0` 与 `size=-5` 分成两种结果** |
+
+**这篇带两处生产修复 + 两组新断言**：
+
+1. `src/index.js`：`route()` 里 url 的 origin 归一化到 `siteOrigin(env, request)`，`edgeGet` / `edgePut` / `bustPaths` / `handleApi` 一次覆盖。此前缓存键跟 Host 头走，自定义域名与 `*.workers.dev` 各存一套、bust 只清一套。
+2. `src/utils.js`：`pageParams` 加 `MAX_PAGE = 10000` 上界，`n || 默认值` 改 `Number.isFinite`；`MAX_PAGE` 导出供断言用。
+3. `src/index.js`：`listParams` 删掉自己那份 `Math.max(1, parseInt(...))`，改调 `pageParams(url).page`。
+4. `scripts/test-cache-bust.mjs`：`CB-12` 看三件事接没接上（url 是否经过 siteOrigin / edgeGet+edgePut 是否吃它 / 有没有第二处直接拿 `request.url` 造键），不看「源码里有没有 siteOrigin」。
+5. `scripts/test-query-params.mjs`：`QP-01~05`，行为断言为主（直接调 `pageParams` 验 offset 是安全整数），`QP-05` 是元断言 —— `src/` 里除 `utils.js` 外不许再出现「取 page 再转数字」的形状。
+6. `PITFALLS.md` 新增 P-035，对账 35 条。
+
+**注入验证**：`url` 改回 `new URL(request.url)` → `CB-12` 红报「多域名会各存一套」；`MAX_PAGE` 改成 `Number.MAX_SAFE_INTEGER` → `QP-01`+`QP-04` 双红；`index.js` 恢复裸解析 → `QP-05` 红报 `index.js:1579`。
+
+**材料口径**：`Vary: *` 让 `cache.put` 抛错 —— **对**（CF 文档三个抛错条件之一），但「线上 500」半对，取决于有没有 try/catch，本站有。`cache.put/match` 不支持 `stale-while-revalidate` —— **对**，本站仍写 swr 是给 CF 边缘层看的，两层不是一回事。白名单拼键在本站不成立（`page` 无上界时仍能灌满；且 bust 精确删除比 KV 版本号快）。断言 P-026~P-030 全部撞号（本站 P-025 CSP 松紧 / P-026 Cookie 属性 / P-027 CORS / P-028 nonce / P-029 异步假绿 / P-030 只认一种句式），顺延 P-035 / QP-01~05。`c.header` 是 Hono API，本站没有 Hono。
+
+**明说的没做**：没做白名单拼键（`/tag/x?page=2` 仍不进缓存）；没加 `X-Cache`（Worker 只看得到 `caches.default` 一层，加了会误导读成边缘全 MISS）；没加 `Vary`（零 Vary 是当前也是正确状态）；没重测首屏；`check-live` 四条仍红（未部署）。
+
 ### 结构重排会让四条断言一起失明（2026-11-23 完成，未入库）
 
 | slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
