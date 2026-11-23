@@ -42,7 +42,7 @@ if (method !== 'GET' && method !== 'HEAD' && bodyTooLarge(request, bodyCapFor(pa
 
 `bodyTooLarge()` 只读 `content-length`。这个头是**对方声明的**，不是事实。报 `3`、推 1MB；或者分块上传干脆不给这个头——顶层全放行，请求一路走到分支里的 `const body = await request.json()`，整个包读进 128MB 的 isolate 再解析。
 
-当时只有一个接口做了按流计数（发评论，全站唯一匿名可灌数据的入口）。其余 12 个因为「要登录」被默认放过：文章增改、AI 摘要、审核、评论处置、批量删、封 IP、友链增改、站点设置、直传签名。登录只挡得住伪造身份，挡不住一个被盗的 cookie 拿你的额度烧 CPU。
+当时只有一个接口做了按流计数（[发评论](/p/comment-anti-spam) 那条路，全站唯一匿名可灌数据的入口）。其余 12 个因为「要登录」被默认放过：文章增改、AI 摘要、审核、评论处置、批量删、封 IP、友链增改、站点设置、直传签名。登录只挡得住伪造身份，挡不住一个被盗的 cookie 拿你的额度烧 CPU。
 
 还有两个入口是同一个坑的另一种长相：`request.formData()`。头像上传与图片直传都写着 `await request.formData()`——它内部同样把整个 body 读进内存，只是因为「像浏览器帮我解析好了」而不容易被当成出口。
 
@@ -68,6 +68,14 @@ async function readBody(request, path, { lenient = false } = {}) {
 13 个 JSON 分支现在全部走它。`lenient` 留给开关类接口（审核动作、评论处置、批量删、封 IP、摘要）：空 body / 坏 JSON 一律当 `{}`，保持它们原来 `.catch(() => ({}))` 的语义；写正文、上传、站点设置必须报 400。
 
 表单那条路另有一个 `readForm(request, path)`，内容和它对称：`readFormLimited()` 先按流数一遍（与 JSON 共用 `readBytesLimited`，只写一份计数逻辑），再把手里的字节包成 `Response` 交给 `.formData()` 解析——boundary 在 `content-type` 里，原样搬过去就行。数量本身没有分叉：两条路都读 `bodyCapFor(path)`（上传与头像 8MB）。
+
+修完发版，线上真打了一次。用分块流直接推 1.1MB、故意不给 `content-length`：
+
+| 请求 | 结果 |
+|---|---|
+| 64KB × 17 块（1.1MB），`POST /api/comments` | `413` + `请求体太大`，第 1,179,648 字节就到头，`reader.cancel()` 之后一块都不再读 |
+
+这就是新旧代码的分界线：旧代码会把整包读完，再走到别的错误分支（或撞 DB）；新代码在超限的那一块断流，花费的是 1.1MB 带宽而不是「读满 + 解析」的 CPU。
 
 ## 三、真缺口二：蜜罐的断言不能只写「拦住了」
 
@@ -95,7 +103,7 @@ if (String(body.hp || '').trim()) return err('验证没通过，刷新页面再�
 
 > grid 里写 `align-items: start`，父格缩成 336px，`position: sticky` 立刻退化成 `relative`。而且只有长文章看得出来。
 
-文章里这句话的后半段是致命的：**CI 里没有长文章**。
+这条规则是 [那次 sticky 复盘](/p/sticky-toc-grid-align-items) 的产物。文章里这句话的后半段是致命的：**CI 里没有长文章**。
 
 所以新增 `test-sticky-css.mjs`，守成因（CSS 那三行），真机那份守现象（滚 1200px 还在原位）：
 
@@ -112,17 +120,18 @@ SC-05 是这条的「没验证过会失败的断言等于没写」——对着�
 ## 五、明说的没做
 
 - **WAF / Bot Fight Mode 没开**。这是面板开关，部署用的 API token 没有 Firewall 写权限，代码里也绕不过去。材料把它排在第 1 周，实际卡在权限上，不在实现上。应用层现在有两道按 IP 的 D1 限流（评论 `comment_guard`、登录 `auth:ip:`），能挡单点刷，挡不住分布式——这一层确实只有边缘能给。
-- **没加 `[[ratelimits]]` binding**。它是 per-colo 软限（文档原文 `Requests can exceed this threshold`），加了要部署才验得了；本轮不部署，加了就是一段没人验证过的配置。
+- **没加 `[[ratelimits]]` binding**。它是 per-colo 软限（文档原文 `Requests can exceed this threshold`）：同一秒打到两个节点的请求各算各的，拦不住分布式，也不跨节点累计。应用层那两道按 IP 的 D1 限流是准的，再加一个只在单节点生效、必须靠部署才验得了的配置，收益对不上成本。
 - **没引 sanitize 库**，也没引 Hono、KV、vitest。`src/clean.js` 是自写的白名单清洗，`dependencies` 仍为空。
 - **没拆 `features/` 目录**。`public/md.js` 双端共用（`editor.html` 直接 `import`），搬进 `src/` 浏览器端就 404；这一条前面四轮已经写过理由，不再重复。
 - **没改 CSP 成 Report-Only**。理由见第一节。
-- **没重测首屏**。本轮没部署，`check-live` 四条红是预期。
+- **没重测首屏**。v1.2.4 已部署，`check:live` 89/89；但这次一行渲染逻辑都没动（改的是读体入口），首屏基线是另一个指标的事，没测。
 
 ## 复现条件
 
 - 环境：Node 22+，无网络，无浏览器
 - 触发：`node scripts/test-body-limit.mjs` / `node scripts/test-antispam.mjs` / `node scripts/test-sticky-css.mjs`
 - 期望：`17/17`、`16/16`、`5/5`；实际：一致
+- 线上：`npm run check:live` → `89 通过，0 失败`（v1.2.4 部署后复跑；部署后 5 分钟内那一轮会有 ETag/304 组假红，是 `s-maxage=300` 的缓存窗口，不是回归）
 
 ## 断言代码
 

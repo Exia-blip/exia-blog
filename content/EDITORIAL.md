@@ -211,7 +211,11 @@
 
 **明说的没做**：没迁目录；没引 Hono/KV/vitest；`/api/archive` 不加缓存（冷路径）；`/api/posts` 不加缓存（`?tag=&cat=&q=` 组合无穷、`?q=` 能被刷出无限 key，与 CB-04 同一条理由）；没重测首屏；`check-live` 四条仍红（未部署）。
 
-### 六条断言查了五条：材料把我们自己的 CI 当成了文章（2026-11-24 完成，未入库）
+### 六条断言查了五条：材料把我们自己的 CI 当成了文章（2026-11-24 完成，**已入库** id 57，2027-02-10 09:00 上线）
+
+入库脚本 `scripts/seed-55.mjs` → `scripts/seed-55.sql`（INSERT 带 `html_content` / `cover_body`，`ON CONFLICT(slug) DO NOTHING` 可重放）。排期接在 `monaco-eol-crlf`（2027-02-03）之后，周三 09:00。文中两条内链指向 `comment-anti-spam` / `sticky-toc-grid-align-items`（都已上线，不会死链）。
+
+**旧文回补链接改到上线日做**：`comment-anti-spam` 与 `sticky-toc-grid-align-items` 已各加一句文字预告（不带 href），因为新文 2027-02-10 才开闸，现在挂链接就是三个月 404。上线当天把那两处改成 `[文字](/p/gate-only-covered-the-honest-half)` 即可，句子的位置已经标好。
 
 | slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
 |---|---|---|---|---|

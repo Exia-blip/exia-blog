@@ -258,4 +258,6 @@ const items = [...src].map((a) =>
 
 这一篇里真正难的不是 sticky，是**"看着像样式问题"的直觉**。目录不动、高亮在动，第一反应都是去查 sticky 的语法或者 z-index。查语法永远查不出来，因为语法没错；错的是它脚下那块地只有 336px 高。
 
+后来把这段的**成因**也搬进了 CI——`test-sticky-css.mjs` 守 CSS 那三行（`align-items: stretch` 出现 `start` 即红），真机脚本守现象。那份对账写在另一篇里（排期 2027-02）：CI 里没有长文章，所以只能守成因。
+
 #css #layout #browsers

@@ -400,4 +400,6 @@ const rows = isAdm ? results : results.map(({ email, ip, ...rest }) => rest);
 
 至于它撑了多久、后台那个"封 IP"按钮到底有没有被真的按过——等第一条垃圾评论出现，拿真实处置记录写《垃圾评论标本室》。在那之前，继续写正经的。
 
+后补一句：蜜罐命中时到底返回什么、拦住的到底是响应还是落库，后来单独写成了一篇（排期 2027-02）。在那之前，把 `400` 改成 `200`、或者把蜜罐挪到 `INSERT` 之后，`npm test` 一条都不会红。
+
 #cloudflare #turnstile #security
