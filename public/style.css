@@ -518,20 +518,22 @@ a.cat-chip:hover { filter: brightness(0.96); }
   color: var(--accent); margin-bottom: 5px;
 }
 .post-lead p { margin: 0; font-size: 16px; line-height: 1.75; color: var(--fg-soft); }
-.post-body { font-size: 18px; line-height: 1.85; color: var(--fg-soft); }
+.post-body { font-size: 18px; line-height: 1.85; color: var(--fg-soft); font-feature-settings: "kern" 1, "liga" 1; }
 .post-body > *:first-child { margin-top: 0; }
 
 /* markdown 排版 */
-.md h1, .md h2, .md h3, .md h4 { font-family: var(--serif); color: var(--fg); letter-spacing: -0.01em; line-height: 1.4; }
+/* text-wrap 只改换行决策，不改字号/盒模型：标题两行等长，正文/列表避免末尾孤字。
+   中英混排时 kern/liga 交给 .post-body 的 font-feature-settings，数字等宽继续用 tabular-nums。 */
+.md h1, .md h2, .md h3, .md h4 { font-family: var(--serif); color: var(--fg); letter-spacing: -0.01em; line-height: 1.4; text-wrap: balance; }
 .md h1 { font-size: 28px; margin: 2em 0 0.7em; }
 .md h2 { font-size: 23px; margin: 1.9em 0 0.6em; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .md h3 { font-size: 19.5px; margin: 1.6em 0 0.5em; }
 .md h4 { font-size: 17px; margin: 1.4em 0 0.4em; }
-.md p { margin: 0 0 1.15em; }
+.md p { margin: 0 0 1.15em; text-wrap: pretty; }
 .md a { color: var(--accent); border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
 .md a:hover { border-bottom-color: var(--accent); }
 .md ul, .md ol { margin: 0 0 1.15em; padding-left: 1.5em; }
-.md li { margin: 0.3em 0; }
+.md li { margin: 0.3em 0; text-wrap: pretty; }
 .md li > ul, .md li > ol { margin: 0.3em 0; }
 .md blockquote {
   margin: 1.4em 0; padding: 2px 0 2px 18px;
