@@ -170,4 +170,35 @@ t('回复的父评论必须是已放行的', () => {
   );
 });
 
+/* ---------- 四条渲染路径必须共用同一份协议过滤 ----------
+   评论的 website 落库时只做长度截断，不校验协议（存储层可能已有历史脏值，
+   过滤放出口更稳）。于是「有几条渲染路径」就等于「有几个待审面」：
+     1. SSR          src/index.js        renderComment
+     2. 后台待审     src/admin-pages.js  renderCommentsAdmin（根本不显示 website）
+     3. 客户端重渲染 public/post.html    renderCmt
+     4. API JSON     src/api.js          原值返回，仅上面三处消费
+   1 和 3 都由 test-comment-ssr 直接测到；这里守的是「它们没有各写一份实现」。 */
+const postHtml = readFileSync(new URL('../public/post.html', import.meta.url), 'utf8');
+const adminSrc = readFileSync(new URL('../src/admin-pages.js', import.meta.url), 'utf8');
+
+t('客户端评论渲染从 /avatar.js 导入 safeWebsite，不自带副本', () => {
+  assert.match(postHtml, /import\s*\{[^}]*safeWebsite[^}]*\}\s*from\s*'\/avatar\.js'/, 'post.html 没从 /avatar.js 导入 safeWebsite');
+  assert.ok(!/function\s+safeWebsite/.test(postHtml), 'post.html 自己复制了一份 safeWebsite —— 两份实现迟早漂移');
+});
+
+t('客户端 renderCmt 的外链必须过 safeWebsite，正文必须过 esc', () => {
+  const fn = postHtml.slice(postHtml.indexOf('function renderCmt'), postHtml.indexOf('function renderCmt') + 1600);
+  assert.match(fn, /const site = safeWebsite\(c\.website\)/, 'renderCmt 没做协议过滤');
+  assert.match(fn, /href="\$\{esc\(site\)\}"/, 'renderCmt 的 href 不是 esc(site)');
+  assert.match(fn, /<div class="text">\$\{esc\(c\.content\)\}<\/div>/, 'renderCmt 的正文没走 esc');
+  assert.ok(!/\$\{c\.website\}/.test(fn), 'renderCmt 直接把原始 website 拼进模板');
+});
+
+t('后台待审页不把 website 拼成链接（更保守的一档）', () => {
+  const fn = adminSrc.slice(adminSrc.indexOf('export function renderCommentsAdmin'), adminSrc.indexOf('export function renderCommentsAdmin') + 2200);
+  assert.ok(!/c\.website/.test(fn), 'renderCommentsAdmin 开始显示 website —— 若要显示必须走 safeWebsite');
+  assert.match(fn, /<strong class="adm-cmt-author">\$\{esc\(c\.name \|\| '匿名'\)\}/, '待审作者名没走 esc');
+  assert.match(fn, /<p class="adm-cmt-content">\$\{esc\(c\.content \|\| ''\)\}<\/p>/, '待审正文没走 esc');
+});
+
 console.log(`\n${pass} 条通过`);

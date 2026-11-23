@@ -1,6 +1,7 @@
 // 评论限额判定回归。judge() 是纯函数，这里不碰 D1、不发请求。
 // 用法：node scripts/test-antispam.mjs
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { judge, dayKey, secsToNextDay, turnstileMode, MIN_GAP_SEC, DAY_MAX } from '../src/antispam.js';
 
 const cases = [];
@@ -77,6 +78,28 @@ t('只配 sitekey → site-only（服务端验不了，按失败处理）', () =
 
 t('只配 secret → secret-only（前端没组件，按未启用处理）', () => {
   assert.equal(turnstileMode({ TURNSTILE_SECRET: 's' }), 'secret-only');
+});
+
+/* ---------- [P-022] 限流的判定不是原子的（已知边界，未修） ----------
+   现状：guard() 先 SELECT 读两把钥匙 → judge() 判定 → 业务写入 → record() 才累加。
+   累加本身是原子的（INSERT ... ON CONFLICT DO UPDATE），但「检查」与「累加」之间
+   有一个窗口：N 个并发请求可以同时读到 hits=0，全部通过判定，然后各自累加。
+   日上限 10 在理论上能被打成 10N。
+
+   为什么不改：改成「先原子占位、再写评论」会让被 400 拒掉的请求也计额度
+   （真人填错邮箱被拒就少一次机会），而现在的语义是「落库成功才计数」。
+   两种语义都要原子，就得加事务或补偿删除，复杂度换来的是博客评论场景下
+   一个需要 Turnstile 关闭 + 并发 10 以上才成立的窗口。
+
+   这一段测的是「现状就是 check-then-act」—— 不是「这样是对的」。
+   哪天有人把它改成单语句原子占位，这里会红，那时应当同步更新 PITFALLS 的措辞。 */
+const antispamSrc = readFileSync(new URL('../src/antispam.js', import.meta.url), 'utf8');
+
+t('[P-022] guard 只读不写、record 才累加（check-then-act 现状）', () => {
+  const guardBody = antispamSrc.slice(antispamSrc.indexOf('export async function guard'), antispamSrc.indexOf('export async function record'));
+  assert.ok(/SELECT k, day, hits, last_ts, banned FROM comment_guard/.test(guardBody), 'guard 不再读计数表，结构变了要同步 P-022');
+  assert.ok(!/INSERT|UPDATE/.test(guardBody), 'guard 开始写库了 —— 可能已经改成原子占位，请更新 P-022 的措辞与文章');
+  assert.ok(/ON CONFLICT\(k\) DO UPDATE SET[\s\S]{0,200}comment_guard\.hits \+ 1/.test(antispamSrc), 'record 不再是原子递增');
 });
 
 let pass = 0;

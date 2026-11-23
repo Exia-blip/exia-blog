@@ -13,7 +13,7 @@ import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { renderBody } from '../public/md.js';
+import { renderBody, renderMarkdown } from '../public/md.js';
 import { probes } from './md-probes.mjs';
 import { report } from './pitfall-check.mjs';
 
@@ -62,7 +62,7 @@ function countUnsafe(render) {
   return hit;
 }
 
-/** 做单点变异 → 动态 import → 返回该变异体的 renderBody */
+/** 做单点变异 → 动态 import → 返回该变异体的模块（renderBody / renderMarkdown 都要） */
 async function mutant(tag, from, to) {
   assert.ok(source.includes(from), `[P-008] 变异锚点失效（${tag}），md.js 结构变了要同步这里`);
   const code = source.replace(from, to);
@@ -71,7 +71,7 @@ async function mutant(tag, from, to) {
   writeFileSync(file, code);
   try {
     const mod = await import(`${pathToFileURL(file).href}?v=${Date.now()}`);
-    return mod.renderBody;
+    return mod;
   } finally {
     // Windows 上已加载的模块不影响删除；保险起见失败也不阻断测试
     try { unlinkSync(file); } catch {}
@@ -88,7 +88,7 @@ const m1 = await mutant(
   "export const esc = (s = '') => String(s).replace(/[&<>\"']/g, (c) => ESC[c]);",
   "export const esc = (s = '') => String(s);"
 );
-const m1Hit = countUnsafe(m1);
+const m1Hit = countUnsafe(m1.renderBody);
 assert.ok(
   m1Hit.length >= 5,
   `[P-008] 把 esc 换成恒等函数后只有 ${m1Hit.length} 条探针变红，检测器覆盖不足`
@@ -100,7 +100,7 @@ const m2 = await mutant(
   "return (kind === 'img' ? SAFE_IMG : SAFE_LINK).test(s) ? s : '#';",
   "return s;"
 );
-const m2Hit = countUnsafe(m2);
+const m2Hit = countUnsafe(m2.renderBody);
 assert.ok(
   m2Hit.length >= 3,
   `[P-008] 拆掉协议白名单后只有 ${m2Hit.length} 条探针变红，检测器覆盖不足`
@@ -133,9 +133,35 @@ assert.ok(
   '[P-008] 图片 src 不再经过 safeUrl 拼装'
 );
 
+/* ---------- 预览路径：客户端少一道 sanitize，但必须是同一条渲染管线 ----------
+   编辑器预览是 `previewEl.innerHTML = renderMarkdown(md)`（public/editor.html），
+   服务端发布路径是 `sanitizeHtml(renderBody(content))`。两者差的是 sanitize 那一层，
+   **不该差渲染器本身**。若这里换成第二套实现，27 条探针就只保护了发布路径，
+   编辑器的实时预览变成无人看守的注入面。
+   下面的断言测两件事：预览入口在 27 条探针下同样零违反；源码里没有第二个渲染器。 */
+const previewHit = countUnsafe(renderMarkdown);
+assert.deepEqual(previewHit, [], `[P-019] 编辑器预览入口 renderMarkdown 违反安全不变量：${previewHit.join(' / ')}`);
+
+/* 变异体上跑预览入口：esc 坏掉时预览也必须红，否则说明探针只覆盖了 renderBody */
+const m1PreviewHit = countUnsafe(m1.renderMarkdown);
+assert.ok(
+  m1PreviewHit.length >= 5,
+  `[P-019] esc 失效后预览入口只有 ${m1PreviewHit.length} 条探针变红，预览路径没被探针覆盖`
+);
+
+const editorSrc = readFileSync(new URL('../public/editor.html', import.meta.url), 'utf8');
+assert.ok(
+  /previewEl\.innerHTML\s*=\s*renderMarkdown\(/.test(editorSrc),
+  '[P-019] 编辑器预览不再走 renderMarkdown —— 换了入口就等于换了被测代码'
+);
+assert.ok(
+  !/\b(marked|showdown|markdownit|MarkdownIt|remark)\s*[(.]/i.test(editorSrc),
+  '[P-019] editor.html 里出现了第二个 Markdown 渲染器'
+);
+
 report(
   'P-019',
   '变异测试：拆掉转义/白名单必须被探针抓到',
   true,
-  `原版 0 违反；esc 失效红 ${m1Hit.length} 条；url 白名单失效红 ${m2Hit.length} 条；esc 调用 ${escCalls} 处`
+  `原版 0 违反（预览入口同）；esc 失效红 ${m1Hit.length} 条（预览 ${m1PreviewHit.length} 条）；url 白名单失效红 ${m2Hit.length} 条；esc 调用 ${escCalls} 处`
 );
