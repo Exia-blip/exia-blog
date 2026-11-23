@@ -13,6 +13,7 @@ import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
 import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.js';
 import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
 import { normalizePagePath } from './routes.js';
+import { NUMBER_GROUPS, allNumbers, numberStats } from './numbers.js';
 import { statsPage, prunePv } from './stats.js';
 import {
   healthPage,
@@ -719,6 +720,81 @@ ${siteFooter(site)}
 </body></html>`;
 }
 
+/* ---------- 数字索引页 /numbers ----------
+   把文章正文里的实测数字收成一张按栏目分组的表。数据来自 src/numbers.js，
+   每条都带出处 slug，页面上是真链接——点数字标题就回到它所在的那篇。
+   为什么不做成归档页的一个 tab：归档按时间排，数字按主题排，两个维度混在一页
+   谁都读不了；独立 URL 还能被搜索引擎单独索引、被文章正文直接引用。 */
+function numbersBody() {
+  const stats = numberStats();
+  const groups = NUMBER_GROUPS.map((g) => `
+  <section class="num-group" aria-labelledby="ng-${esc(g.name)}">
+    <div class="num-group-head">
+      <h2 id="ng-${esc(g.name)}">${esc(g.name)}</h2>
+      <p>${esc(g.intro)}</p>
+    </div>
+    <div class="num-table-wrap">
+      <table class="num-table">
+        <caption class="sr-only">${esc(g.name)}：${g.rows.length} 条实测数字</caption>
+        <thead><tr><th scope="col">数字</th><th scope="col">含义</th><th scope="col">口径 / 条件</th><th scope="col">出处</th></tr></thead>
+        <tbody>${g.rows
+          .map(
+            (r) => `<tr>
+          <td class="num-v">${esc(r.v)}</td>
+          <td>${esc(r.label)}</td>
+          <td class="num-note">${esc(r.note)}</td>
+          <td><a href="/p/${encodeURIComponent(r.slug)}">${esc(r.slug)}</a></td>
+        </tr>`
+          )
+          .join('')}</tbody>
+      </table>
+    </div>
+  </section>`).join('');
+
+  return `<div class="numbers-page">
+  <div class="num-summary" role="note">
+    <b>${stats.values}</b> 条数字 · <b>${stats.groups}</b> 个栏目 · <b>${stats.slugs}</b> 篇文章
+    <span>每条都标了出处和口径；没测过的判断不进这张表。</span>
+  </div>
+  ${groups}
+  <section class="num-group" aria-labelledby="ng-boundary">
+    <div class="num-group-head"><h2 id="ng-boundary">这张表的边界</h2></div>
+    <ul class="num-boundary">
+      <li>只收已写进文章正文的数字。做过的实验但没落字的，不在这里。</li>
+      <li>口径不同的同名指标并列保留（例如单次 D1 往返 32ms 与 44.4ms），不合并成一个「权威值」。</li>
+      <li>数字会随重构过时；出处链接是唯一可信 source of truth，表里只是索引。</li>
+    </ul>
+  </section>
+</div>`;
+}
+
+async function serveNumbersPage(env, request) {
+  const site = await getSite(env);
+  const origin = siteOrigin(env, request);
+  const canonical = `${origin}/numbers`;
+  const desc = `${numberStats().values} 条实测数字，按栏目分组：耗时、字节、像素、条数、比例，每条都标了出处与口径。`;
+  const title = '实测数字索引';
+  const ld = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      { '@type': 'WebPage', '@id': `${canonical}#page`, name: title, url: canonical, description: desc, inLanguage: 'zh-CN' },
+      { '@type': 'BreadcrumbList', itemListElement: [
+        { '@type': 'ListItem', position: 1, name: '首页', item: `${origin}/` },
+        { '@type': 'ListItem', position: 2, name: title, item: canonical },
+      ] },
+    ],
+  };
+  return html(
+    stampAssets(seriesShell({
+      site, origin, title, kicker: '实测数字', desc, canonical, ld,
+      sub: '从已发表的文章里逐条摘出，按栏目分组。点出处回到原文。',
+      list: numbersBody(),
+    }), env),
+    200,
+    { 'cache-control': pageCacheControl() }
+  );
+}
+
 /* 显示统一按北京时间：D1 存 UTC，直接 slice 会让凌晨发布的文章显示成前一天。
    机器读的那几条（JSON-LD / sitemap / RSS）不走这里，它们就该是 UTC。 */
 const fmtDay = (v) => localDay(v);
@@ -1285,6 +1361,7 @@ const NAV = [
   { href: '/categories', label: '栏目', key: 'categories' },
   { href: '/series', label: '系列', key: 'series' },
   { href: '/archive', label: '归档', key: 'archive' },
+  { href: '/numbers', label: '数字', key: 'numbers' },
   { href: '/friends', label: '友链', key: 'friends' },
   { href: '/about', label: '关于', key: 'about' },
 ];
@@ -1337,6 +1414,7 @@ function activeKey(path) {
   if (path === '/categories') return 'categories';
   if (path.startsWith('/series')) return 'series';
   if (path.startsWith('/archive')) return 'archive';
+  if (path === '/numbers') return 'numbers';
   if (path.startsWith('/friends')) return 'friends';
   if (path.startsWith('/about')) return 'about';
   if (path.startsWith('/editor')) return 'editor';
@@ -2261,7 +2339,7 @@ async function serveSitemap(env, request) {
   return new Response(
     `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${origin}/</loc>${lm(
       siteLast
-    )}</url>\n  <url><loc>${origin}/archive</loc>${lm(siteLast)}</url>\n  <url><loc>${origin}/categories</loc>${lm(
+    )}</url>\n  <url><loc>${origin}/archive</loc>${lm(siteLast)}</url>\n  <url><loc>${origin}/numbers</loc>${lm(siteLast)}</url>\n  <url><loc>${origin}/categories</loc>${lm(
       siteLast
     )}</url>\n  <url><loc>${origin}/friends</loc>${lm(friendLast)}</url>\n${catUrls}\n${tagUrls}\n${seriesUrls}\n${urls}\n</urlset>`,
     { headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=600' } }
@@ -2367,6 +2445,7 @@ async function serveManifest(env, request) {
 const isPagePath = (p) =>
   p === '/' ||
   p === '/archive' ||
+  p === '/numbers' ||
   p === '/categories' ||
   p === '/friends' ||
   p === '/series' ||
@@ -2540,6 +2619,11 @@ async function route(request, env, ctx) {
   // 归档 / 时间线（服务端直出，不再让爬虫看「加载中…」）
   if (path === '/archive' || /^\/archive\/\d{4}\/?$/.test(path)) {
     return await serveArchivePage(env, request, url);
+  }
+
+  // 实测数字索引（静态数据，SSR 直出，与归档共享导航壳）
+  if (path === '/numbers') {
+    return await serveNumbersPage(env, request);
   }
 
   // 栏目总览（分类 + 标签）

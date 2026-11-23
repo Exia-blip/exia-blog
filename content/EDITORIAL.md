@@ -81,6 +81,21 @@
 
 入库前按「每篇发文流程」第 6 条补 2 条旧文回链；文中 7 条内链有 3 条指向存稿（`crlf-sri-ci-red` / `theme-transition-class` / `workers-blog-pillar`），排期必须晚于这三篇上线。不占 2027-02-03 之前的坑位，节奏仍按「产能警告」执行。
 
+### 已做完但没写出来的六篇（2026-11-23 完成，未入库）
+
+按「做完了没落字」的顺位补齐。素材全部来自已发生的事：CI 断言、对比度修复、审核边界、SVG 沙箱实现、渲染器Still成立的缺陷、旧提交独立 Worker 对照。每篇都带可复现条件、真实数字与「明说的没做」三样，结构与 STYLE.md 一致。
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `ci-assertions` | 把断言装进 CI：从结构化数据自指到样式回归 | log | `语义断言 怎么写` / `基线 只写不fail` | 8 处自指→0；断错误形状而非期望值；基线首次只写不 fail；文档双向对账 orphan 只警告 |
+| `contrast-assert` | 对比度断言：30 行脚本替你盯住黑白灰 | log | `对比度 自动检查` / `wcag 对比度 脚本` | 6 套主题×明暗=14 组、9 对角色=126 比值；修前 12 组 `--muted` 落在 4.16~4.49；按选择器块分主题而非全局表 |
+| `fourth-layer-data-plane` | 评论区防滥用的第四层：发出来也白发 | 小工具 | `评论区 邮箱防采集` / `api 字段脱敏` | 按成本排序的第四层在响应出口而非请求入口；一次对象解构零成本；`email`/`ip` 根本不进响应 |
+| `svg-sandbox-implementation` | SVG 沙箱实现：响应头之下的三个判断 | 小工具 | `svg xss 沙箱` / `content-security-policy sandbox` | content-type 与扩展名取并集；自家占位图也走同一条 CSP；被拒类型单独出口带 `x-img-type` |
+| `nul-placeholder-collision` | 渲染器的 NUL 占位符：重复显示自己的代码块 | 工程实录 | `markdown 占位符 冲突` / `nul 字符 xss` | 真实复现：一段代码块+一行 `\u0000CB0\u0000` → 出现 2 次；危害上限与三个升级条件；同名锚点已修的对照 |
+| `independent-worker-ab` | 一次迁移：把旧提交部署成独立 Worker 做对照 | 站务 | `workers a b 测试` / `性能优化 对照实验` | `git worktree` 父提交 + 改名的 worker 同绑一个 D1；两个 tail 交替发 10 轮；180→84ms、CPU 两版都是 5~9ms |
+
+这六篇与 `css-minimal-set-tradeoffs` 同批，都是「先做事、后落字」的实录，不占 2027-02-03 之前的坑位。数字索引页 `/numbers` 已把这六篇里的关键数字登记进 `src/numbers.js`，未上线的 slug 在 `PENDING_SLUGS` 里标记、线上核对脚本会自动跳过。
+
 ### 收尾两篇（已写完入库，12-19 / 12-21）
 
 两篇来自 11-20 收尾的第二档交互优化，都是 tools：代码能直接拖走跑，素材是本机实测，不是凑坑位。按 2 天一篇接在 12-17 `csp-nonce-cache` 之后，12-19 / 12-21。`scripts/seed-27-28.mjs` 已带 `published_at`（UTC 01:00）入库，与其余存稿同口径，不靠 automation 改 hidden。

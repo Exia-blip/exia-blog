@@ -2915,6 +2915,45 @@ mark {
 .series-foot a:hover { color: var(--accent); }
 @media (max-width: 560px) { .sp-t { font-size: 14px; } .sp-d { display: none; } }
 
+/* ---- 数字索引页 /numbers ----
+   表在窄屏横滑而不是压成四列：口径那列是长句，挤进 375px 会叠成十几行，
+   一屏只放得下一条数字，比左右滑动难读得多。右缘 mask 提示还有内容。 */
+.numbers-page { padding-bottom: 60px; }
+.num-summary {
+  display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline;
+  padding: 13px 16px; margin-bottom: 8px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg-soft); font-size: 13px; color: var(--fg-soft);
+}
+.num-summary b { font-family: var(--mono); color: var(--accent); font-size: 15px; }
+.num-summary span { color: var(--muted); font-size: 12px; }
+.num-group { margin-top: 34px; }
+.num-group-head { margin-bottom: 12px; }
+.num-group-head h2 {
+  margin: 0 0 4px; font-family: var(--serif); font-size: 20px; line-height: 1.35;
+  letter-spacing: var(--hero-space);
+}
+.num-group-head p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.num-table-wrap { overflow-x: auto; border-top: 1px solid var(--line); scrollbar-width: thin; }
+.num-table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px; }
+.num-table th, .num-table td {
+  text-align: left; padding: 10px 12px; vertical-align: top;
+  border-bottom: 1px solid var(--line); line-height: 1.55;
+}
+.num-table th { color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .04em; }
+.num-table tbody tr:hover { background: var(--bg-soft); }
+.num-v {
+  font-family: var(--mono); font-size: 13px; color: var(--accent);
+  white-space: nowrap; font-weight: 600;
+}
+.num-note { color: var(--muted); font-size: 12px; }
+.num-table td:last-child a {
+  font-family: var(--mono); font-size: 11px; color: var(--fg-soft);
+  text-decoration: none; word-break: break-all;
+}
+.num-table td:last-child a:hover { color: var(--accent); }
+.num-boundary { margin: 0; padding-left: 20px; color: var(--muted); font-size: 12.5px; line-height: 1.9; }
+
 /* ---- 404 ---- */
 .g404 {
   position: relative; min-height: 100vh; display: flex; flex-direction: column;

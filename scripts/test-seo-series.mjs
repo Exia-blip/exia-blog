@@ -124,12 +124,13 @@ t('系列页页脚用专属类名，不与评论表单 .foot 冲突', () => {
   assert.match(src, /class="foot"/, '评论表单的 .foot 应保留');
 });
 
-t('两处系列入口都过 stampAssets，资源带部署版本戳', () => {
-  // 函数定义 `function seriesShell({...})` 也算一次，排除掉才是调用点
+t('所有系列壳入口都过 stampAssets，资源带部署版本戳', () => {
+  // 函数定义 `function seriesShell({...})` 也算一次，排除掉才是调用点。
+  // 三处：系列页 / 系列总览 / 数字索引页（/numbers 复用同一套 shell）。
   const allCalls = (src.match(/seriesShell\(\{/g) || []).length;
   const shellCalls = allCalls - (/\bfunction\s+seriesShell\(\{/.test(src) ? 1 : 0);
   const stampCalls = (src.match(/stampAssets\(seriesShell\(\{/g) || []).length;
-  assert.equal(shellCalls, 2, '应有两处系列壳调用');
+  assert.equal(shellCalls, 3, '应有三处系列壳调用（含 /numbers）');
   assert.equal(stampCalls, shellCalls, '每一处 seriesShell 都必须包在 stampAssets 里');
 });
 
