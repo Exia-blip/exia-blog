@@ -53,3 +53,41 @@ npm run ttfb               # TTFB 分缓存态 P50/P95（HIT/MISS/DYNAMIC）
   （`backups/*.sql` 已 gitignore，含全文不进仓库）
 - **用量**：`wrangler r2 bucket info blog-images`（当前 66 对象 / 4.34MB）、D1 约 1.15MB。
 - **版本**：`package.json` version = git tag = GitHub Release，三者对齐。
+
+## 6. 边缘层（Dashboard，不在仓库里）
+
+Worker 里的三道防滥用（蜜罐 / Turnstile / D1 限额）全部在**计费之后**：请求进到 Worker
+那一刻，CPU、D1 行读、subrequest 额度就已经开始算。WAF 挡下的请求根本不进 Worker，
+这是它和应用内限流唯一的、也是最大的区别。
+
+这一层 wrangler 管不了（`wrangler.jsonc` 里没有也不会有 WAF 规则），token 也没有
+Zone 写权限，所以只能手工在 Dashboard 配。**是否已配过以面板为准，仓库里的记录只有这一节。**
+
+建议规则（免费版 1 条速率限制、计数窗口固定 10 秒，字段与界面以面板当前版本为准）：
+
+| 项 | 值 | 理由 |
+|---|---|---|
+| 匹配 | `http.request.uri.path in {"/api/comments" "/api/pv" "/api/ev"}` | 只护匿名写入口，静态页与后台不掺和 |
+| 计数 | 同一 IP，10 秒内 > 20 次 | 正常读者不可能达到；脚本一轮就超 |
+| 动作 | 先 `Log`，观察 3–7 天再切 `Block` | 手机网络出口共用 IP，直接拦会误伤 |
+| 响应 | 默认 429 / 托管质询 | 429 比 challenge 便宜，先试 429 |
+
+先记录再拦截的顺序不能反：WAF 拦的是「IP 维度」，而 CGNAT 后面可能坐着整个小区。
+
+## 7. 被入侵之后的存量清理（预案，非代码）
+
+存储型 XSS 的前提是「库里已经有脏数据」，这时候改代码不会让存量变干净。
+
+1. **先截断入口**：把上面那条 WAF 规则切 `Block`；关评论（`/admin` 的评论开关）或
+   临时把 `TURNSTILE_SECRET` 置空不如直接拦。
+2. **找注入源**：`SELECT id, slug, updated_at FROM posts WHERE content LIKE '%<script%'
+   OR content LIKE '%onerror=%' OR content LIKE '%javascript:%'`；`comments` 表同样扫
+   `content`。`audit_log` 里按时间倒着看谁改过。
+3. **备份再清**：先 `d1 export`，再逐条 `UPDATE`——不要直接 `DELETE`，要留证。
+   清完跑 `npm run backfill:html -- --all` 让 `html_content` 与正文重新对齐。
+4. **重置会话**：换 `SESSION_SECRET`（`wrangler secret put`）。本站会话是
+   `signToken(SESSION_SECRET, …)` 签的，换密钥等于一次性吊销所有 30 天 cookie；
+   被改过密码的场景还要核 GitHub OAuth 侧的授权。
+5. **补断言**：这次漏进去的那条形状，加进 `public/md.js` 的 27 条探针或
+   `PITFALLS.md`，否则同一个形状会以另一种写法回来。
+

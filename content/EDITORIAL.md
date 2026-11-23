@@ -115,6 +115,25 @@
 
 **缓存这篇带代码改动**：`bust()` 加 `db` 参数 + 枚举全量 tags/series（一次发布 8→30 条 delete），`bust()` 改 async 且 9 处调用全补 `.catch`，`cacheable` 加 `!url.search`，`harden()` 加 `search` 参数并把带 query 的页面两层都设 `no-store`。新增 `scripts/test-cache-bust.mjs`（CB-01~CB-09，已进 `npm test` 链）。失败分支验过（`!url.search` 改 `true` → CB-04 exit 1；删 tag 枚举 → CB-02 exit 1），本地 Worker 实测 7 条路径缓存头 + 5 个中文/含空格键逐字符一致。**改缓存逻辑后先跑 `node scripts/test-cache-bust.mjs`。**
 
+### 安全对比：四条判断，一条反了（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `security-layers-stocktake` | 我以为我没有权限层：一次安全对比里被推翻的四条判断 | 工程实录 | `workers 安全 纵深` / `turnstile hostname 校验` | 本站**有** users 表 / is_admin / 30 天 JWT，且 `isFirst ? 1 : 0` 与 Rin 同款（材料说「你没有权限层」是错的）；线上 2 行用户实测；`payload.admin` 无读取点所以权限以 DB 为准、撤权即时生效；请求体闸门 1MB 流读 73728 字节即断流（7.2%）；Turnstile hostname/action 严格相等、缺字段即拒 |
+
+**这篇带代码改动**（四处）：
+
+1. `src/utils.js` 新增 `bodyTooLarge()` / `readJsonLimited()` / `BODY_LIMIT_JSON`；`src/api.js` 入口按路由分档（64KB / 1MB / 8MB），`/comments` 与 `src/stats.js` 的 `/pv`、`/ev` 改走流式读取。
+2. `src/antispam.js` 的 `verifyTurnstile()` 新增 `expect.host` / `expect.action` 严格核对；`src/api.js` 传 `siteOrigin()` 的 host；`public/post.html` 的 `turnstile.render` 补 `action: 'comment'`（**public 改动已重签 SRI**）。
+3. `DEPLOY.md` 第 6 节：边缘 WAF 速率限制清单（未开，仅为配置说明）。
+4. `DEPLOY.md` 第 7 节：被入侵后的存量清理五步。
+
+新增 `scripts/test-body-limit.mjs`（BL-01~BL-13，已进 `npm test` 链）。失败分支验过：把 `readJsonLimited` 换回 `request.json()` → BL-04 exit 1；把 hostname 比较改成「有就比」→ BL-12 exit 1。
+
+**材料口径**：材料称「本站没有 JWT / 没有权限表 / CSP 两边都没强调」，三条均与代码不符，正文已逐条用代码与线上头反证。Rin 侧细节（`setup.ts`、`permission` 0/1、`.env.example` 明文）未独立复核，按材料引用。
+
+**待办（本篇识别、未修）**：普通用户（任何 GitHub 账号登录即成）可无限制调 `/upload` 写 R2、调 `/posts/:id/summary` 烧 AI。修之前先定「普通用户该不该有上传权」——该收权限，不是加计数。
+
 ### 收尾两篇（已写完入库，12-19 / 12-21）
 
 两篇来自 11-20 收尾的第二档交互优化，都是 tools：代码能直接拖走跑，素材是本机实测，不是凑坑位。按 2 天一篇接在 12-17 `csp-nonce-cache` 之后，12-19 / 12-21。`scripts/seed-27-28.mjs` 已带 `published_at`（UTC 01:00）入库，与其余存稿同口径，不靠 automation 改 hidden。
