@@ -147,5 +147,47 @@ check(
     : emptyCatsWithSlug.map(([n, l]) => `api.js:${n} ${l.trim().slice(0, 60)}`).join(' | ')
 );
 
+/* 加了边缘缓存的只读接口，必须同时进 bust 清单（CB-11）。
+   为什么判据是「两者的对应关系」而不是「有没有 s-maxage」：
+   光有 s-maxage 不是缺陷，缺陷是**加完缓存忘了加清理**。单向匹配只能证明
+   缓存存在（P-030 同族：只认一个方向，反过来就漏）。这里反过来扫 —
+   凡是 GET 分支里出现 s-maxage / pageCacheControl 的接口，路径必须出现在 bust 的
+   paths 里，否则那条接口就有了一个「写后读到旧值」的窗口。
+   本站目前只有 /api/tags 一条命中：/categories 是静态壳原样返回，标签云全靠前端拉，
+   不像首页有 SSR 直出的 tagbar 可以先接住。 */
+/* 本站允许带边缘缓存的只读接口，写死在这里而不是"有几条算几条"。
+   只验「识别到的都在清理清单里」会漏掉最坏的一种变化：把某条接口的
+   pageCacheControl() 删了 —— 集合变空，断言对空集合永远成立，红线自己消失了。
+   （P-034 同族：判据对空输入恒真，等于没有判据。）
+   加接口就改这一行，改的时候必然会看到下面的清理清单要求。 */
+const EXPECT_CACHED_GETS = ['/tags'];
+
+const cachedGets = [];
+for (const m of api.matchAll(/if \(path === '([^']+)' && method === 'GET'\) \{/g)) {
+  const body = api.slice(m.index, m.index + 600);
+  if (/s-maxage|pageCacheControl\(\)/.test(body)) cachedGets.push(m[1]);
+}
+
+/* 分支里的 path 是**去掉 /api 前缀之后**的（handleApi 第一行就 replace 掉了），
+   而 bust 里写的是完整 URL —— 直接比会把「已清」判成「没清」。
+   这个前提不能默认成立：断言依赖它，就得把它也验一遍，否则哪天路由改成
+   挂在根路径下，CB-11 会静默变成永远通过。 */
+const stripApi = /const path = url\.pathname\.replace\(\/\^\\\/api\/, ''\)/.test(api);
+const orphanCached = cachedGets.map((p) => `/api${p}`).filter((full) => !bustBody.includes(`'${full}'`));
+const setMismatch =
+  cachedGets.slice().sort().join(',') !== EXPECT_CACHED_GETS.slice().sort().join(',');
+check(
+  'CB-11',
+  '带边缘缓存的接口必须进 bust',
+  stripApi && !setMismatch && orphanCached.length === 0,
+  !stripApi
+    ? 'handleApi 不再剥 /api 前缀，本断言的前提已失效'
+    : setMismatch
+      ? `缓存接口集合变了：实际 [${cachedGets.join(', ') || '空'}]，预期 [${EXPECT_CACHED_GETS.join(', ')}]`
+      : orphanCached.length
+        ? `这些接口缓存了但没清：${orphanCached.join(', ')}`
+        : `${orphanCached.length === 0 ? cachedGets.map((p) => `/api${p}`).join(', ') : ''} 已在清理清单`
+);
+
 console.log(bad ? `\n${bad} 项失败` : '\n全部通过');
 process.exit(bad ? 1 : 0);

@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { admitPolicy, decideAccess, ownerOrAdmin, reviewStatusFor } from '../src/auth.js';
-import { srcEntries, srcFiles, nativeSrcFiles } from './lib/src-walk.mjs';
+import { srcEntries, srcFiles, nativeSrcFiles, nonProductLeaks, NON_PRODUCT_DIRS } from './lib/src-walk.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const authSrc = fs.readFileSync(path.join(here, '..', 'src', 'auth.js'), 'utf8');
@@ -167,12 +167,13 @@ t('AP-18 源文件扫描必须覆盖 src 全部层级（结构重排不许让断
   assert.deepEqual(walk, native, 'srcFiles 与原生 recursive 结果不一致，walk 漏了目录');
   assert.ok(native.length >= 20, `只扫到 ${native.length} 个源文件，根目录或过滤条件可疑`);
 
-  /* 每个子目录里都必须至少有一个 .js 进了扫描结果。
+  /* 每个**产品**子目录里都必须至少有一个 .js 进了扫描结果。
      当前 src 是扁平的，这条空转；等哪天拆成 features/，它会在拆分当天红，
-     而不是等到某个子目录里的裸判定上线之后。 */
+     而不是等到某个子目录里的裸判定上线之后。
+     非产品目录（测试/夹具）本来就该被排除，不参与这条 —— 否则 P-034 的误报会倒灌回来。 */
   const subs = fs
     .readdirSync(srcDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
+    .filter((e) => e.isDirectory() && !NON_PRODUCT_DIRS.has(e.name))
     .map((e) => e.name);
   for (const d of subs) {
     assert.ok(
@@ -180,6 +181,15 @@ t('AP-18 源文件扫描必须覆盖 src 全部层级（结构重排不许让断
       `src/${d}/ 下的 .js 一个都没进扫描结果，子目录会被断言整体忽略`
     );
   }
+});
+
+/* 元断言（P-034 的另一半）：排除测试目录让断言不再误报，
+   但也让 `src/__tests__/` 成了扫描盲区。只要产品文件 import 了盲区里的东西，
+   那段代码就在线上跑，而四条扫描断言一条都看不到它。
+   光「排除」是不够的，必须同时守「没人把产品代码塞进去 / 从里面引出来」。 */
+t('AP-19 产品代码不许 import 非产品目录（排除测试目录不能变成盲区）', () => {
+  const leaks = nonProductLeaks(path.join(here, '..'));
+  assert.deepEqual(leaks, [], `产品代码引到了测试/夹具目录：\n${leaks.join('\n')}`);
 });
 
 /* ---------- 跑 ---------- */

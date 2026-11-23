@@ -294,6 +294,17 @@
 
 ---
 
+## P-034 扫描改递归之后，下一个故障是「假红」
+
+- **现象**：按 `src/features/` 垂直切片重排时，测试目录通常跟着进 `src/`（`src/__tests__/auth.spec.js`）。此时 `AP-15`（权限判定只许在 `auth.js`）会把测试文件里那句 `user.id === post.author_id || user.is_admin` 判成一处在线的越权——**报错，但线上什么问题都没有**。
+- **根因**：`P-032` 修的是「扫不到」（假绿），修法是把扫描范围扩到全递归；而扫描的判据仍然是「文件里有没有这串字符」，没有区分「这是产品代码」还是「这是用来描述产品代码的测试」。递归一旦生效，测试文件必然进视野，而测试里写 `user.id === post.author_id` 恰恰是**使命**，不是缺陷。
+- **复现**：`mkdir -p src/__tests__ && echo "export const f = (u,p) => u.id === p.author_id || u.is_admin;" > src/__tests__/a.spec.js && node scripts/test-auth-policy.mjs` → `17/18 passed`，报 `__tests__/a.spec.js:1`。同一时刻 `src/_probe/evil.js` 报的是真越权。两者在断言的输出里长得完全一样。
+- **断言**：`scripts/lib/src-walk.mjs` 新增 `NON_PRODUCT_DIRS`（`__tests__` / `__mocks__` / `__fixtures__` / `test` / `tests`）与 `isNonProduct()`，`srcFiles` / `nativeSrcFiles` 默认排除；`AP-18` 的子目录覆盖检查跳过非产品目录，否则误报会从这条倒灌回来。另配 `AP-19`：`nonProductLeaks()` 扫产品文件的 `from` / `import()` / `require()`，一旦指向非产品目录就报错——排除制造了盲区，这条守盲区。
+- **教训**：断言的两端都会坏。**假绿**让人以为有保护，**假红**让人去关保护。所以「排除测试目录」不能只改过滤条件，必须同时回答「如果有人把产品代码放进被排除的目录，谁来发现」——答案是 `AP-19`，它不看目录名，看 import 边。另：`nativeSrcFiles` 的排除逻辑故意重写一遍而不复用 `isNonProduct`，两套实现共用同一个判据函数时判据写错了两边一起错，互校就失去意义。
+- **出处**：站务记录（本文件，2026-11-23）；`content/53-*.md`；同族见 P-032（扫描范围）、P-030（只认一种句式）、P-029（异步假绿）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

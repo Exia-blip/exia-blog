@@ -18,7 +18,7 @@ import { guard, record, banIp, verifyTurnstile, DID_MAX_AGE } from './antispam.j
 import { renderBody, extractTags, extractCover, extractExcerpt, readingTime, searchSnippet } from '../public/md.js';
 import { sanitizeHtml, cleanMarkdown } from './clean.js';
 import { coverOf, thumbOf, bodyCoverFor } from './cover.js';
-import { bustPaths } from './cache.js';
+import { bustPaths, pageCacheControl } from './cache.js';
 import { presignPut, makeKey, IMAGE_TYPES } from './s3.js';
 import { imageSize, withSize } from './img-size.js';
 import { notifyComment, notifyTodo } from './webhook.js';
@@ -78,9 +78,15 @@ async function seriesSiblingSlugs(db, series) {
 async function bust(url, slugs = [], cats = [], db = null) {
   /* 进程内那份一起清。按 slug 精准清是不够的 —— 缓存里除了文章本体，
      还带着「同栏目列表」和「系列目录」，删掉一篇会影响别的文章那一块。
-     chunk 只有几十条，全清之后下次 miss 一次就回来了，比漏清安全得多。 */
+     chunk 只有几十条，全清之后下次 miss 一次就回来了，比漏清安全得多。
+
+     /api/tags 必须在列：它现在带 s-maxage=300（见 /tags 分支），
+     而 /categories 的标签云完全靠前端拉这个接口，不像首页有 SSR 直出。
+     只清 /categories 的 HTML 是不够的 —— 那份 HTML 里根本没有标签数据，
+     标签会旧 5 分钟，读者看到的是上一版。加了缓存就必须同时进 bust，
+     两件事拆成两个 commit 是本轮最该避免的形态。 */
   postCacheDrop();
-  const paths = ['/', '/archive', '/categories', '/series'];
+  const paths = ['/', '/archive', '/categories', '/series', '/api/tags'];
   for (const c of cats.filter(Boolean)) paths.push(`/cat/${encodeURIComponent(c)}`);
   for (const s of slugs.filter(Boolean)) {
     paths.push(`/p/${encodeURIComponent(s)}`, `/${encodeURIComponent(s)}`);
@@ -699,9 +705,15 @@ export async function handleApi(env, request, url, ctx) {
     return json({ ok: true, id, review_status: next });
   }
 
-  /* ---- 标签云 ---- */
+  /* ---- 标签云 ----
+     唯一一个「每次打开页面都会打过来」的只读接口：/categories 是静态壳原样返回，
+     标签云由前端拉，不像首页那样有 SSR 直出的 <!--TAGBAR--> 可以先接住。
+     所以它值一份边缘缓存 —— json() 默认 no-store 是给鉴权接口用的安全默认，
+     这一条没有用户维度（只查 is_private=0 AND hidden=0），可以共享。
+     口径直接复用 pageCacheControl()：浏览器 max-age=0 每次校验、边缘 300 秒、
+     过期后 swr。CB-09 守「两边同一组常量」，别在这里另写一个数。 */
   if (path === '/tags' && method === 'GET') {
-    return json({ ok: true, tags: await tagsData(db) });
+    return json({ ok: true, tags: await tagsData(db) }, 200, { 'cache-control': pageCacheControl() });
   }
 
   /* ---- 归档（按年月分组的全部公开文章） ---- */
