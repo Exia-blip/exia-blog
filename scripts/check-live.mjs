@@ -475,6 +475,13 @@ console.log(`\n${ORIGIN}\n`);
   ok('CSP 带 nonce', /nonce-/.test(h.get('content-security-policy') || ''));
   ok('HSTS', !!h.get('strict-transport-security'));
   ok('x-content-type-options', h.get('x-content-type-options') === 'nosniff');
+  /* 这两条守「代码里设了、边缘也真的发出来了」。
+     test-headers 验的是 securityHeaders() 的返回值，纯函数；如果哪天
+     CF 边缘把某个头吃掉（或 Worker 挂头之后又覆写），纯函数测试看不出来。 */
+  ok('[P-024] x-xss-protection 为 0', h.get('x-xss-protection') === '0');
+  ok('[P-023] X-Frame-Options 为 DENY', (h.get('x-frame-options') || '').toUpperCase() === 'DENY');
+  ok('[P-023] Referrer-Policy 不是 unsafe-url', !/unsafe-url/i.test(h.get('referrer-policy') || ''));
+  ok('[P-025] CSP 的 object-src 为 none', /object-src 'none'/.test(h.get('content-security-policy') || ''));
   ok('HTML 不做浏览器长缓存', !/max-age=[1-9]\d{2,}/.test((h.get('cache-control') || '').split('s-maxage')[0]));
 }
 

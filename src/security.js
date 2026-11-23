@@ -112,6 +112,12 @@ export function securityHeaders(headers, nonce, opts = {}) {
   h.set('x-content-type-options', 'nosniff');
   h.set('referrer-policy', 'strict-origin-when-cross-origin');
   h.set('x-frame-options', 'DENY');
+  /* 显式设 0，不是「关掉保护」。
+     旧引擎的 XSS Auditor 会在某些反射场景下被诱导去删页面里合法片段，
+     反而制造可利用面；现代浏览器已移除该功能，这条只为旧引擎兜底。
+     老教程里的 `1; mode=block` 是反的 —— OWASP 现在也建议 0。
+     断言：[P-024]，scripts/test-headers.mjs 同时守「值不是 1」与「源码里写了 0」。 */
+  h.set('x-xss-protection', '0');
   h.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
   h.set('cross-origin-opener-policy', 'same-origin');
   h.set('strict-transport-security', 'max-age=31536000; includeSubDomains; preload');
