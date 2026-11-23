@@ -8,7 +8,7 @@
 |---|---|
 | 1. 加 `[[ratelimits]]` 三个 binding | 没有 Hono，没有这个 binding。上一轮已核过：它**按 colo 计数**、官方文档自己写着「Requests can exceed this threshold」。不加 |
 | 2. 限流中间件 | **命中，但目标错位**。评论有三层闸门，缺的是登录——材料把它当成「要防守的那一端」 |
-| 3. 缓存抽象（`/api/tags`、`/api/archive`） | 这两个接口**不存在**。标签云在 `/tag`、归档在 `/archive`，都是 SSR 页面，早就在边缘缓存里 |
+| 3. 缓存抽象（`/api/tags`、`/api/archive`） | 当时我判成「这两个接口不存在」，**判错了**：两者都在（`api.js:703/708`）。但用处与材料想的相反——`/api/archive` 是冷路径（SSR 已把数据注入 `window.__ARCH__`），`/api/tags` 是热路径（`/categories` 是静态壳）。详见下一篇 |
 | 4. 缓存中间件挂只读接口 | 同上，没有可挂的接口 |
 | 5. 失效挂在写入路径上 | 早已在做（`bustPaths`）。上一轮刚抓过漏传栏目维度（P-031） |
 

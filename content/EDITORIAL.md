@@ -186,9 +186,30 @@
 
 **注入验证**：删 `loginRedirect` 限流三行 → `LG-01` 红；`recordLogin` 挪到 token 交换之后 → `LG-02` 红并报出两个下标；`stats.js` 加回 XFF 回退 → `LG-04` 红并报 `stats.js:40`。
 
-**材料口径**：五步里四步在本站无对应物（`/api/tags`、`/api/archive` 不存在；失效挂写路径早已在做；`[[ratelimits]]` 是 per-colo 软限且需改 wrangler）。错的四处：fail closed 写法（依赖不存在的 `ENVIRONMENT`）、「跨 isolate 计数」（per-colo）、「文章 HTML 走 no-store」（会废掉全部边缘缓存）、`/X-Cache/.test(Headers)`（恒假）。编号 P-014~P-017 全部撞车，顺延 P-033 / LG-01~10。
+**材料口径**：五步里四步在本站无对应物（`/api/tags`、`/api/archive` 当时被我误判为「不存在」，53 篇已更正：两者都在，`/api/archive` 是冷路径、`/api/tags` 是热路径；失效挂写路径早已在做；`[[ratelimits]]` 是 per-colo 软限且需改 wrangler）。错的四处：fail closed 写法（依赖不存在的 `ENVIRONMENT`）、「跨 isolate 计数」（per-colo）、「文章 HTML 走 no-store」（会废掉全部边缘缓存）、`/X-Cache/.test(Headers)`（恒假）。编号 P-014~P-017 全部撞车，顺延 P-033 / LG-01~10。
 
 **明说的没做**：没加 `[[ratelimits]]`（`wrangler.jsonc` 未动）；没引 Hono（`dependencies` 仍为空）；没改文章页缓存策略；没建 KV；没重测首屏；`check-live` 四条仍红（未部署）。
+
+### 目录重排的第二层故障：排除测试目录会造出盲区（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `src-restructure-false-red` | 目录重排的第二层故障：把测试目录排除掉，等于造出一个盲区 | 工程实录 | `递归 扫描 断言 假绿` / `cloudflare caches default s-maxage api` | **材料给的目录结构里七个组件本站不存在**（Hono、Device Flow、JWT iss/aud、KV、Ratelimit binding、vitest、`/api/comment`）；**蜜罐返回值写反了**（材料说 200 假成功，本站 400）；**`public/md.js` 是双端共用**（`public/editor.html` 直接 `import '/md.js'`），搬进 `src/` 浏览器端就 404；`/api/archive` 是冷路径（`window.__ARCH__` 已注入）、`/api/tags` 才是热路径（`/categories` 静态壳）；**假红的终点是加豁免，假绿至少还会让人怀疑** |
+
+**这篇带两处生产修复 + 两条新断言**：
+
+1. `scripts/lib/src-walk.mjs`：新增 `NON_PRODUCT_DIRS`（`__tests__`/`__mocks__`/`__fixtures__`/`test`/`tests`）与 `isNonProduct()`，`srcFiles`/`nativeSrcFiles` 默认排除；`nativeSrcFiles` 的排除逻辑**故意重写一遍**不复用（共用判据函数时写错了两边一起错）。
+2. `scripts/test-auth-policy.mjs`：`AP-18` 的子目录覆盖检查跳过非产品目录；新增 `AP-19`，`nonProductLeaks()` 扫产品文件的 `from`/`import()`/`require()`，指向非产品目录即报错 —— 排除制造了盲区，这条守盲区。
+3. `src/api.js`：`/api/tags` 从 `json()` 默认的 `no-store` 改为 `pageCacheControl()`（`public, max-age=0, s-maxage=300, swr=86400`），口径复用页面那套不另写数字。
+4. `src/api.js`：`bust()` 的 paths 加 `/api/tags`。**必须同一个 commit** —— `/categories` 的 HTML 里没有标签数据，只清那页等于没清。
+5. `scripts/test-cache-bust.mjs`：`CB-11` 判据两轮修正 —— 第一版对空集恒真（把 `pageCacheControl()` 删了集合变空，红线自己消失），改写成显式 `EXPECT_CACHED_GETS`；第二版直接比 `path` 会把「已清」判成「没清」（分支里的 path 剥了 `/api` 前缀），补前缀同时把「剥前缀」这个前提也验一遍（`stripApi`）。
+6. `PITFALLS.md` 新增 P-034，对账 34 条。
+
+**注入验证**：`src/__tests__/a.spec.js` 里写 `u.id === p.author_id || u.is_admin` → 修前 `17/18`（假红，与真越权在输出里无法区分）；`utils.js` 加 `export { assertOwner } from './__tests__/auth.spec.js'` → `AP-19` 红报 `utils.js:1`；删 bust 里的 `/api/tags` → `CB-11` 红报「缓存了但没清」；删 `pageCacheControl()` → `CB-11` 红报「集合变了：实际 [空]，预期 [/tags]」。
+
+**材料口径**：目录结构按 Hono + Drizzle + KV + vitest 那套写，搬之前要先补齐七个组件。`links/check.ts`「20 分钟一轮」这条是对的（`crons: ["*/20 * * * *"]`）。「feature 之间不许互相 import」与本站冲突 —— 文章详情页同时要标签、系列、相关文章、评论数，材料自己那句「posts/service.ts 暴露查询函数」已经是互相引用了，真正的边界是表所有权不是目录所有权。
+
+**明说的没做**：没迁目录；没引 Hono/KV/vitest；`/api/archive` 不加缓存（冷路径）；`/api/posts` 不加缓存（`?tag=&cat=&q=` 组合无穷、`?q=` 能被刷出无限 key，与 CB-04 同一条理由）；没重测首屏；`check-live` 四条仍红（未部署）。
 
 ### 结构重排会让四条断言一起失明（2026-11-23 完成，未入库）
 
