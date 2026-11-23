@@ -14,6 +14,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseSchema, mergeSchema, splitStatements, stripComments } from './sql-schema.mjs';
+import { srcEntries } from './lib/src-walk.mjs';
 import { report } from './pitfall-check.mjs';
 
 const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
@@ -169,9 +170,11 @@ t('按顺序在空库里重放全部迁移，建出的结构与期望一致', ()
 });
 
 /* ---------- 代码里的 SQL 与结构对得上 ---------- */
-const code = readdirSync(SRC_DIR)
-  .filter((f) => f.endsWith('.js') && f !== 'assets.gen.js')
-  .map((f) => readFileSync(join(SRC_DIR, f), 'utf8'))
+/* 递归枚举（P-032）：这文件守「代码 INSERT 的列必须在 migrations 里」，
+   只读一层的话，任何拆到 src/features/<name>/service.js 的写库代码都不在扫描范围，
+   加列忘写迁移会静默通过。 */
+const code = srcEntries(ROOT)
+  .map((e) => e.text)
   .join('\n');
 
 /* 表值函数 / 系统表 / 别名，出现在 FROM 后面但不是我们的表 */

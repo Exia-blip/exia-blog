@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { admitPolicy, decideAccess, ownerOrAdmin, reviewStatusFor } from '../src/auth.js';
+import { srcEntries, srcFiles, nativeSrcFiles } from './lib/src-walk.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const authSrc = fs.readFileSync(path.join(here, '..', 'src', 'auth.js'), 'utf8');
@@ -112,32 +113,34 @@ t('AP-15 全站只许 auth.js 出现「作者 or 管理员」的判定', () => {
      三种改写全部漏网，index.js 的 SSR 路径就靠这个漏洞逃了整整一轮（P-030）。
      现在按语义等价类扫：行内同时出现 author_id 与 (.id / is_admin)，且带 === / !==。
      SQL 里的 `u.id = p.author_id` 是单等号，天然不会命中。 */
-  const srcDir = path.join(here, '..', 'src');
-  const files = fs.readdirSync(srcDir).filter((f) => f.endsWith('.js'));
+  /* 必须递归：src 一旦按 features/ 切片，只读一层就等于放行所有子目录（P-032）。
+     2026-11-23 实测：`src/_probe/evil.js` 里的裸判定让旧写法 17/17 全绿。 */
+  const root = path.join(here, '..');
   const offenders = [];
-  for (const f of files) {
-    if (f === 'auth.js') continue; // ownerOrAdmin 的实现点，唯一允许处
-    fs.readFileSync(path.join(srcDir, f), 'utf8').split('\n').forEach((line, i) => {
+  for (const { rel, text } of srcEntries(root)) {
+    if (rel === 'auth.js') continue; // ownerOrAdmin 的实现点，唯一允许处
+    text.split('\n').forEach((line, i) => {
       if (!/(===|!==)/.test(line)) return;
       if (!/\.author_id\b/.test(line)) return;
       if (!/(\.id\b|is_admin)/.test(line)) return;
-      offenders.push(`${f}:${i + 1}  ${line.trim()}`);
+      offenders.push(`${rel}:${i + 1}  ${line.trim()}`);
     });
   }
   assert.deepEqual(offenders, [], `裸判定必须改成 ownerOrAdmin()：\n${offenders.join('\n')}`);
 
-  const apiSrc = fs.readFileSync(path.join(srcDir, 'api.js'), 'utf8');
-  const idxSrc = fs.readFileSync(path.join(srcDir, 'index.js'), 'utf8');
+  const byRel = new Map(srcEntries(root).map((e) => [e.rel, e.text]));
+  const apiSrc = byRel.get('api.js') || '';
+  const idxSrc = byRel.get('index.js') || '';
+  assert.ok(apiSrc && idxSrc, 'api.js / index.js 没被扫到，扫描根目录不对');
   assert.ok((apiSrc.match(/ownerOrAdmin\(/g) || []).length >= 5, 'api.js 的 ownerOrAdmin 调用点少于 5 处');
   assert.ok((idxSrc.match(/ownerOrAdmin\(/g) || []).length >= 2, 'index.js 的 SSR 闸门没接 ownerOrAdmin');
 });
 
 t('AP-16 审核态只能由 reviewStatusFor() 生成', () => {
-  const srcDir = path.join(here, '..', 'src');
   const hits = [];
-  for (const f of fs.readdirSync(srcDir).filter((x) => x.endsWith('.js') && x !== 'auth.js')) {
-    const s = fs.readFileSync(path.join(srcDir, f), 'utf8');
-    if (/is_admin\s*\?\s*'approved'/.test(s)) hits.push(f);
+  for (const { rel, text } of srcEntries(path.join(here, '..'))) {
+    if (rel === 'auth.js') continue;
+    if (/is_admin\s*\?\s*'approved'/.test(text)) hits.push(rel);
   }
   assert.deepEqual(hits, [], `审核态三元又散出去了：${hits.join(', ')}，应调 reviewStatusFor()`);
   assert.equal(reviewStatusFor({ is_admin: 1 }), 'approved');
@@ -151,6 +154,32 @@ t('AP-17 ownerOrAdmin 必须 null-safe（SSR 闸门不再自带 user && 保护�
   assert.equal(ownerOrAdmin({ id: 7, is_admin: 0 }, { author_id: 7 }), true);
   assert.equal(ownerOrAdmin({ id: 8, is_admin: 0 }, { author_id: 7 }), false);
   assert.equal(ownerOrAdmin({ id: 8, is_admin: 1 }, { author_id: 7 }), true);
+});
+
+/* 元断言：扫描范围本身也要被断言管住。
+   AP-15 证明「扫到的文件里没有违规」，但证明不了「该扫的都扫到了」——
+   这一条才是 P-032 的根：结构一变，前一条自动变成真空成立。 */
+t('AP-18 源文件扫描必须覆盖 src 全部层级（结构重排不许让断言失明）', () => {
+  const root = path.join(here, '..');
+  const srcDir = path.join(root, 'src');
+  const walk = srcFiles(root);
+  const native = nativeSrcFiles(root);
+  assert.deepEqual(walk, native, 'srcFiles 与原生 recursive 结果不一致，walk 漏了目录');
+  assert.ok(native.length >= 20, `只扫到 ${native.length} 个源文件，根目录或过滤条件可疑`);
+
+  /* 每个子目录里都必须至少有一个 .js 进了扫描结果。
+     当前 src 是扁平的，这条空转；等哪天拆成 features/，它会在拆分当天红，
+     而不是等到某个子目录里的裸判定上线之后。 */
+  const subs = fs
+    .readdirSync(srcDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+  for (const d of subs) {
+    assert.ok(
+      native.some((x) => x.startsWith(d + '/')),
+      `src/${d}/ 下的 .js 一个都没进扫描结果，子目录会被断言整体忽略`
+    );
+  }
 });
 
 /* ---------- 跑 ---------- */

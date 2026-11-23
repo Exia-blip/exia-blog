@@ -24,6 +24,7 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { srcFiles } from './lib/src-walk.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const INDEX = join(ROOT, 'src', 'index.js');
@@ -139,12 +140,25 @@ if (orphans.length) {
 }
 
 /* ---------- RB-03 owner 文件真实存在 ---------- */
-const srcFiles = new Set(readdirSync(join(ROOT, 'src')));
-const missingFile = Object.entries(OWNERS)
-  .filter(([, v]) => !srcFiles.has(v.file))
-  .map(([k, v]) => `${k}->${v.file}`);
+/* 用递归枚举（P-032）：OWNERS 里登记的是裸文件名，src 平铺时等价，
+   一旦拆成 features/ 就必须按 basename 认，否则整条断言会对所有归属报"文件不存在"，
+   而更糟的写法是有人图省事把这条删掉。同名文件（两个 index.js）单独警告：
+   那时 basename 已经不足以定位，登记项应改成相对路径。 */
+const SRC_FILES = srcFiles(ROOT);
+const byBase = new Map();
+for (const rel of SRC_FILES) {
+  const b = rel.split('/').pop();
+  if (!byBase.has(b)) byBase.set(b, []);
+  byBase.get(b).push(rel);
+}
+const wanted = [...new Set(Object.values(OWNERS).map((v) => v.file))];
+const missingFile = wanted.filter((f) => !byBase.has(f)).map((f) => `owner->${f}`);
+const ambiguous = wanted
+  .filter((f) => (byBase.get(f) || []).length > 1)
+  .map((f) => `${f} 命中 ${byBase.get(f).join('|')}`);
 check('RB-03', 'owner 模块文件存在', missingFile.length === 0,
-  missingFile.length ? missingFile.join(' ') : `${new Set(Object.values(OWNERS).map((v) => v.file)).size} 个模块`);
+  missingFile.length ? missingFile.join(' ') : `${wanted.length} 个模块`);
+if (ambiguous.length) note('RB-03', 'owner 文件名唯一', ambiguous.join(' '));
 
 /* ---------- RB-04 exact 路由不重复 ---------- */
 const seen = new Map();
