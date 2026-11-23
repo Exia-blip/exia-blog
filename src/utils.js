@@ -97,11 +97,12 @@ export function bodyTooLarge(request, max = BODY_LIMIT_JSON) {
   return Number.isFinite(cl) && cl > max;
 }
 
-/** 读 JSON，超 max 字节就停。返回 { body } / { tooBig:true } / { bad:true }，不抛异常。 */
-export async function readJsonLimited(request, max = BODY_LIMIT_JSON) {
+/** 按流读，超 max 字节就停。返回 { buf } / { tooBig:true } / { bad:true }，不抛异常。
+ *  JSON 与 multipart 共用这一份计数逻辑 —— 两条路各写一遍，早晚有一边忘了断流。 */
+export async function readBytesLimited(request, max) {
   if (bodyTooLarge(request, max)) return { tooBig: true };
   const stream = request.body;
-  if (!stream) return { body: {} };
+  if (!stream) return { buf: new Uint8Array(0) };
 
   const reader = stream.getReader();
   const chunks = [];
@@ -128,8 +129,35 @@ export async function readJsonLimited(request, max = BODY_LIMIT_JSON) {
     buf.set(c, at);
     at += c.byteLength;
   }
+  return { buf };
+}
+
+/** 读 JSON，超 max 字节就停。返回 { body } / { tooBig:true } / { bad:true }，不抛异常。 */
+export async function readJsonLimited(request, max = BODY_LIMIT_JSON) {
+  const rb = await readBytesLimited(request, max);
+  if (rb.tooBig || rb.bad) return rb;
+
   try {
-    return { body: JSON.parse(new TextDecoder().decode(buf)) };
+    return { body: JSON.parse(new TextDecoder().decode(rb.buf)) };
+  } catch {
+    return { bad: true };
+  }
+}
+
+/** 读 multipart 表单，超 max 字节就停。返回 { form } / { tooBig:true } / { bad:true }。
+ *
+ *  `request.formData()` 内部同样是把整个 body 读进内存 —— 它和 `request.json()`
+ *  是同一个坑，只是因为长得像「浏览器帮我解析好」而不容易被当成坑。
+ *  这里先按流数一遍（共用 readBytesLimited），再把手里的字节包成 Response 解析：
+ *  boundary 在 content-type 里，原样搬过去即可，不碰表单内容本身。 */
+export async function readFormLimited(request, max) {
+  const rb = await readBytesLimited(request, max);
+  if (rb.tooBig || rb.bad) return rb;
+
+  const ct = request.headers.get('content-type') || '';
+  try {
+    const form = await new Response(rb.buf, { headers: { 'content-type': ct } }).formData();
+    return { form };
   } catch {
     return { bad: true };
   }

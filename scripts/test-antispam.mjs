@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { judge, dayKey, secsToNextDay, turnstileMode, MIN_GAP_SEC, DAY_MAX } from '../src/antispam.js';
+import { handleApi } from '../src/api.js';
 
 const cases = [];
 const t = (name, fn) => cases.push([name, fn]);
@@ -80,6 +81,70 @@ t('只配 secret → secret-only（前端没组件，按未启用处理）', () 
   assert.equal(turnstileMode({ TURNSTILE_SECRET: 's' }), 'secret-only');
 });
 
+/* ---------- 蜜罐：命中就 400，且一个字节都不落库 ----------
+ * 这条是「200 假成功」的反面：蜜罐要的是「脚本以为成功了吗」——
+ * 不，脚本拿到的是 400，但它本来也不看状态码。真正要守的是两件事：
+ *   ① 状态码是 400，不是 200 / 403 —— 200 会让前端当成功、403 会暴露拦截点；
+ *   ② 命中之后不进 INSERT —— 不然「拦了」只拦了响应，垃圾还是落库了。
+ * 用假 D1 真跑一次 handleApi，不靠读源码猜顺序。 */
+function fakeDb() {
+  const calls = [];
+  const db = {
+    calls,
+    prepare(sql) {
+      calls.push(sql);
+      const stmt = {
+        bind: () => stmt,
+        async first() {
+          if (/FROM posts/.test(sql)) return { id: 7, title: 't', slug: 'p', is_private: 0, author_id: 1 };
+          if (/FROM settings/.test(sql)) return { value: '0' };
+          return null;
+        },
+        async all() { return { results: [] }; },
+        async run() { return { meta: { changes: 1 } }; },
+      };
+      return stmt;
+    },
+  };
+  return db;
+}
+
+t('蜜罐命中：400 拒绝，且没有 INSERT 进评论表', async () => {
+  const db = fakeDb();
+  const body = JSON.stringify({ slug: 'p', content: '买茶叶吗', name: 'bot', email: 'a@b.co', hp: 'http://spam' });
+  const res = await handleApi(
+    { DB: db },
+    new Request('https://exia.de5.net/api/comments', {
+      method: 'POST',
+      body,
+      headers: { 'content-type': 'application/json' },
+    }),
+    new URL('https://exia.de5.net/api/comments'),
+    {}
+  );
+  assert.equal(res.status, 400, '蜜罐命中必须是 400');
+  const j = await res.json();
+  assert.equal(j.ok, false);
+  assert.match(j.error, /验证没通过/);
+  assert.ok(!db.calls.some((s) => /INSERT INTO comments/i.test(s)), '蜜罐命中后仍写了库');
+});
+
+t('蜜罐命中：连频率计数都不该动（没过闸门就不该消耗额度）', async () => {
+  const db = fakeDb();
+  const res = await handleApi(
+    { DB: db },
+    new Request('https://exia.de5.net/api/comments', {
+      method: 'POST',
+      body: JSON.stringify({ slug: 'p', content: 'x', name: 'bot', email: 'a@b.co', hp: '1' }),
+      headers: { 'content-type': 'application/json' },
+    }),
+    new URL('https://exia.de5.net/api/comments'),
+    {}
+  );
+  assert.equal(res.status, 400);
+  assert.ok(!db.calls.some((s) => /comment_guard/i.test(s)), '蜜罐请求动了限流计数表');
+});
+
 /* ---------- [P-022] 限流的判定不是原子的（已知边界，未修） ----------
    现状：guard() 先 SELECT 读两把钥匙 → judge() 判定 → 业务写入 → record() 才累加。
    累加本身是原子的（INSERT ... ON CONFLICT DO UPDATE），但「检查」与「累加」之间
@@ -105,7 +170,7 @@ t('[P-022] guard 只读不写、record 才累加（check-then-act 现状）', ()
 let pass = 0;
 for (const [name, fn] of cases) {
   try {
-    fn();
+    await fn();
     console.log(`  ok  ${name}`);
     pass++;
   } catch (e) {

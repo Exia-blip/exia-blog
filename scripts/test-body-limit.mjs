@@ -6,8 +6,9 @@
 //   2) siteverify 的 hostname / action 必须严格相等 —— 谁把 `!==` 放松成「有就比」，
 //      BL-09/10 会红。
 import assert from 'node:assert/strict';
-import { readJsonLimited, bodyTooLarge, BODY_LIMIT_JSON } from '../src/utils.js';
-import { bodyCapFor } from '../src/api.js';
+import { readFileSync, readdirSync } from 'node:fs';
+import { readJsonLimited, readFormLimited, bodyTooLarge, BODY_LIMIT_JSON } from '../src/utils.js';
+import { handleApi, bodyCapFor } from '../src/api.js';
 import { verifyTurnstile } from '../src/antispam.js';
 
 const cases = [];
@@ -94,6 +95,97 @@ t('BL-07 路由上限：评论 64KB / 正文 1MB / 上传 8MB', () => {
   assert.equal(bodyCapFor('/posts'), 1024 * 1024);
   assert.equal(bodyCapFor('/upload'), 8 * 1024 * 1024);
   assert.equal(bodyCapFor('/settings/avatar'), 8 * 1024 * 1024);
+});
+
+/* ---------- 分支级闸门：这道才是没人守的那一半 ----------
+ * 顶层 `bodyTooLarge()` 只认 content-length。谎报一个 3、或者分块上传不给这个头，
+ * 顶层直接放行，请求一路走到分支里。只要分支里还写着 `await request.json()`，
+ * 整个包就被读进 isolate —— 闸门看着在，实际只管住了一半。
+ * 所以分支统一走 readBody()，下面两条把这条规矩钉在机器上。 */
+t('[P-037] BL-14 元断言：src/ 里不许再出现裸 request.json()（注释不算）', () => {
+  const dir = new URL('../src/', import.meta.url);
+  const strip = (s) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\w])\/\/[^\n]*/g, '$1');
+  const bad = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.js')) continue;
+    const code = strip(readFileSync(new URL(f, dir), 'utf8'));
+    if (/\b(?:request|req)\.json\s*\(/.test(code)) bad.push(f);
+  }
+  assert.deepEqual(bad, [], `这些文件还绕过 readBody 直接解析请求体：${bad.join(', ')}`);
+});
+
+t('[P-037] BL-15 谎报 content-length 的 1MB 请求：写分支收到 413，且没进库', async () => {
+  // content-length: 3，实际推 1MB 分块体 —— 顶层闸门必放行，只能靠分支里按流数
+  let sent = 0;
+  const stream = new ReadableStream({
+    pull(c) {
+      if (sent >= 1024 * 1024) return c.close();
+      sent += 64 * 1024;
+      c.enqueue(new Uint8Array(64 * 1024).fill(0x20));
+    },
+  });
+  const req = new Request('https://exia.de5.net/api/comments', {
+    method: 'POST',
+    body: stream,
+    duplex: 'half',
+    headers: { 'content-type': 'application/json', 'content-length': '3' },
+  });
+  // env 里没有 DB：真读进来就会在 posts 查询处抛，能拿到 413 就证明提前结束了
+  const res = await handleApi({}, req, new URL('https://exia.de5.net/api/comments'), {});
+  assert.equal(res.status, 413);
+  assert.match(res.headers.get('cache-control') || '', /no-store/);
+  assert.ok(sent < 1024 * 1024, `读了 ${sent} 字节，说明没有在超限处断流`);
+});
+
+t('[P-037] BL-16 multipart 同样按流数：伪报长度时 formData 不接管', async () => {
+  // request.formData() 与 request.json() 是同一个坑，只是长得像「浏览器帮我解析」
+  const boundary = '----probe';
+  const mp =
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="a.txt"\r\n` +
+    `Content-Type: text/plain\r\n\r\nhello\r\n--${boundary}--\r\n`;
+  const ok = await readFormLimited(
+    new Request('https://x.test/api/upload', {
+      method: 'POST',
+      body: mp,
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    }),
+    1024
+  );
+  assert.equal(ok.form.get('file').name, 'a.txt', '小表单应正常解析');
+
+  let sent = 0;
+  const stream = new ReadableStream({
+    pull(c) {
+      if (sent >= 2 * 1024 * 1024) return c.close();
+      sent += 64 * 1024;
+      c.enqueue(new Uint8Array(64 * 1024).fill(0x20));
+    },
+  });
+  const big = await readFormLimited(
+    new Request('https://x.test/api/upload', {
+      method: 'POST',
+      body: stream,
+      duplex: 'half',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, 'content-length': '3' },
+    }),
+    64 * 1024
+  );
+  assert.equal(big.tooBig, true);
+  assert.ok(sent < 2 * 1024 * 1024, `读了 ${sent} 字节，说明没有在超限处断流`);
+});
+
+t('[P-037] BL-17 元断言：src/ 里不许再出现裸 request.formData()（注释不算）', () => {
+  const dir = new URL('../src/', import.meta.url);
+  const strip = (s) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\w])\/\/[^\n]*/g, '$1');
+  const bad = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.js')) continue;
+    const code = strip(readFileSync(new URL(f, dir), 'utf8'));
+    if (/\b(?:request|req)\.formData\s*\(/.test(code)) bad.push(f);
+  }
+  assert.deepEqual(bad, [], `这些文件绕过了 readForm 直接解析表单：${bad.join(', ')}`);
 });
 
 /* ---------- Turnstile 出处复核 ---------- */

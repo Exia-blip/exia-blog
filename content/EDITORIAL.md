@@ -211,6 +211,27 @@
 
 **明说的没做**：没迁目录；没引 Hono/KV/vitest；`/api/archive` 不加缓存（冷路径）；`/api/posts` 不加缓存（`?tag=&cat=&q=` 组合无穷、`?q=` 能被刷出无限 key，与 CB-04 同一条理由）；没重测首屏；`check-live` 四条仍红（未部署）。
 
+### 六条断言查了五条：材料把我们自己的 CI 当成了文章（2026-11-24 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `gate-only-covered-the-honest-half` | 六条断言查了五条：材料把我们自己的 CI 当成了文章 | 工程实录 | `content-length 谎报 请求体 上限` / `cloudflare worker request.json 内存` | **六条要求里五条已在 CI**（渲染器顺序哨兵 `escAt<imgAt`、`isPartOf` 自指、`[P-024]` 安全头逐指令、sticky 真机、`/img/` nosniff）；**材料把蜜罐返回值写反了**（说 200，本站 400）；**闸门的判据（`content-length` 是声明）与它保护的动作（读流是事实）不在同一层** → 13 个写分支里 12 个还裸 `request.json()`；**`check-toc-sticky.mjs` 从不在 `npm test` 里**（要浏览器+线上地址），而那条回归只有长文章看得出来，CI 里没有长文章；CSP 第四次被判「没有」，实际 enforcing |
+
+**这篇带一处生产修复 + 三组新断言**：
+
+1. `src/utils.js`：抽出 `readBytesLimited()`（一份按流计数，超限即 `reader.cancel()`），`readJsonLimited()` 与新增的 `readFormLimited()` 都建立在它上面——表单和 JSON 是同一个坑，计数逻辑只写一遍。
+2. `src/api.js`：新增 `readBody(request, path, { lenient })` 与 `readForm(request, path)`，内部共用 `bodyCapFor(path)`，返回 `{ body }` / `{ res }`。15 个写入口（站点设置、审核、文章增改、摘要、评论处置×3、封 IP、友链增改、直传签名、发评论、头像、图片上传）全部改走它，裸 `request.json()` / `request.formData()` 清零。
+3. `scripts/test-body-limit.mjs`：`BL-14` 元断言（剥注释后扫 `src/*.js`，任何 `request.json()` 即红）、`BL-15` 端到端（`content-length: 3` + 1MB 分块体打 `POST /api/comments`，`env` 无 DB，必须拿到 413 且提前断流）、`BL-16` multipart 同款（2MB 分块、上限 64KB）、`BL-17` 元断言（不许裸 `request.formData()`）。
+4. `scripts/test-antispam.mjs`：假 D1 真跑 `handleApi`，蜜罐命中 → 400、零 `INSERT INTO comments`、零 `comment_guard` 访问。跑器改成 `await fn()` 以支持异步用例。
+5. `scripts/test-sticky-css.mjs`（新）：`SC-01~04` 守成因（`align-items: stretch` 不许 start / `align-self: stretch` / `top: 86px` + `max-height` + `overflow: auto` / 真机脚本仍在），`SC-05` 变异自检。
+6. `PITFALLS.md` 新增 P-037，对账 37 条。
+
+**注入验证**：评论分支改回 `request.json()` → `BL-14`+`BL-15` 双红；上传分支改回 `request.formData()` → `BL-17` 红；蜜罐状态码 `400`→`200` → `test-antispam` 两条红；`style.css` 的 `align-items: stretch`→`start` → `SC-01` 红。四次都还原后复跑全绿。
+
+**材料口径**：材料列的六条断言里，渲染器顺序守护（`test-md-guard.mjs` 的 M1/M2 变异 + 源码顺序哨兵）、`isPartOf` 自指（`test-seo-series.mjs` + `check-ld.mjs`）、安全头（`test-headers.mjs` `[P-024]` 逐指令）、`/img/` nosniff（`test-headers` / `test-svg`）**都已存在**；`/img/` 不发任何出站请求（只读 R2），「拒绝内网」那条真正的位置是 `cron.js` 的 `isBlockedHost()`。三个功能缺口里，评论 Webhook（四平台）与两级回复（`parent_id`）已上线，多文隔离上一轮完成。`visibility` 不加：`published_at`/`is_private`/`review_status`/`hidden` 已把可见性拆成四个正交维度。CSP 是 enforcing，改 Report-Only 是拆防线一周。
+
+**明说的没做**：WAF / Bot Fight Mode 未开（部署 token 无 Firewall 写权限，面板开关，代码绕不过）；没加 `[[ratelimits]]` binding（per-colo 软限，加了要部署才验得了，本轮不部署）；没拆 `features/`（`public/md.js` 双端共用）；没引 sanitize 库 / Hono / KV；没重测首屏；`check-live` 四条仍红（未部署）。
+
 ### 缓存键里唯一被请求头决定的，是 host（2026-11-23 完成，未入库）
 
 | slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |

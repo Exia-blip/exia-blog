@@ -327,6 +327,17 @@
 
 ---
 
+## P-037 请求体闸门只挡得住诚实的那一半
+
+- **现象**：`/api/*` 的写接口有一个「请求体上限」：顶层一行 `bodyTooLarge(request, bodyCapFor(path))`，超了回 413。看着是全站闸门。实际上分支里仍然写着 `const body = await request.json()` —— `content-length` 老实报 1MB 的包被顶层挡住，报 `3` 却推 1MB 的包（或分块上传干脆不给这个头）一路走到分支，整个包被读进 128MB 的 isolate 再 `JSON.parse`。闸门在，但只覆盖了一半入口，而这一半恰好是攻击者会走的那一半。同一个坑还有第二种长相：`request.formData()`（头像、图片上传），它内部同样整包读内存。
+- **根因**：闸门的判据（`content-length`）和它要保护的动作（把 body 读进内存）不在同一个地方。`content-length` 是**声明**，读流才是**事实**；用声明去守事实，声明由对方给，就等于没有守。当时只在「匿名可灌数据」的发评论接口做了按流计数（`readJsonLimited`），其余 12 个 JSON 分支（文章增改、摘要、审核、评论处置、批量删、封 IP、友链增改、站点设置、直传签名）与 2 个表单分支因为「要登录」被默认放过——但登录只限制造假者，不限制一个被盗的 cookie 烧额度。
+- **复现**：`node scripts/test-body-limit.mjs` 的 BL-15：伪造成 `content-length: 3`、实际推 1MB 分块体打 `POST /api/comments`，`env` 里不放 DB。修复前请求会一路读满并撞到 `env.DB` 抛错；修复后拿到 413，且 `sent` 远小于 1MB（在超限处就断流）。BL-16 是同一条对 multipart 的版本（2MB 分块、上限 64KB）。BL-14 / BL-17 是元断言：剥掉注释后扫描 `src/*.js`，任何 `request.json()` / `request.formData()` 都算红。
+- **断言**：`scripts/test-body-limit.mjs` BL-14（元断言：不许裸 `request.json()`）、BL-15（端到端：谎报长度的 JSON 在分支层被 413）、BL-16（multipart 同款）、BL-17（元断言：不许裸 `request.formData()`）。都做过注入验证：评论分支改回 `request.json()` → BL-14+BL-15 双红；上传分支改回 `request.formData()` → BL-17 红；蜜罐状态码从 400 改成 200 → `test-antispam` 两条新断言红。
+- **教训**：**一个「上限」如果写在解析之前，就必须同时写在每一个解析点**。修法不是把顶层的判断写得更严（`content-length` 可以撒谎，也完全可以不给），而是让所有分支只剩一条读体路径：`readBody(request, path)` 内部按流数、和顶层共用同一张路径上限表，连「回什么」都替调用方定好（`if (rb.res) return rb.res;`）。表单那条同理走 `readForm()`，计数逻辑与 JSON 共用 `readBytesLimited`（一份逻辑，两种解析）。这样新加一个写接口时，漏掉闸门的写法在语法上就不顺手了。同族：P-030（同一个判据两个实现）、P-035（只夹下界）。附带一条：蜜罐的断言不能只写「拦住了」，要同时断言「没有 INSERT、没有动限流计数表」——否则拦住的可能只是响应，垃圾照样落库。
+- **出处**：站务记录（本文件，2026-11-24）；`src/utils.js` 的 `readBytesLimited` / `readFormLimited`、`src/api.js` 的 `readBody()` / `readForm()`；`scripts/test-body-limit.mjs`、`scripts/test-antispam.mjs`、`scripts/test-sticky-css.mjs`
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

@@ -11,6 +11,7 @@ import {
   wordCount,
   bodyTooLarge,
   readJsonLimited,
+  readFormLimited,
   BODY_LIMIT_JSON,
 } from './utils.js';
 import { currentUser, requireUser, requireAdmin, ownerOrAdmin, reviewStatusFor } from './auth.js';
@@ -509,6 +510,37 @@ export function bodyCapFor(path) {
   return BODY_LIMIT_JSON;
 }
 
+/* 写接口唯一的读体入口。顶层那道 content-length 闸门只挡得住「老实的大包」：
+   谎报一个 3 字节、或者分块上传干脆不给 content-length 的，会一路走到具体分支，
+   那里再 `await request.json()` 就是把整个包读进 128MB 的 isolate 再解析 ——
+   闸门看着在，实际只管住了其中一半。
+
+   所以分支里也从这里读：按流数一遍（readJsonLimited），和顶层那道共用同一张
+   路径上限表（bodyCapFor），不会出现「顶层按 64KB 拦、分支按 1MB 放」的错位。
+   返回 { body } 或 { res } —— 把这个接口该回什么都定好，调用方写一行
+   `if (rb.res) return rb.res;` 即可，漏掉 413 的机会就没有了。
+
+   lenient 给「body 可有可无」的开关类接口：空 body / 坏 JSON 都当 {}，
+   保持它们原来 .catch(() => ({})) 的语义；写正文、上传这类必须报错。 */
+async function readBody(request, path, { lenient = false } = {}) {
+  const rd = await readJsonLimited(request, bodyCapFor(path));
+  if (rd.tooBig) return { res: json({ ok: false, error: '请求体太大' }, 413, { 'cache-control': 'no-store' }) };
+  if (!rd.body) {
+    if (lenient) return { body: {} };
+    return { res: err('请求格式不正确') };
+  }
+  return { body: rd.body };
+}
+
+/* formData 的读法：和 readBody 同一个道理（request.formData() 也会把整个 body
+   读进内存），只是解析结果叫 form。上限同样来自 bodyCapFor(path)。 */
+async function readForm(request, path) {
+  const rf = await readFormLimited(request, bodyCapFor(path));
+  if (rf.tooBig) return { res: json({ ok: false, error: '请求体太大' }, 413, { 'cache-control': 'no-store' }) };
+  if (!rf.form) return { res: err('表单格式不正确') };
+  return { form: rf.form };
+}
+
 /* 只读开关：出事时把写接口一次性关掉，静态页与文章照常读。
    为什么是环境变量而不是后台开关：后台开关本身也要写库，正是出事时最不该依赖的东西；
    变量改完下一次请求即生效，不用发版，也不占 D1。
@@ -563,7 +595,9 @@ export async function handleApi(env, request, url, ctx) {
     const { res } = await requireAdmin(env, request);
     if (res) return res;
 
-    const body = await request.json();
+    const rb = await readBody(request, path);
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const name = String(body.name ?? '').trim();
     if (!name) return err('站点名称不能为空');
     if (name.length > 60) return err('站点名称太长（限 60 字）');
@@ -603,7 +637,9 @@ export async function handleApi(env, request, url, ctx) {
     const { res } = await requireAdmin(env, request);
     if (res) return res;
 
-    const form = await request.formData();
+    const rf = await readForm(request, path);
+    if (rf.res) return rf.res;
+    const form = rf.form;
     const file = form.get('file');
     if (!file || typeof file === 'string') return err('没有文件');
 
@@ -691,7 +727,9 @@ export async function handleApi(env, request, url, ctx) {
     const { user, res } = await requireAdmin(env, request);
     if (res) return res;
     const id = parseInt(path.split('/')[2], 10);
-    const body = await request.json().catch(() => ({}));
+    const rb = await readBody(request, path, { lenient: true });
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const action = String(body.action || '');
     if (action !== 'approve' && action !== 'reject') return err('action 只能是 approve 或 reject');
     const p = await db.prepare('SELECT id, slug, category, review_status FROM posts WHERE id = ?').bind(id).first();
@@ -816,7 +854,9 @@ export async function handleApi(env, request, url, ctx) {
     const { user: u, res } = await requireUser(env, request);
     if (res) return res;
 
-    const body = await request.json();
+    const rb = await readBody(request, path);
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const title = String(body.title || '无标题').slice(0, 200);
     const content = cleanMarkdown(String(body.content || ''), title);
     const wanted = slugify(body.slug || '');
@@ -885,7 +925,9 @@ export async function handleApi(env, request, url, ctx) {
     if (!p) return err('文章不存在', 404);
     if (!ownerOrAdmin(u, p)) return err('无权编辑', 403);
 
-    const body = await request.json();
+    const rb = await readBody(request, path);
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const title = body.title !== undefined ? String(body.title).slice(0, 200) : p.title;
     const content = body.content !== undefined ? cleanMarkdown(String(body.content), title) : p.content;
 
@@ -1039,11 +1081,9 @@ export async function handleApi(env, request, url, ctx) {
     if (!p) return err('文章不存在', 404);
     if (!ownerOrAdmin(u, p)) return err('无权编辑', 403);
 
-    let body = {};
-    try {
-      body = await request.json();
-    } catch {}
-
+    const rb = await readBody(request, path, { lenient: true });
+    if (rb.res) return rb.res;
+    let body = rb.body;
     const title = body.title !== undefined ? String(body.title).slice(0, 200) : p.title;
     const content = body.content !== undefined ? String(body.content) : p.content;
     if (!String(content).trim()) return err('正文是空的，没东西可总结');
@@ -1115,12 +1155,11 @@ export async function handleApi(env, request, url, ctx) {
 
   /* ---- 发评论 ---- */
   if (path === '/comments' && method === 'POST') {
-    /* 这个接口是全站唯一「匿名人可以往里灌数据」的入口，所以用按流读的那道闸门：
-       content-length 谎报成 3 字节、实际传 50MB，request.json() 照样全读进内存。 */
-    const rd = await readJsonLimited(request);
-    if (rd.tooBig) return err('请求体太大', 413);
-    if (!rd.body) return err('请求格式不正确');
-    const body = rd.body;
+    /* 这个接口是全站唯一「匿名人可以往里灌数据」的入口 —— 读体走公共的 readBody：
+       顶层 content-length 只挡老实的大包，谎报长度的要靠按流数那一遍。 */
+    const rb = await readBody(request, path);
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const slug = String(body.slug || '');
     const content = String(body.content || '').trim();
 
@@ -1228,7 +1267,9 @@ export async function handleApi(env, request, url, ctx) {
   if (path === '/comments/moderation' && method === 'POST') {
     const { user, res } = await requireAdmin(env, request);
     if (res) return res;
-    const body = await request.json().catch(() => ({}));
+    const rb = await readBody(request, path, { lenient: true });
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const enabled = body.enabled ? '1' : '0';
     const prev = await db.prepare("SELECT value FROM settings WHERE key='comment_moderation'").first();
     const was = String(prev?.value ?? '0') === '1';
@@ -1263,7 +1304,9 @@ export async function handleApi(env, request, url, ctx) {
     const { user, res } = await requireAdmin(env, request);
     if (res) return res;
     const id = parseInt(path.split('/')[2], 10);
-    const body = await request.json().catch(() => ({}));
+    const rb = await readBody(request, path, { lenient: true });
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const action = String(body.action || '');
     if (action !== 'approve' && action !== 'reject') return err('action 只能是 approve 或 reject');
     const c = await db.prepare('SELECT id, post_id, status FROM comments WHERE id = ?').bind(id).first();
@@ -1280,7 +1323,9 @@ export async function handleApi(env, request, url, ctx) {
   if (path === '/comments/bulk' && method === 'POST') {
     const { res } = await requireAdmin(env, request);
     if (res) return res;
-    const body = await request.json().catch(() => ({}));
+    const rb = await readBody(request, path, { lenient: true });
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const ids = (Array.isArray(body.ids) ? body.ids : [])
       .map((n) => parseInt(n, 10))
       .filter((n) => Number.isInteger(n) && n > 0)
@@ -1300,7 +1345,9 @@ export async function handleApi(env, request, url, ctx) {
   if (path === '/comments/ban' && method === 'POST') {
     const { res } = await requireAdmin(env, request);
     if (res) return res;
-    const body = await request.json().catch(() => ({}));
+    const rb = await readBody(request, path, { lenient: true });
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const cid = parseInt(body.id, 10);
     if (!Number.isInteger(cid)) return err('缺少评论 id');
 
@@ -1345,7 +1392,9 @@ export async function handleApi(env, request, url, ctx) {
   if (path === '/friends' && method === 'POST') {
     const { user: u, res } = await requireAdmin(env, request);
     if (res) return res;
-    const body = await request.json();
+    const rb = await readBody(request, path);
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const name = String(body.name || '').trim();
     const furl = String(body.url || '').trim();
     if (!name || !furl) return err('名称和链接必填');
@@ -1368,7 +1417,9 @@ export async function handleApi(env, request, url, ctx) {
     if (res) return res;
 
     const id = parseInt(path.split('/')[2], 10);
-    const body = await request.json();
+    const rb = await readBody(request, path);
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const name = String(body.name || '').trim();
     const furl = String(body.url || '').trim();
     if (!name || !furl) return err('名称和链接必填');
@@ -1499,7 +1550,9 @@ export async function handleApi(env, request, url, ctx) {
     const { res } = await requireUser(env, request);
     if (res) return res;
 
-    const body = await request.json();
+    const rb = await readBody(request, path);
+    if (rb.res) return rb.res;
+    const body = rb.body;
     const type = String(body.type || 'image/png').toLowerCase();
     if (!IMAGE_TYPES[type]) return err('只支持 jpg/png/gif/webp/svg/avif');
 
@@ -1522,7 +1575,9 @@ export async function handleApi(env, request, url, ctx) {
     const { res } = await requireUser(env, request);
     if (res) return res;
 
-    const form = await request.formData();
+    const rf = await readForm(request, path);
+    if (rf.res) return rf.res;
+    const form = rf.form;
     const file = form.get('file');
     if (!file || typeof file === 'string') return err('没有文件');
 
