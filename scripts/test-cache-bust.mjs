@@ -147,14 +147,6 @@ check(
     : emptyCatsWithSlug.map(([n, l]) => `api.js:${n} ${l.trim().slice(0, 60)}`).join(' | ')
 );
 
-/* 加了边缘缓存的只读接口，必须同时进 bust 清单（CB-11）。
-   为什么判据是「两者的对应关系」而不是「有没有 s-maxage」：
-   光有 s-maxage 不是缺陷，缺陷是**加完缓存忘了加清理**。单向匹配只能证明
-   缓存存在（P-030 同族：只认一个方向，反过来就漏）。这里反过来扫 —
-   凡是 GET 分支里出现 s-maxage / pageCacheControl 的接口，路径必须出现在 bust 的
-   paths 里，否则那条接口就有了一个「写后读到旧值」的窗口。
-   本站目前只有 /api/tags 一条命中：/categories 是静态壳原样返回，标签云全靠前端拉，
-   不像首页有 SSR 直出的 tagbar 可以先接住。 */
 /* 本站允许带边缘缓存的只读接口，写死在这里而不是"有几条算几条"。
    只验「识别到的都在清理清单里」会漏掉最坏的一种变化：把某条接口的
    pageCacheControl() 删了 —— 集合变空，断言对空集合永远成立，红线自己消失了。
@@ -187,6 +179,34 @@ check(
       : orphanCached.length
         ? `这些接口缓存了但没清：${orphanCached.join(', ')}`
         : `${orphanCached.length === 0 ? cachedGets.map((p) => `/api${p}`).join(', ') : ''} 已在清理清单`
+);
+
+/* 缓存键的 host 必须由服务端定（CB-12）。
+   caches.default 的键是**完整 URL 字符串**，origin 来自 Host 头。配了自定义域名后
+   exia.de5.net 与 *.workers.dev 各有一套缓存：命中率减半还算小事，
+   真正的问题是 bust 用同一套 origin —— 在 B 域名上发布，清的只是 B 那套，
+   A 域名的读者要等 300 秒才看到新文章（P-031 那类「写后读到旧值」，但触发条件更隐蔽）。
+   判据不看「源码里有没有 siteOrigin」这种字面匹配，看三件事接没接上：
+   ① route() 里 url 的构造经过 siteOrigin；② edgeGet/edgePut 吃的就是这个 url；
+   ③ 没有第二处直接拿 request.url 造缓存键。 */
+const routeStart = idx.indexOf('async function route(request, env, ctx)');
+const routeHead = routeStart >= 0 ? idx.slice(routeStart, routeStart + 1200) : '';
+const keyHostFixed = /const url = new URL\(\s*reqUrl\.pathname \+ reqUrl\.search,\s*siteOrigin\(env, request\)\s*\)/.test(routeHead);
+const edgeUsesUrl = /edgeGet\(url\)/.test(idx) && /edgePut\(url,/.test(idx);
+const noRawHostKey = !/edge(?:Get|Put)\(\s*new URL\(request\.url\)/.test(idx);
+check(
+  'CB-12',
+  '缓存键的 host 不跟 Host 头走',
+  routeStart >= 0 && keyHostFixed && edgeUsesUrl && noRawHostKey,
+  routeStart < 0
+    ? '找不到 route()，判据前提已失效'
+    : !keyHostFixed
+      ? 'route() 里的 url 没经过 siteOrigin，多域名会各存一套'
+      : !edgeUsesUrl
+        ? 'edgeGet/edgePut 没吃归一化后的 url'
+        : !noRawHostKey
+          ? '有地方直接拿 request.url 当缓存键'
+          : 'url 归一化到 SITE_ORIGIN'
 );
 
 console.log(bad ? `\n${bad} 项失败` : '\n全部通过');

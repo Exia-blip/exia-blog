@@ -305,6 +305,17 @@
 
 ---
 
+## P-035 分页参数只夹下界，溢出后列表静默变成骨架屏
+
+- **现象**：`/tag/<标签>?page=999999999999999999999` 与 `/api/posts?page=999999999999999999999` 都返回 **200**，页面是一张永远「加载中」的骨架屏。没有 500、没有错误文案，日志里只有一行 `console.error('list ssr failed', e)`。
+- **根因**：`parseInt('999999999999999999999')` 得到 `1e21`，`offset = (page-1) * size` 变成 `1e22`，超出 int64。SQLite 直接报 `datatype mismatch`（`node:sqlite` 实测复现）。D1 同样报错，而 SSR 的 `listQuery` 把异常兜成 `data: null`，`applyList` 见到 null 就填 `SKELETON` —— 一个「服务正常但内容空了」的形态。
+- **复现**：`node --input-type=module -e "import {DatabaseSync} from 'node:sqlite'; const db=new DatabaseSync(':memory:'); db.exec('create table t(a)'); db.prepare('select * from t limit 10 offset ?').all(1e22)"` → `datatype mismatch`。
+- **断言**：`scripts/test-query-params.mjs` QP-01~05。QP-01 直接调 `pageParams` 验 offset 是安全整数；QP-04 验 `(MAX_PAGE-1)*50` 本身不越界（防有人把常量调到 `Number.MAX_SAFE_INTEGER`）；QP-05 是元断言 —— `src/` 里除 `utils.js` 外不许再出现「从 searchParams 取 page 再转数字」的形状。
+- **教训**：这段解析原先在 `utils.pageParams` 与 `index.listParams` **各写一遍**，两处都只夹下界。修一处漏一处是这一路反复出现的形态（P-030 认一种句式、P-032 扫一层目录、P-034 排除一类目录）：**同一个判据只要存在两个实现，就一定会分叉**。另一条：`n || 默认值` 把 `0` 和 `-5` 分成两种结果（一个回落默认、一个被 `Math.max` 夹到下界），改用 `Number.isFinite` 判断「是不是给了个数」，两种非法输入才走同一条路。
+- **出处**：站务记录（本文件，2026-11-23）；`content/54-*.md`；同族见 P-031（清缓存漏传维度）、P-034（排除制造盲区）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

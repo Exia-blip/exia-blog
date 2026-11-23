@@ -1,6 +1,6 @@
 import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql, tagHasLivePosts } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser, ownerOrAdmin } from './auth.js';
-import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin, wordCount } from './utils.js';
+import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin, wordCount, pageParams } from './utils.js';
 import { checkFriends, checkSelfHealth } from './cron.js';
 import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
@@ -1571,7 +1571,12 @@ function listParams(url) {
   // 搜索结果分页靠前端接管，这里只兜首屏
   if (url.searchParams.get('q')) return null;
 
-  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
+  /* 分页只在这里解析一次，且必须走 pageParams —— SSR 和 /api/posts 用同一个
+     上界。原先这里自己写了一遍 Math.max(1, parseInt(...))，只夹下界不夹上界：
+     `?page=999999999999999999999` 会算出 1e22 的 OFFSET，SQLite 报 datatype
+     mismatch，被 listQuery 的 catch 兜住，页面变成一张永远加载中的骨架屏（200）。
+     两处各自实现 = 修一处漏一处，正是这一路反复踩的形态。 */
+  const page = pageParams(url).page;
   const base = tag ? `/tag/${encodeURIComponent(tag)}` : cat ? `/cat/${encodeURIComponent(cat)}` : '/';
   return { tag, cat, page, base };
 }
@@ -2560,7 +2565,15 @@ export function maybe304(res, request) {
 }
 
 async function route(request, env, ctx) {
-  const url = new URL(request.url);
+  /* 缓存键的 host 由服务端定，不跟 Host 头走（CB-12）。
+     caches.default 的键是完整 URL，origin 来自 Host 头 —— 同一个页面在
+     exia.de5.net 与 *.workers.dev 下是**两条独立条目**。后果不是串号（各存各的），
+     而是两份：命中率减半；更糟的是 bust 用同一套 origin，
+     在 A 域名上发布、清的是 A 那套，B 域名的读者要等 300 秒。
+     归一化到 SITE_ORIGIN 之后，两条域名共用一条缓存、一次清理。
+     只在 pathname + search 上换 origin，不动请求本身。 */
+  const reqUrl = new URL(request.url);
+  const url = new URL(reqUrl.pathname + reqUrl.search, siteOrigin(env, request));
   const path = url.pathname;
 
   if (path.startsWith('/api/')) return await handleApi(env, request, url, ctx);

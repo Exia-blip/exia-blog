@@ -345,8 +345,23 @@ export function collectOrigins(src) {
   }
 }
 
+/* 分页参数。两条边界都是「必须夹住」而不是「应该夹住」：
+   - size 上界 50：不夹的话 ?size=100000 一次就把整表读进 isolate；
+   - page 上界（QP-01）：offset 是 page-1 乘以 size，直接绑进 SQL 的 OFFSET。
+     parseInt('999999999999999999999') 得到 1e21，乘完是 1e22 —— 溢出 int64，
+     SQLite 报 `datatype mismatch`。D1 那一层同样报错，而 SSR 的 catch 会把它
+     变成一张永远「加载中」的骨架屏（200 状态，不是 500），读者和爬虫都看不出出错。
+     10000 页 × 50 条 = 50 万条，够任何个人站点用到废弃。 */
+export const MAX_PAGE = 10000;
+
 export function pageParams(url, defSize = 10) {
-  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
-  const size = Math.min(50, Math.max(1, parseInt(url.searchParams.get('size') || String(defSize), 10) || defSize));
+  /* 用 Number.isFinite 判断「是不是给了一个数」，而不是 `n || 默认值`。
+     后者把 0 和前两者混在一起：`parseInt('0') || 10` 得 10（当没给），
+     而 `parseInt('-5') || 10` 得 -5（走 Math.max 夹到 1）—— 同样是非法输入，
+     一个回落默认、一个夹到下界。QP-03 把这条钉住。 */
+  const rawPage = parseInt(url.searchParams.get('page') ?? '', 10);
+  const page = Number.isFinite(rawPage) ? Math.min(MAX_PAGE, Math.max(1, rawPage)) : 1;
+  const rawSize = parseInt(url.searchParams.get('size') ?? '', 10);
+  const size = Number.isFinite(rawSize) ? Math.min(50, Math.max(1, rawSize)) : defSize;
   return { page, size, offset: (page - 1) * size };
 }
