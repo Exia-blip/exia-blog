@@ -169,6 +169,25 @@
 
 **明说的没做**：角色表 / ACL；入口与 handler 的 `users` 双查（2 次 D1 往返）未优化；白名单无线上演练（与 `READONLY_MODE` 同属「越过 HTTP 边界的那层靠推理」的系统性盲区）；`ALLOWED_LOGINS` 默认不配，等于没改。
 
+### 四候选对账：说好的三张权限表只有一列（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `cms-candidates-reconciliation` | 四个 CMS 候选对账：说好的三张权限表，源码里只有一个 role 列 | 工程实录 | `cloudcore cms rbac` / `sonicjs defineplugin` | **Cloudcore 没有 roles/permissions/user_roles 三表**——`src/db/schema.ts` 只有 `cc_users.role` 单列（默认 `'contributor'`）+ `src/types.ts` 的 `PERMISSIONS` 常量表 + `hasPermission(role, action)`；EmDash 仓库在 `emdash-cms/` 不是 `cloudflare/`；**EmDash 的插件 API 也叫 `definePlugin`**，不是 SonicJS 独有；flare-stack 是 **GPL-3.0** 且 README 仍写「首个用户自动成为管理员」；CFBlog「5 级角色」**核实不到** |
+
+**这篇带一处生产修复 + 一套断言改写**：
+
+1. `src/index.js`：`1148` / `1156` 两处内联 `user.id === post.author_id || user.is_admin` → `ownerOrAdmin(user, post)`。**这是上一轮断言漏掉的两处真缺口**，在 SSR 文章详情页（预排闸门 + 审核闸门），线上跑了一整轮。
+2. `src/auth.js`：新增 `reviewStatusFor(user)`，收口 `src/api.js` 832 / 922 两处重复三元 `u.is_admin ? 'approved' : 'pending'`。
+3. `scripts/test-auth-policy.mjs`：`AP-15` 从「匹配一种字符串」改为**白名单扫描**（遍历 `src/*.js`，逐行找同时含 `.author_id` + `.id|is_admin` + `===|!==` 的行，只有 `auth.js` 允许）；新增 `AP-16`（审核态唯一来源）、`AP-17`（`ownerOrAdmin` null-safe）。16 → 17 条。
+4. `PITFALLS.md` 新增 P-030，对账 30 条全绿。
+
+**注入验证**：把 `index.js:1148` 改回旧写法 → 16/17，报 `index.js:1148` 精确行号；改回 → 17/17。按 P-030 自己写的规矩（先看它红再回滚）。
+
+**材料口径**：四候选的 star / license / 权限模型 / 扩展机制逐条对过源码与 README。错的三条：Cloudcore 三表（不存在）、EmDash「官方」（不是 `cloudflare/*`）、CFBlog（查不到）。对的三条：沙箱是分水岭、首用户即管理员该删、只抄约定不搬代码。`visibility` 不加（已有 `published_at` / `is_private` / `review_status` / `hidden` 四开关，加一个必然出非法组合）；`can()` 仍是空壳（只有两种判据）；四表不上（`role` 一列够）。
+
+**明说的没做**：没迁移任何候选的表或数据；`visibility` / `can()` / 四表零改动；Better Auth 没引（自带四张表与现有 `users` 异构）；CFBlog 核实失败；`check-live` 四条仍红（未部署）。
+
 ### 假绿：六条断言从来没执行过（2026-11-23 完成，未入库）
 
 | slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
