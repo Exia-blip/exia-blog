@@ -1,0 +1,181 @@
+#!/usr/bin/env node
+/**
+ * 路由边界断言。
+ *
+ * 起因是看 Rin 的 server/src/core/route-boundaries.ts + route-boundaries.test.ts：
+ * 它的边界测试（2689 B）比边界实现（2442 B）还大。也就是说，那边把「哪个路由
+ * 归谁处理」当成一条必须被断言的契约，而不是靠目录摆放去暗示。
+ *
+ * 我站的分发器是 src/index.js 里的 route()：111 行、28 个分支的线性扫描。
+ * 问题从来不是「文件大」，是这 111 行里一条约束都没有：
+ *
+ *   1. 谁都能插一条 if，没人要求登记它归哪个模块 —— 半年后归谁说不清
+ *   2. 同一个 path 写两遍，前一条静默失效（早退型 if 的特性，不报错）
+ *   3. 兜底分支（segs.length === 1）往上一挪，所有前缀路由全哑
+ *   4. 分发器里能直接写 SQL —— 路由层和业务层就混了
+ *
+ * 四条都属于「改对了没感觉、改错了也不报错」，只能靠断言。
+ *
+ * 口径与 PITFALLS 对账一致：
+ *   - 代码里有、表里没有 → 失败（新增路由必须登记）
+ *   - 表里有、代码里没有 → 只警告（可能刚删代码，不算事故）
+ */
+
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const INDEX = join(ROOT, 'src', 'index.js');
+
+let bad = 0;
+let warn = 0;
+const warnList = [];
+
+function check(id, name, cond, detail = '') {
+  if (!cond) bad++;
+  console.log(`${cond ? 'pass' : 'FAIL'}  [${id}] ${name.padEnd(30)} ${detail}`);
+}
+function note(id, name, detail) {
+  warn++;
+  warnList.push(`[${id}] ${name} ${detail}`);
+  console.log(`warn  [${id}] ${name.padEnd(30)} ${detail}`);
+}
+
+/* ---------- 路由归属表 ----------
+ * 每条路由必须在这里登记它归哪个模块。新增路由不登记 → RB-01 红。
+ * 「归谁」指实现文件，不是分发器所在文件。分发器里内联实现的，
+ * 登记成 index.js 并在 note 里写清原因 —— 那本身就是要还的债。
+ */
+const OWNERS = {
+  // 前缀路由
+  '/api/': { file: 'api.js', kind: 'prefix' },
+  '/img/': { file: 'index.js', kind: 'prefix', note: 'R2 代理，与 serveImage 同处' },
+  '/tag/': { file: 'taxonomy.js', kind: 'prefix', note: '数据在 taxonomy，渲染内联在 route()' },
+  '/cat/': { file: 'taxonomy.js', kind: 'prefix' },
+  '/series/': { file: 'index.js', kind: 'prefix' },
+  '/p/': { file: 'index.js', kind: 'prefix' },
+
+  // 鉴权
+  '/auth/github': { file: 'auth.js' },
+  '/auth/callback': { file: 'auth.js' },
+  '/auth/logout': { file: 'auth.js' },
+  '/auth/status': { file: 'auth.js' },
+
+  // 机器读的
+  '/avatar': { file: 'index.js' },
+  '/rss.xml': { file: 'index.js' },
+  '/sitemap.xml': { file: 'index.js' },
+  '/robots.txt': { file: 'index.js' },
+  '/llms.txt': { file: 'index.js' },
+  '/manifest.webmanifest': { file: 'index.js' },
+
+  // 后台
+  '/admin': { file: 'dashboard.js' },
+  '/admin/review': { file: 'review.js' },
+  '/admin/stats': { file: 'stats.js' },
+  '/admin/health': { file: 'admin-pages.js' },
+  '/admin/queue': { file: 'admin-pages.js' },
+  '/admin/audit': { file: 'admin-pages.js' },
+  '/admin/history': { file: 'admin-pages.js' },
+  '/admin/friends': { file: 'admin-pages.js' },
+  '/admin/comments': { file: 'admin-pages.js' },
+
+  // 页面
+  '/archive': { file: 'index.js' },
+  '/numbers': { file: 'numbers.js', note: '数据在 numbers.js，渲染在 index.js' },
+  '/categories': { file: 'taxonomy.js', note: '渲染内联在 route()，取静态骨架' },
+  '/friends': { file: 'index.js' },
+  '/friends/': { file: 'index.js' },
+  '/series': { file: 'index.js' },
+  '/series/': { file: 'index.js' },
+};
+
+const src = readFileSync(INDEX, 'utf8');
+const lines = src.split('\n');
+
+/* ---------- 切出 route() 函数体 ---------- */
+const start = lines.findIndex((l) => l.startsWith('async function route('));
+if (start < 0) {
+  console.error('FAIL  找不到 async function route(  —— 分发器被改名了，先更新本脚本');
+  process.exit(1);
+}
+let end = -1;
+for (let i = start + 1; i < lines.length; i++) {
+  if (lines[i] === '}') { end = i; break; }
+}
+const body = lines.slice(start, end + 1);
+
+/* ---------- 提取路由 ---------- */
+const found = []; // { pattern, kind, line }
+body.forEach((ln, i) => {
+  const lineNo = start + i + 1;
+  // path === '/x'  或  path === '/x' || path === '/y'
+  for (const m of ln.matchAll(/path\s*===\s*'([^']+)'/g)) {
+    found.push({ pattern: m[1], kind: 'exact', line: lineNo });
+  }
+  // path.startsWith('/x')
+  for (const m of ln.matchAll(/path\.startsWith\('([^']+)'\)/g)) {
+    found.push({ pattern: m[1], kind: 'prefix', line: lineNo });
+  }
+});
+
+const uniq = [...new Map(found.map((f) => [`${f.kind}:${f.pattern}`, f])).values()];
+
+/* ---------- RB-01 每条路由都已登记 ---------- */
+const unregistered = uniq.filter((f) => !OWNERS[f.pattern]);
+check('RB-01', '路由已登记归属', unregistered.length === 0,
+  unregistered.length
+    ? `未登记 ${unregistered.length} 条：${unregistered.map((f) => `${f.pattern}(L${f.line})`).join(' ')}`
+    : `${uniq.length} 条全部有归属`);
+
+/* ---------- RB-02 登记的每条在代码里存在（orphan 只警告） ---------- */
+const present = new Set(uniq.map((f) => f.pattern));
+const orphans = Object.keys(OWNERS).filter((p) => !present.has(p));
+if (orphans.length) {
+  note('RB-02', '登记项在代码里存在', `orphan ${orphans.length} 条：${orphans.join(' ')}`);
+} else {
+  check('RB-02', '登记项在代码里存在', true, `${Object.keys(OWNERS).length} 条全命中`);
+}
+
+/* ---------- RB-03 owner 文件真实存在 ---------- */
+const srcFiles = new Set(readdirSync(join(ROOT, 'src')));
+const missingFile = Object.entries(OWNERS)
+  .filter(([, v]) => !srcFiles.has(v.file))
+  .map(([k, v]) => `${k}->${v.file}`);
+check('RB-03', 'owner 模块文件存在', missingFile.length === 0,
+  missingFile.length ? missingFile.join(' ') : `${new Set(Object.values(OWNERS).map((v) => v.file)).size} 个模块`);
+
+/* ---------- RB-04 exact 路由不重复 ---------- */
+const seen = new Map();
+const dupes = [];
+for (const f of found.filter((x) => x.kind === 'exact')) {
+  if (seen.has(f.pattern)) dupes.push(`${f.pattern} L${seen.get(f.pattern)}/L${f.line}`);
+  else seen.set(f.pattern, f.line);
+}
+check('RB-04', 'exact 路由无重复', dupes.length === 0,
+  dupes.length ? dupes.join(' ') : `${seen.size} 条唯一`);
+
+/* ---------- RB-05 兜底分支在所有前缀路由之后 ---------- */
+// route() 的兜底是 segs.length === 1（单段路径当成 slug），一旦上移，
+// 排在它后面的 /p/、/tag/ 之类永不可达。这是早退型分发器最容易踩的一脚。
+const fallbackLine = body.findIndex((l) => l.includes('segs.length === 1'));
+const lastPrefixLine = body.reduce((acc, l, i) => (l.includes("path.startsWith('") ? i : acc), -1);
+check('RB-05', '兜底分支在前缀路由之后',
+  fallbackLine > lastPrefixLine && fallbackLine !== -1,
+  `兜底 L${fallbackLine >= 0 ? start + fallbackLine + 1 : '?'} / 最后前缀 L${lastPrefixLine >= 0 ? start + lastPrefixLine + 1 : '?'}`);
+
+/* ---------- RB-06 分发器不碰数据层 ---------- */
+// 路由层只该判断「谁处理」，不该自己写 SQL。route() 里一旦出现 DB.prepare，
+// 「加功能 = 加一行注册」这条就不成立了 —— 你得同时读那段 SQL 才敢动。
+const sqlHits = body
+  .map((l, i) => ({ l, line: start + i + 1 }))
+  .filter((x) => /env\.DB\.prepare\(/.test(x.l));
+check('RB-06', '分发器不含 SQL', sqlHits.length === 0,
+  sqlHits.length ? `命中 ${sqlHits.length} 处：L${sqlHits.map((x) => x.line).join(',L')}` : '路由层只分发');
+
+/* ---------- 汇总 ---------- */
+console.log('');
+if (warnList.length) console.log(`${warn} 条警告（不失败）：\n  ${warnList.join('\n  ')}`);
+console.log(bad === 0 ? `路由边界 ${uniq.length} 条，断言全通过。` : `${bad} 条断言失败。`);
+process.exit(bad ? 1 : 0);

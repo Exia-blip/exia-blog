@@ -1,4 +1,4 @@
-import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql } from './api.js';
+import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql, tagHasLivePosts } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
 import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin, wordCount } from './utils.js';
 import { checkFriends, checkSelfHealth } from './cron.js';
@@ -2588,15 +2588,9 @@ async function route(request, env, ctx) {
     const tag = decodeURIComponent(path.slice(5).split('/')[0] || '');
     if (!tag) return await notFoundPage(env, request, '页面走丢了');
     // 没有任何公开文章的标签页就是薄内容，直接 404，别让爬虫收一堆空页
-    const hit = await env.DB.prepare(
-      `SELECT 1 FROM tags t
-       JOIN post_tags pt ON pt.tag_id = t.id
-       JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}
-       WHERE t.name = ? LIMIT 1`
-    )
-      .bind(tag)
-      .first();
-    if (!hit) return await notFoundPage(env, request, '这个标签下还没有文章');
+    if (!(await tagHasLivePosts(env, tag))) {
+      return await notFoundPage(env, request, '这个标签下还没有文章');
+    }
     const res = await env.ASSETS.fetch(new Request(new URL('/', request.url), request));
     return html(await res.text());
   }

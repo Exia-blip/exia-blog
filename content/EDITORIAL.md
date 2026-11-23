@@ -104,6 +104,14 @@
 
 **来源全部为公开文件，未部署运行 Rin**：README、根/`server`/`client` 三份 `package.json`、`.env.example`、GitHub API（3151 star @2026-11-23）。正文「明说的没做」已列六条边界，含"没做性能对比"和"star 是快照"。**发布时若 Rin 已改版，先复核这五个文件再发。**
 
+### 扩展性那篇：只抄了一条断言（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `route-boundaries-from-rin` | 抄 Rin 的结构，最后只抄成了一条断言 | 站务 | `cloudflare workers 路由 分层` / `路由边界 测试` | Rin 的 `route-boundaries.test.ts` **2689 B 比实现 2442 B 还大**；`services/` 装的是横切能力不是功能（`features/` 只有一个 `feed/repository.ts`）；sanitize 在 **client** 不在 server，服务端方向是 MD→HTML；v0.2.0→v0.3.0 隔 **21 个月**，不算快变期 |
+
+**这篇带代码改动**：新增 `scripts/test-route-boundaries.mjs`（RB-01~RB-06，已进 `npm test` 链），`tagHasLivePosts()` 抽到 `api.js`，`route()` 111→105 行、分发器内 SQL 归零。失败分支验过（注入重复路由 → RB-04 exit 1；注入未登记路由 → RB-01 exit 1），本地 Worker 打过 7 条路径行为不变。**发布前若 `route()` 再重构，先跑 `node scripts/test-route-boundaries.mjs` 确认六条还绿。**
+
 ### 收尾两篇（已写完入库，12-19 / 12-21）
 
 两篇来自 11-20 收尾的第二档交互优化，都是 tools：代码能直接拖走跑，素材是本机实测，不是凑坑位。按 2 天一篇接在 12-17 `csp-nonce-cache` 之后，12-19 / 12-21。`scripts/seed-27-28.mjs` 已带 `published_at`（UTC 01:00）入库，与其余存稿同口径，不靠 automation 改 hidden。

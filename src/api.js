@@ -243,6 +243,22 @@ export function liveSql(a = 'p') {
   return `${timeGateSql(a)} AND ${a}.review_status = 'approved'`;
 }
 
+/* 「这个标签下有没有公开文章」——原本内联在 src/index.js 的 route() 里，
+   是那条 111 行分发器里唯一一处 SQL。抽出来不是为了好看：
+   路由层一旦自己写 SQL，加新路由的人就得先读懂那段查询才敢动，
+   「加功能 = 加一行注册」这条契约当场失效。判据一个字没改。 */
+export async function tagHasLivePosts(env, name) {
+  const hit = await env.DB.prepare(
+    `SELECT 1 FROM tags t
+     JOIN post_tags pt ON pt.tag_id = t.id
+     JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}
+     WHERE t.name = ? LIMIT 1`
+  )
+    .bind(name)
+    .first();
+  return Boolean(hit);
+}
+
 /* 标签用相关子查询一次带出，替代「先查 posts 再 attachTags」的第二次往返。
    char(31) 是 US（unit separator），标签名里不可能出现，拿来当分隔符比逗号安全 —— 标签本身允许逗号。
    列表页每多一次 D1 往返就是几十毫秒，这一条和下面 COUNT 的并行加起来能砍掉一半 SSR 时间。 */
