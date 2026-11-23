@@ -13,7 +13,7 @@ import {
   readJsonLimited,
   BODY_LIMIT_JSON,
 } from './utils.js';
-import { currentUser, requireUser, requireAdmin, ownerOrAdmin } from './auth.js';
+import { currentUser, requireUser, requireAdmin, ownerOrAdmin, reviewStatusFor } from './auth.js';
 import { guard, record, banIp, verifyTurnstile, DID_MAX_AGE } from './antispam.js';
 import { renderBody, extractTags, extractCover, extractExcerpt, readingTime, searchSnippet } from '../public/md.js';
 import { sanitizeHtml, cleanMarkdown } from './clean.js';
@@ -829,7 +829,7 @@ export async function handleApi(env, request, url, ctx) {
 
     /* 审核态：管理员写的是已通过；普通用户的稿子进来先待审。
        不能拿 hidden 顶替——那是作者自己能在编辑器里改回 0 的开关，挡不住人。 */
-    const review = u.is_admin ? 'approved' : 'pending';
+    const review = reviewStatusFor(u);
     const info = await db
       .prepare(
         `INSERT INTO posts (slug, title, content, html_content, cover, cover_body, category, series, series_order, is_private, hidden, review_status, published_at, author_id, created_at, updated_at)
@@ -919,7 +919,7 @@ export async function handleApi(env, request, url, ctx) {
          再偷偷把正文换成广告/违规内容」就绕过了审核。审核结论必须绑定内容版本。
        - 管理员编辑视为认可，直接 approved。
        管理员审核通过/驳回走专门的 /admin/review API，不走这里。 */
-    const review = u.is_admin ? 'approved' : 'pending';
+    const review = reviewStatusFor(u);
     // 自动保存每 3 秒一次，没变化的保存不写快照、不刷审计
     const nextSeries = body.series !== undefined ? seriesOf(body) : p.series || '';
     const changed =

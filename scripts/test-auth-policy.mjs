@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { admitPolicy, decideAccess, ownerOrAdmin } from '../src/auth.js';
+import { admitPolicy, decideAccess, ownerOrAdmin, reviewStatusFor } from '../src/auth.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const authSrc = fs.readFileSync(path.join(here, '..', 'src', 'auth.js'), 'utf8');
@@ -107,13 +107,50 @@ t('AP-14 拒绝必须发生在建行之前', () => {
   assert.ok(iReject < iInsert, '先建行后判拒绝，名单外账号会在库里留痕');
 });
 
-t('AP-15 源码里 `author_id !== ... is_admin` 的裸判定必须已清零', () => {
-  const apiSrc = fs.readFileSync(path.join(here, '..', 'src', 'api.js'), 'utf8');
-  const idxSrc = fs.readFileSync(path.join(here, '..', 'src', 'index.js'), 'utf8');
-  const bare = /author_id\s*!==\s*[a-z]+\.id\s*&&\s*![a-z]+\.is_admin/;
-  assert.ok(!bare.test(apiSrc), 'api.js 里还有裸写的作者/管理员判定，应改用 ownerOrAdmin()');
-  assert.ok(!bare.test(idxSrc), 'index.js 里还有裸写判定');
-  assert.ok((apiSrc.match(/ownerOrAdmin\(/g) || []).length >= 5, 'ownerOrAdmin 调用点少于 5 处，怀疑有分支没接上');
+t('AP-15 全站只许 auth.js 出现「作者 or 管理员」的判定', () => {
+  /* 上一版只认 `author_id !== x.id && !x.is_admin` 一种句式 —— 等号、反序、或运算
+     三种改写全部漏网，index.js 的 SSR 路径就靠这个漏洞逃了整整一轮（P-030）。
+     现在按语义等价类扫：行内同时出现 author_id 与 (.id / is_admin)，且带 === / !==。
+     SQL 里的 `u.id = p.author_id` 是单等号，天然不会命中。 */
+  const srcDir = path.join(here, '..', 'src');
+  const files = fs.readdirSync(srcDir).filter((f) => f.endsWith('.js'));
+  const offenders = [];
+  for (const f of files) {
+    if (f === 'auth.js') continue; // ownerOrAdmin 的实现点，唯一允许处
+    fs.readFileSync(path.join(srcDir, f), 'utf8').split('\n').forEach((line, i) => {
+      if (!/(===|!==)/.test(line)) return;
+      if (!/\.author_id\b/.test(line)) return;
+      if (!/(\.id\b|is_admin)/.test(line)) return;
+      offenders.push(`${f}:${i + 1}  ${line.trim()}`);
+    });
+  }
+  assert.deepEqual(offenders, [], `裸判定必须改成 ownerOrAdmin()：\n${offenders.join('\n')}`);
+
+  const apiSrc = fs.readFileSync(path.join(srcDir, 'api.js'), 'utf8');
+  const idxSrc = fs.readFileSync(path.join(srcDir, 'index.js'), 'utf8');
+  assert.ok((apiSrc.match(/ownerOrAdmin\(/g) || []).length >= 5, 'api.js 的 ownerOrAdmin 调用点少于 5 处');
+  assert.ok((idxSrc.match(/ownerOrAdmin\(/g) || []).length >= 2, 'index.js 的 SSR 闸门没接 ownerOrAdmin');
+});
+
+t('AP-16 审核态只能由 reviewStatusFor() 生成', () => {
+  const srcDir = path.join(here, '..', 'src');
+  const hits = [];
+  for (const f of fs.readdirSync(srcDir).filter((x) => x.endsWith('.js') && x !== 'auth.js')) {
+    const s = fs.readFileSync(path.join(srcDir, f), 'utf8');
+    if (/is_admin\s*\?\s*'approved'/.test(s)) hits.push(f);
+  }
+  assert.deepEqual(hits, [], `审核态三元又散出去了：${hits.join(', ')}，应调 reviewStatusFor()`);
+  assert.equal(reviewStatusFor({ is_admin: 1 }), 'approved');
+  assert.equal(reviewStatusFor({ is_admin: 0 }), 'pending');
+  assert.equal(reviewStatusFor(null), 'pending', '未登录不许落 approved');
+});
+
+t('AP-17 ownerOrAdmin 必须 null-safe（SSR 闸门不再自带 user && 保护）', () => {
+  assert.equal(ownerOrAdmin(null, { author_id: 7 }), false);
+  assert.equal(ownerOrAdmin({ id: 7 }, null), false);
+  assert.equal(ownerOrAdmin({ id: 7, is_admin: 0 }, { author_id: 7 }), true);
+  assert.equal(ownerOrAdmin({ id: 8, is_admin: 0 }, { author_id: 7 }), false);
+  assert.equal(ownerOrAdmin({ id: 8, is_admin: 1 }, { author_id: 7 }), true);
 });
 
 /* ---------- 跑 ---------- */

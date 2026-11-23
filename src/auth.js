@@ -336,6 +336,18 @@ export function ownerOrAdmin(user, post) {
   return user.id === post.author_id || !!user.is_admin;
 }
 
+/**
+ * 角色能力判定：这次写入的稿子该落在哪个审核态。
+ *
+ * 和 ownerOrAdmin 分家的原因：那个答"你能不能碰这一行"，这个答"你写的东西要不要排队"。
+ * 过去新建与更新两处各写一遍三元 `u.is_admin ? 'approved' : 'pending'`，
+ * 改规则时得同时想起两处 —— 收成一处，规则只在这里。
+ * 管理员直接通过；其余一律待审（不能拿 hidden 顶替，那是作者自己能改回的开关）。
+ */
+export function reviewStatusFor(user) {
+  return user && user.is_admin ? 'approved' : 'pending';
+}
+
 /* ---------------- 当前用户 ---------------- */
 
 export async function currentUser(env, request) {

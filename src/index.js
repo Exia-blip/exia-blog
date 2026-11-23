@@ -1145,16 +1145,12 @@ async function servePostPage(env, request, slug) {
   // 预排：时间没到就当这页不存在。列表/RSS/sitemap 已经挡住了，但直接拿到 slug
   // 的人还是能拼出来 —— 不挡的话，预排等于提前公开，只是没人知道地址。
   // 作者与站长例外，要能提前预览。
-  if (!post.is_live && !(user && (user.id === post.author_id || user.is_admin))) {
+  if (!post.is_live && !ownerOrAdmin(user, post)) {
     return await notFoundPage(env, request, '页面走丢了');
   }
   /* 审核闸门：待审/驳回的稿子，读者拼出 slug 也当文章不存在。
      作者本人和站长能预览（和预排稿同一条例外）。review_status 为空的老文章按已通过处理。 */
-  if (
-    post.review_status &&
-    post.review_status !== 'approved' &&
-    !(user && (user.id === post.author_id || user.is_admin))
-  ) {
+  if (post.review_status && post.review_status !== 'approved' && !ownerOrAdmin(user, post)) {
     return await notFoundPage(env, request, '文章还在审核中');
   }
 
