@@ -169,6 +169,23 @@
 
 **明说的没做**：角色表 / ACL；入口与 handler 的 `users` 双查（2 次 D1 往返）未优化；白名单无线上演练（与 `READONLY_MODE` 同属「越过 HTTP 边界的那层靠推理」的系统性盲区）；`ALLOWED_LOGINS` 默认不配，等于没改。
 
+### 响应头模板：六条里唯一缺的那条值是 0（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `headers-template-reconciliation` | 清单说我完全没有 CSP：六条头逐条打完，只有一条要改 | 工程实录 | `owasp secure headers workers` / `x-xss-protection 0` | 六条头逐条对照 OWASP **四项本站更严**（HSTS 多 `preload`、`script-src` 是 nonce 而非 `'self'`——照抄基线等于降档）；唯一真缺口 `X-XSS-Protection` 该设 **0** 而没设；`Server: cloudflare` **边缘写入，Worker 删不掉**；20 条断言先红后绿（首跑 19/20，红的正是那条），7 处注入全红；`P-009`~`P-012` **第三轮撞号**，顺延 `P-023`~`P-027` |
+
+**这篇带一处代码改动 + 一套新断言**：
+
+1. `src/security.js`：`securityHeaders()` 增加 `h.set('x-xss-protection', '0')`（唯一改动的生产代码）。
+2. `scripts/test-headers.mjs`（新建）：`[P-023]`~`[P-027]` 共 20 条，纯函数级，不需要 Worker。7 处注入验证：删 XFO 红 2、Referrer 改 `unsafe-url` 红 1、`object-src` 改 `self` 红 1、X-XSS 改 `1; mode=block` 红 2、`script-src` 加 `unsafe-inline` 红 1、setCookie 去 HttpOnly 红 1、`base-uri` 改 `*` 红 2。已进 `npm test`。
+3. `scripts/check-live.mjs`：补 4 条线上断言（X-XSS 值、XFO、Referrer 非 unsafe-url、CSP `object-src`）。**要部署后才绿**。
+4. `PITFALLS.md` 新增 P-023~P-027，对账 27 条全绿。
+
+**材料口径**：清单称「缺 CSP / 唯一能兜住前面全失守的一层你完全没有 / 顺手删 Server」三条与实测不符；`P-009`~`P-012` 已被 CRLF-SRI 与 103-preload 占用；WAF 配额（0/1 规则、10 秒窗口、自定义 5 条）**无法核实**，token 无 Zone 读权限，以后台为准。三个 Workers 侧现成实现未引入（与「不引 sanitize 库」同一理由：把头搬进别人中间件只是换个地方放字符串）。
+
+**明说的没做**：WAF 与 Bot Fight Mode 零开启、零误伤数据；`check-live` 新 4 条现在红（未部署）；`img-src` 多一个 `https:`（外链图，图片型回连通道未关）；`style-src 'unsafe-inline'` 仍在（依赖 Markdown `style` 属性渲染链）。
+
 ### 审计清单：8 项里 3 错 3 半对（2026-11-23 完成，未入库）
 
 | slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |

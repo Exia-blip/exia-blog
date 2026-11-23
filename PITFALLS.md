@@ -191,6 +191,47 @@
 - **断言**：`npm test` → `test-antispam.mjs` 输出 `[P-022]`：`guard()` 体内不许出现 `INSERT`/`UPDATE`；`record()` 的 upsert 必须还是 `comment_guard.hits + 1`。**这条断言守的是「现状就是 check-then-act」这个事实**，不是「这样是对的」——哪天改成单语句原子占位，它会红，届时同步改本条措辞。
 - **出处**：站务记录（本文件，2026-11-23）
 
+## P-023 安全头「配了」不等于「守住了」
+
+- **现象**：六条安全头从 2026-10 就在 `securityHeaders()` 里，但除了 CSP 与 nosniff，其余四条（HSTS / XFO / Referrer / Permissions）**一条断言都没有**。删掉任意一条，`npm test` 全绿，线上也看不出变化。
+- **根因**：把「写进代码」当成「已经安全」。安全头是纯字符串，不会自己报错；它的失效方式是静默的——某次「顺手简化」删掉 `x-frame-options`，页面照常渲染，只有审计时才发现。
+- **复现**：`scripts/test-headers.mjs` 的 7 处注入，任一处都能让断言变红（删 XFO → 红 2 条；Referrer 改 `unsafe-url` → 红 1 条；`base-uri` 改 `*` → 红 2 条；`object-src` 改 `'self'` → 红 1 条）。
+- **断言**：`npm test` → `test-headers.mjs` 输出 `[P-023]`：HSTS `max-age >= 31536000` 且含 `includeSubDomains`；`nosniff` 在 HTML 与数据路径都必须在；XFO 必须 `DENY`；Referrer 不许 `unsafe-url`；Permissions-Policy 至少禁 `camera`/`microphone`/`geolocation`；COOP 必须 `same-origin`。`check-live` 另有 4 条守「线上真的发出来了」（代码设了但边缘吃掉，只有线上能测）。
+- **出处**：站务记录（本文件，2026-11-23）
+
+## P-024 X-XSS-Protection 写反了方向
+
+- **现象**：老教程清一色写 `X-XSS-Protection: 1; mode=block`，照着抄等于把旧引擎的 XSS Auditor 打开。
+- **根因**：那个 Auditor 会在某些反射场景下被诱导去删页面里合法片段，反而制造可利用面（OWASP 已改为建议 `0`）。现代浏览器已移除该功能，`1; mode=block` 只剩下对旧引擎的负收益。
+- **复现**：`securityHeaders()` 里把它改回 `1; mode=block`，`test-headers.mjs` 立刻红两条（值断言 + 源码断言）。
+- **修法**：显式 `h.set('x-xss-protection', '0')`。注意这是全站唯一一条「该有值、而值为 0」的头，写成「删掉不设」不安全——旧引擎会走它自己的默认行为。
+- **断言**：`test-headers.mjs` 的 `[P-024]` 两条：返回值必须是 `'0'` 或缺省（不许 `1; mode=block`），且 `src/security.js` 里必须有 `x-xss-protection` → `'0'` 这一行。`check-live` 再守一条线上的值。
+- **出处**：站务记录（本文件，2026-11-23）
+
+## P-025 CSP 的松紧在两个方向都能错
+
+- **现象**：CSP 出问题从来不是「有或没有」，而是两个方向相反的错误：漏一条指令（`base-uri`、`form-action`、`object-src`），或者多放一个源（Turnstile 没配却放行它、某处写成 `*`）。
+- **根因**：CSP 是字符串，少一条和多一条都不报错。`default-src 'self'` 看上去已经收得很紧，但 `base-uri` 不归 `default-src` 管——注入一个 `<base href>` 就能把所有相对链接改向别处，而默认策略完全不管。
+- **复现**：把 `object-src 'none'` 改成 `'self'`、把 `base-uri 'self'` 改成 `*`、给 `script-src` 加 `'unsafe-inline'`、删掉 `frame-ancestors 'none'`——四处注入各自变红。
+- **断言**：`test-headers.mjs` 的 `[P-025]` 八条：`script-src` 必须带本次 nonce 且无 `unsafe-*`；`object-src` 必须 `'none'`；`base-uri` 必须存在且不是 `*`；`frame-ancestors` 必须 `'none'`；`form-action` 必须 `'self'`；任何指令不许出现裸 `*`；**未配 Turnstile 时一个字节都不许出现 `challenges.cloudflare.com`**；无 nonce 的路径不发 CSP 但其余头仍在。
+- **出处**：站务记录（本文件，2026-11-23）；放行侧的一半见 P-020
+
+## P-026 Cookie 属性没有断言 = 默认值随时会被「优化」掉
+
+- **现象**：`setCookie()` 从第一天就带 `HttpOnly; SameSite=Lax; Secure`，但**没有任何脚本守着这三个词**。删掉 `HttpOnly`，登录照常、评论照常，线上零症状。
+- **根因**：默认值是代码里的一串字符串字面量，不是平台保证。它离「被顺手简化」只差一次 refactor。
+- **复现**：把 `'Path=/', 'HttpOnly', 'SameSite=Lax'` 改成 `'Path=/', 'SameSite=Lax'`，`test-headers.mjs` 立刻红一条，而 `npm run check:live` 完全无感（它不带 cookie 请求）。
+- **断言**：`test-headers.mjs` 的 `[P-026]` 两条：`setCookie()` 必须含 `HttpOnly` / `Secure` / `SameSite=Lax|Strict` / `Path=/`；`clearCookie()` 额外必须有 `Max-Age=0`（退出用的那条更容易被忘）。
+- **出处**：站务记录（本文件，2026-11-23）
+
+## P-027 CORS 通配开一次就会扩散
+
+- **现象**：`access-control-allow-origin: '*'` 一旦出现在某个接口上，下一个接口「照着写」的概率极高；配上 `allow-credentials` 更是直接被浏览器拒绝的无效组合。
+- **根因**：通配本身不区分场景。PWA manifest 是公开静态数据、不带凭据，通配完全合理；带会话的接口通配就是把响应交给任意源读取。
+- **复现**：在 `src/index.js` 再写一处 `access-control-allow-origin`，`test-headers.mjs` 立刻红（条数必须恰好 1，且那处必须在 manifest 附近）。
+- **断言**：`test-headers.mjs` 的 `[P-027]`：源码里 ACAO 出现次数必须等于 1；全文不许出现 `allow-credentials`；唯一那处前后 400 字符内必须有 `manifest`。
+- **出处**：站务记录（本文件，2026-11-23）
+
 ---
 
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
