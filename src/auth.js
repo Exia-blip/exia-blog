@@ -224,27 +224,38 @@ export async function handleCallback(env, request) {
   const db = env.DB;
   let user = await db.prepare('SELECT * FROM users WHERE github_id = ?').bind(String(ghUser.id)).first();
 
+  /* 准入判定放在建行之前：白名单外的账号不该在 users 表里留下任何痕迹，
+     更不该拿到一枚 30 天有效的会话 cookie。 */
+  const policy = admitPolicy(env);
+  const isFirst = !user ? await db.prepare('SELECT COUNT(*) AS c FROM users').first().then((r) => !r || r.c === 0) : false;
+  const access = decideAccess(env, ghUser.login, isFirst);
+  if (!access.ok) {
+    console.warn('[auth] 拒绝登录：login=%s reason=%s', ghUser.login, access.reason);
+    return noticePage(
+      '这个 GitHub 账号没有写权限',
+      `站点开启了准入白名单，<code>${ghUser.login}</code> 不在 <code>ALLOWED_LOGINS</code> 里。`,
+      '如果你是站主，把该 login 加进环境变量后重新部署即可。只登录不写文章，用不着账号。'
+    );
+  }
+
   if (!user) {
-    const count = await db.prepare('SELECT COUNT(*) AS c FROM users').first();
-    const isFirst = !count || count.c === 0;
     await db
       .prepare('INSERT INTO users (github_id, login, name, avatar, email, is_admin, created_at) VALUES (?,?,?,?,?,?,?)')
-      .bind(
-        String(ghUser.id),
-        ghUser.login,
-        ghUser.name || ghUser.login,
-        ghUser.avatar_url || '',
-        ghEmail,
-        isFirst ? 1 : 0,
-        nowISO()
-      )
+      .bind(String(ghUser.id), ghUser.login, ghUser.name || ghUser.login, ghUser.avatar_url || '', ghEmail, access.admin, nowISO())
       .run();
     user = await db.prepare('SELECT * FROM users WHERE github_id = ?').bind(String(ghUser.id)).first();
   } else {
+    /* 配了 ADMIN_LOGINS 就每次登录把库里的 is_admin 同步成配置值：
+       撤权/授权都不用等 30 天 token 到期，也不用去改库。
+       没配则保持库里原值，避免"顺手改个环境变量把管理员降级了"。 */
+    const wantAdmin = policy.admins.length ? access.admin : user.is_admin;
     await db
-      .prepare('UPDATE users SET login = ?, name = ?, avatar = ?, email = ? WHERE id = ?')
-      .bind(ghUser.login, ghUser.name || ghUser.login, ghUser.avatar_url || '', ghEmail || user.email || '', user.id)
+      .prepare('UPDATE users SET login = ?, name = ?, avatar = ?, email = ?, is_admin = ? WHERE id = ?')
+      .bind(ghUser.login, ghUser.name || ghUser.login, ghUser.avatar_url || '', ghEmail || user.email || '', wantAdmin, user.id)
       .run();
+    if (wantAdmin !== user.is_admin) {
+      console.log('[auth] %s 的 is_admin 由 %d 同步为 %d（ADMIN_LOGINS）', ghUser.login, user.is_admin, wantAdmin);
+    }
   }
 
   const token = await signToken(env.SESSION_SECRET, { uid: user.id, admin: user.is_admin }, 60 * 60 * 24 * 30);
@@ -273,6 +284,56 @@ export function authStatus(env, request) {
 
 export function logout() {
   return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': clearCookie(COOKIE) } });
+}
+
+/* ---------------- 准入策略 ----------------
+   两个环境变量，都可选：
+
+   ALLOWED_LOGINS 逗号分隔的 GitHub login。不配 = 开放注册（沿用旧行为）；
+                  配了就是白名单，名单外的账号连 users 行都不建、直接拒绝登录。
+   ADMIN_LOGINS   逗号分隔的 GitHub login。配了就以它为准（每次登录同步回库，
+                  改了变量即生效，不用手改库）；不配才回落到"首个注册者即管理员"。
+
+   为什么要有这两个：旧逻辑是 isFirst ? 1 : 0 —— 谁能先注册谁就是管理员，
+   而注册入口对任何 GitHub 账号开放。公开可部署的项目里这等于把管理员席位
+   交给最先到达的人（Rin 有同一处硬伤）。上线至今只有两行用户、窗口已关，
+   但机制还在，清库或开新实例就重开。 */
+
+function csvList(raw) {
+  return String(raw || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export function admitPolicy(env) {
+  const allow = csvList(env.ALLOWED_LOGINS);
+  const admins = csvList(env.ADMIN_LOGINS);
+  return { allow, admins, open: allow.length === 0 };
+}
+
+/**
+ * 判定一个 GitHub 登录是否放行、放行后是什么角色。
+ * 返回 { ok:false } 表示拒绝；{ ok:true, admin:0|1 } 表示放行。
+ */
+export function decideAccess(env, login, isFirst) {
+  const p = admitPolicy(env);
+  const l = String(login || '').toLowerCase();
+  if (!l) return { ok: false, reason: 'missing-login' };
+  if (!p.open && !p.allow.includes(l)) return { ok: false, reason: 'not-allowed' };
+  // 配了 ADMIN_LOGINS 就完全以它为准，不再看 isFirst
+  const admin = p.admins.length ? p.admins.includes(l) : !!isFirst;
+  return { ok: true, admin: admin ? 1 : 0 };
+}
+
+/**
+ * 资源级判定：作者本人或管理员。
+ * 过去五处 handler 各写一遍 `p.author_id !== u.id && !u.is_admin`，
+ * 新增路由时只能靠记忆复制——抽成一处，越权判断就只有一个实现。
+ */
+export function ownerOrAdmin(user, post) {
+  if (!user || !post) return false;
+  return user.id === post.author_id || !!user.is_admin;
 }
 
 /* ---------------- 当前用户 ---------------- */

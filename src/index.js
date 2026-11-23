@@ -1,5 +1,5 @@
 import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql, tagHasLivePosts } from './api.js';
-import { loginRedirect, handleCallback, logout, authStatus, currentUser } from './auth.js';
+import { loginRedirect, handleCallback, logout, authStatus, currentUser, ownerOrAdmin } from './auth.js';
 import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin, wordCount } from './utils.js';
 import { checkFriends, checkSelfHealth } from './cron.js';
 import { themeCssTag, themeCssPath, getSite } from './settings.js';
@@ -1139,7 +1139,7 @@ async function servePostPage(env, request, slug) {
   const related = rankRelated(post, allCat);
 
   if (!post) return await notFoundPage(env, request, '页面走丢了');
-  if (post.is_private && (!user || (user.id !== post.author_id && !user.is_admin))) {
+  if (post.is_private && !ownerOrAdmin(user, post)) {
     return await notFoundPage(env, request, '页面走丢了');
   }
   // 预排：时间没到就当这页不存在。列表/RSS/sitemap 已经挡住了，但直接拿到 slug

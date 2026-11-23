@@ -13,7 +13,7 @@ import {
   readJsonLimited,
   BODY_LIMIT_JSON,
 } from './utils.js';
-import { currentUser, requireUser, requireAdmin } from './auth.js';
+import { currentUser, requireUser, requireAdmin, ownerOrAdmin } from './auth.js';
 import { guard, record, banIp, verifyTurnstile, DID_MAX_AGE } from './antispam.js';
 import { renderBody, extractTags, extractCover, extractExcerpt, readingTime, searchSnippet } from '../public/md.js';
 import { sanitizeHtml, cleanMarkdown } from './clean.js';
@@ -783,7 +783,7 @@ export async function handleApi(env, request, url, ctx) {
       .first();
 
     if (!p) return err('文章不存在', 404);
-    const owner = user && (user.id === p.author_id || user.is_admin);
+    const owner = ownerOrAdmin(user, p);
     if (p.is_private && !owner) return err('文章不存在', 404);
     /* 审核态闸门：待审/驳回的稿子猜到 slug 也不能读正文。
        liveSql 只守住了列表，单篇是独立查询，必须单独挡——否则审核形同虚设。 */
@@ -869,7 +869,7 @@ export async function handleApi(env, request, url, ctx) {
 
     const p = await db.prepare('SELECT * FROM posts WHERE id = ?').bind(id).first();
     if (!p) return err('文章不存在', 404);
-    if (p.author_id !== u.id && !u.is_admin) return err('无权编辑', 403);
+    if (!ownerOrAdmin(u, p)) return err('无权编辑', 403);
 
     const body = await request.json();
     const title = body.title !== undefined ? String(body.title).slice(0, 200) : p.title;
@@ -976,7 +976,7 @@ export async function handleApi(env, request, url, ctx) {
     const id = parseInt(path.split('/')[2], 10);
     const p = await db.prepare('SELECT id, author_id FROM posts WHERE id = ?').bind(id).first();
     if (!p) return err('文章不存在', 404);
-    if (p.author_id !== u.id && !u.is_admin) return err('无权查看', 403);
+    if (!ownerOrAdmin(u, p)) return err('无权查看', 403);
     const { results } = await db
       .prepare(
         'SELECT id, saved_at, saved_by, note, title, length(content) AS size FROM post_revisions WHERE post_id = ? ORDER BY id DESC LIMIT 30'
@@ -1021,7 +1021,7 @@ export async function handleApi(env, request, url, ctx) {
 
     const p = await db.prepare('SELECT * FROM posts WHERE id = ?').bind(id).first();
     if (!p) return err('文章不存在', 404);
-    if (p.author_id !== u.id && !u.is_admin) return err('无权编辑', 403);
+    if (!ownerOrAdmin(u, p)) return err('无权编辑', 403);
 
     let body = {};
     try {
@@ -1059,7 +1059,7 @@ export async function handleApi(env, request, url, ctx) {
 
     const p = await db.prepare('SELECT * FROM posts WHERE id = ?').bind(id).first();
     if (!p) return err('文章不存在', 404);
-    if (p.author_id !== u.id && !u.is_admin) return err('无权删除', 403);
+    if (!ownerOrAdmin(u, p)) return err('无权删除', 403);
     await logAudit(env, u, 'post.delete', 'post', String(id), p.title || '');
 
     await db.batch([
@@ -1077,7 +1077,7 @@ export async function handleApi(env, request, url, ctx) {
     if (!slug) return err('缺少 slug');
     const p = await db.prepare('SELECT id, is_private, author_id FROM posts WHERE slug = ?').bind(slug).first();
     if (!p) return err('文章不存在', 404);
-    if (p.is_private && (!user || (user.id !== p.author_id && !user.is_admin))) return err('文章不存在', 404);
+    if (p.is_private && !ownerOrAdmin(user, p)) return err('文章不存在', 404);
 
     const { results } = await db
       .prepare(
@@ -1116,7 +1116,7 @@ export async function handleApi(env, request, url, ctx) {
       .bind(slug)
       .first();
     if (!p) return err('文章不存在', 404);
-    if (p.is_private && (!user || (user.id !== p.author_id && !user.is_admin))) return err('文章不存在', 404);
+    if (p.is_private && !ownerOrAdmin(user, p)) return err('文章不存在', 404);
 
     const name = user ? user.name || user.login : String(body.name || '').trim();
     if (!name) return err('请填写昵称');
