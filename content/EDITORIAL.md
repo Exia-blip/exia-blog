@@ -169,6 +169,26 @@
 
 **明说的没做**：角色表 / ACL；入口与 handler 的 `users` 双查（2 次 D1 往返）未优化；白名单无线上演练（与 `READONLY_MODE` 同属「越过 HTTP 边界的那层靠推理」的系统性盲区）；`ALLOWED_LOGINS` 默认不配，等于没改。
 
+### 结构重排会让四条断言一起失明（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `structural-refactor-blind-assertions` | 目录一重排，四条断言一起失明——假绿的第三代 | 工程实录 | `readdirSync 递归` / `features 垂直切片` / `cloudflare ratelimits 精度` | **`kodadot/backend-starter` 是 404**，真仓库是 `sadiq-bd/backend-starter`（2★）；依赖**漏了 `jose`**，`features/` 只有 `test-feature` 一个示例；**它的 `cacheHandler` 没有任何失效路径**——`cache()` 只暴露 put/match/delete，全仓库零调用，`CDN_CACHE_TTL` 是 **30 天**；`revalidateCache` 靠 `c.finalized = false` 重跑整条链，有副作用的 handler 会执行两次；CF 文档原文 `Limit: … in a single Cloudflare location. Requests can exceed this threshold.`；`hono/tiny` 实测 **14,209 B minified / 5,984 B gzip**，本站 gzip 99,129 B → **+6.0%** |
+
+**这篇带一套断言改写（P-032），不动运行时**：
+
+1. 新增 `scripts/lib/src-walk.mjs`：`srcFiles` / `srcEntries` / `nativeSrcFiles`（原生 `recursive:true` 的独立第二实现，用来互校）。
+2. `scripts/test-auth-policy.mjs`：`AP-15` / `AP-16` 改递归扫描；新增 `AP-18`（扫描结果必须与原生递归逐条相等 + 每个子目录至少有一个 `.js` 进集合）。17 → 18 条。
+3. `scripts/test-route-boundaries.mjs`：`RB-03` 改按 basename 匹配（原实现 `new Set(readdirSync(src))` 在拆分后会对所有 owner 报「文件不存在」），同名文件单独出警告。
+4. `scripts/test-schema.mjs`：INSERT 列扫描改 `srcEntries`，子目录里的写库代码才在范围内。
+5. `PITFALLS.md` 新增 P-032，对账 32 条。
+
+**注入验证**：`src/_probe/evil.js` 放 `user.id === post.author_id || user.is_admin` → 旧写法 **17/17 全绿**（失明实证）；新写法红并报 `_probe/evil.js:2`。同目录放 `INSERT INTO posts (slug, no_such_column_zz)` → 旧写法 11/11 全绿，新写法报 `posts.no_such_column_zz`。删探针 → 18/18、11/11。
+
+**材料口径**：按 `sadiq-bd/backend-starter`（材料未给仓库地址，`kodadot/backend-starter` 404）逐条核过。错的四处：依赖「只有四个」（漏 `jose`）、「features/ 已验证」实际只有一个 test-feature 示例、「cacheHandler 正好对应写路径失效」（它没有失效，30 天等过期）、「hono/tiny 小于 14KB」（是 minified 14,209 B，gzip 5,984 B）。半对一处：`[[ratelimits]]` 确实不占 subrequest，但按 colo 计数且官方写明可超阈值，不能替代全局精确计数。
+
+**明说的没做**：没有按 `features/` 重排目录（只把重排的前提修好，等哪天真拆时 `AP-18` 先红）；`package.json` 的 `dependencies` 仍为空，没引 Hono / Drizzle / Zod / jose；没加 KV；没接 `[[ratelimits]]`；没重测首屏基线；`check-live` 四条仍红（本轮改动同样未部署）。
+
 ### 模板性能数字不是你的数字（2026-11-23 完成，未入库）
 
 | slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |

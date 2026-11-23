@@ -272,6 +272,17 @@
 
 ---
 
+## P-032 目录一重排，四条断言一起失明，而且全绿
+
+- **现象**：按 `features/<name>/` 垂直切片重排 `src/` 之后，`AP-15`（全站只许 `auth.js` 做「作者 or 管理员」判定）、`AP-16`（审核态只能由 `reviewStatusFor()` 生成）、`RB-03`（owner 模块文件存在）、`test-schema` 的「代码 INSERT 的列都在 migrations 里」**同时变成真空成立**。四条全是 `readdirSync(srcDir).filter(f => f.endsWith('.js'))`——只读一层，子目录里的文件根本不在集合里。
+- **根因**：这四条断言证的是「扫到的文件里没有违规」，不是「该扫的都扫到了」。前者在扫描范围缩小时会自动变绿——**断言的有效性依赖一个从未被断言过的隐含契约：`src/` 是扁平的**。前两代假绿是「用例没执行」（P-029）和「只认一个方向」（P-030），这一代是「扫不到新位置」。
+- **复现**：`mkdir -p src/_probe` 放一个 `evil.js`，内容 `return user && (user.id === post.author_id || user.is_admin);`，`node scripts/test-auth-policy.mjs` → **17/17 全绿**；同样在 `_probe/` 放一句 `INSERT INTO posts (slug, no_such_column_zz)`，`node scripts/test-schema.mjs` → 11/11 全绿。旧写法对子目录完全无感。
+- **断言**：新增 `scripts/lib/src-walk.mjs`（`srcFiles` / `srcEntries` / `nativeSrcFiles`），四处扫描全部改用它；`test-auth-policy.mjs` 新增 `AP-18`：`srcFiles()` 必须与原生 `readdirSync(…, {recursive:true})` 逐条相等，且**每个子目录至少有一个 `.js` 进了扫描结果**——第二条在扁平结构下空转，拆分当天就红。
+- **教训**：目录结构是断言的**输入**，所以它也必须被断言。任何「遍历某目录做检查」的断言，都要同时声明「遍历范围怎么算才对」；否则重构目录不是让测试变红，而是让测试变哑。改完实测：探针在位时 `AP-15` 报 `_probe/evil.js:2`、`test-schema` 报 `posts.no_such_column_zz`；删掉探针 → 18/18、11/11。
+- **出处**：站务记录（本文件，2026-11-23）；`content/51-*.md`
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：
