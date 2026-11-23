@@ -151,6 +151,24 @@
 
 **待办（本篇识别、未修）**：普通用户（任何 GitHub 账号登录即成）可无限制调 `/upload` 写 R2、调 `/posts/:id/summary` 烧 AI。修之前先定「普通用户该不该有上传权」——该收权限，不是加计数。
 
+### 权限结构：只摘两样，不继承（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `rin-permission-model` | 管理员席位先到先得：从 Rin 的权限模型里只摘两样东西 | 工程实录 | `workers 权限 中间件` / `github oauth 白名单` | 材料建议的四步里**第一步早已投产**（`is_private`+`hidden` 双布尔比单 `visibility` 更细，线上 37/2/1 分布实测）；材料说「权限校验散落在 handler」只说对一半——`requireAdmin` 23 处调用同一实现，真正散落的是资源级判定 **8 处两种写法**；材料建议的「不建用户表不签 JWT」**已错过**（users 表 + 30 天 JWT 在线上）；`isFirst ? 1 : 0` 硬伤已改 |
+
+**这篇带代码改动**（三处）：
+
+1. `src/auth.js` 新增 `admitPolicy()` / `decideAccess()` / `ownerOrAdmin()`。准入判定前移到 `INSERT INTO users` 之前；`ALLOWED_LOGINS` 白名单、`ADMIN_LOGINS` 指定管理员（每次登录同步回库，撤权不用换 `SESSION_SECRET`）；都不配 = 旧行为。
+2. `src/api.js` 7 处 + `src/index.js` 1 处资源级判定改为 `ownerOrAdmin()`，裸写的 `author_id !== … is_admin` 归零。
+3. `DEPLOY.md` 新增「准入白名单」一节。
+
+新增 `scripts/test-auth-policy.mjs`（AP-01~15，`[P-021]`，已进 `npm test`）。三次注入均验过：`INSERT` 回退 `isFirst ?` → AP-13 红；拒绝段挪到建行之后 → AP-14 红；一处置回裸判定 → AP-15 红。
+
+**材料口径**：材料称 Rin 用「Elysia/Hono 中间件」——实为 Hono（`^4.12.2`），本身就不确定；`services/user.ts` 首登录判定、`permission` 0/1、v0.2.0 破坏性变更均按材料引用未独立复核。
+
+**明说的没做**：角色表 / ACL；入口与 handler 的 `users` 双查（2 次 D1 往返）未优化；白名单无线上演练（与 `READONLY_MODE` 同属「越过 HTTP 边界的那层靠推理」的系统性盲区）；`ALLOWED_LOGINS` 默认不配，等于没改。
+
 ### 收尾两篇（已写完入库，12-19 / 12-21）
 
 两篇来自 11-20 收尾的第二档交互优化，都是 tools：代码能直接拖走跑，素材是本机实测，不是凑坑位。按 2 天一篇接在 12-17 `csp-nonce-cache` 之后，12-19 / 12-21。`scripts/seed-27-28.mjs` 已带 `published_at`（UTC 01:00）入库，与其余存稿同口径，不靠 automation 改 hidden。

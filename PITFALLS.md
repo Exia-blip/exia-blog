@@ -173,6 +173,15 @@
 - **断言**：`npm test` → `test-security.mjs` 输出 `[P-020]`：开启时 `script-src` / `connect-src` / `frame-src` 三处都必须含该源；关闭时整条头里不许出现该字符串；`script-src` 不许出现 `unsafe-inline` / `unsafe-eval`（`style-src` 的内联是已知债务，单独断言）。
 - **出处**：《评论区防滥用》`content/11-comment-anti-spam.md`；`src/security.js` 的 `csp()`
 
+## P-021 管理员席位先到先得
+
+- **现象**：部署到新环境后，第一个用 GitHub 登录的人自动变成管理员——不管他是谁。多实例 / 清库重来都会重开这个窗口。
+- **根因**：`handleCallback` 里 `const isFirst = count.c === 0; ... isFirst ? 1 : 0`。注册入口对任何 GitHub 账号开放，于是"系统里第一个用户"这个条件等价于"最先到达的人"。Rin 的 `services/user.ts` 是同一处写法（同款硬伤）。
+- **复现**：空库 + 配好 OAuth，用一个没见过的 GitHub 账号点登录 → `users` 表多一行且 `is_admin = 1`。
+- **修法**：准入判定前移，`decideAccess(env, login, isFirst)` 统一决定"放不放行 + 放行后是不是管理员"；拒绝发生在 `INSERT INTO users` **之前**（名单外账号连行都不留）。`ADMIN_LOGINS` 配了就以它为准，每次登录同步回库，撤权不用等 30 天 token 过期。
+- **断言**：`npm test` → `test-auth-policy.mjs` 输出 `[P-021]`：AP-13 抓 `INSERT` 里回退成 `isFirst ?`（注入即红）；AP-14 抓"先建行后拒绝"（注入即红）；AP-15 抓裸写 `author_id !== u.id && !u.is_admin`（api.js 与 index.js 都必须为 0 处）。
+- **出处**：站务记录（本文件，2026-11-23）；Rin 对照见 `content/45-rin-permission-model.md`
+
 ---
 
 ## 每篇长文末尾的「复现条件 + 断言代码」模板

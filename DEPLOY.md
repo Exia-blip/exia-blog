@@ -65,6 +65,29 @@ npx wrangler secret delete READONLY_MODE
 - 取值 `1 / true / on / yes` 都认（大小写与前后空格无关）；写错值等于没开，别指望它提醒你。
 - 断言：`node scripts/test-readonly.mjs`（RO-01~06，已进 `npm test`）。
 
+## 准入白名单（ALLOWED_LOGINS / ADMIN_LOGINS）
+
+两个都可选，**都不配 = 旧行为**（任何 GitHub 账号登录即成普通用户，首个注册者即管理员）。
+公开可部署的实例应当配第一个。
+
+```bash
+# 只允许这两个账号登录/注册，其余在回调时直接拒（不建 users 行、不发 cookie）
+npx wrangler secret put ALLOWED_LOGINS     # 输入: exia-blip,someoneelse
+
+# 管理员由配置决定，不再看"谁是第一个注册的"
+npx wrangler secret put ADMIN_LOGINS       # 输入: exia-blip
+```
+
+- 逗号分隔，**大小写不敏感**，前后空格自动去掉（GitHub login 本身不区分大小写）。
+- `ADMIN_LOGINS` 配了就以它为准，且**每次登录同步回库** —— 撤权/授权不用等 30 天 token 到期，
+  也不用改库；比换 `SESSION_SECRET`（一次性踢掉所有人）温和。
+- 只配 `ALLOWED_LOGINS` 不配 `ADMIN_LOGINS`：白名单生效，管理员仍按"首个注册者"判定。
+- `ADMIN_LOGINS` 里的人若不在 `ALLOWED_LOGINS` 内，**仍会被拒**（准入先于角色）。
+- 拒绝发生在建行之前，名单外账号不会在 `users` 表留痕。
+- 断言：`node scripts/test-auth-policy.mjs`（AP-01~15，`[P-021]`，已进 `npm test`）。
+- 改完对下一次登录立即生效（`wrangler secret put` 会创建一个新版本）；已签发的 token 不受影响，
+  但 `ADMIN_LOGINS` 的权限同步只发生在登录那一刻。
+
 ## 运维兜底
 - **D1 备份**：`node node_modules/wrangler/bin/wrangler.js d1 export blog-db --remote --output backups/d1-$(date +%Y%m%d).sql --skip-confirmation`
   （`backups/*.sql` 已 gitignore，含全文不进仓库）
