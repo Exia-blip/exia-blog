@@ -13,7 +13,7 @@
  * 时区：日额度按 UTC+8 换天，和作者的生活时间对齐，而不是 UTC 零点。
  */
 
-import { parseCookies } from './utils.js';
+import { parseCookies, clientIp } from './utils.js';
 
 export const MIN_GAP_SEC = 60; // 同 IP 相邻两条的最小间隔
 export const DAY_MAX = 10; // 每天上限（IP 与设备各算各的）
@@ -106,8 +106,48 @@ export async function record(db, ip, did, nowSec) {
   ]);
 }
 
-/** 拉黑一个 IP（管理员点「封 IP」时调） */
-export async function banIp(db, ip) {
+/* ---------------- 登录限流 ----------------
+   复用 comment_guard 表，key 前缀 auth:。和评论额度**分两个桶**：
+   评论被刷不该连累登录，登录被试探也不该消耗评论额度（P-033）。
+
+   和评论的一处关键差别，别改回去：
+   - 评论的额度在「落库成功」后才记，被 400 拒掉的不占额度；
+   - 登录的额度在「发起尝试」时立刻记 —— 每次尝试都要向 GitHub POST 一次 token
+     交换，有真实的出站成本。失败必须计数，否则用无效 code 无限刷永远不耗额度。
+
+   口径：只做日上限，不做相邻间隔。登录重试是正常行为（输错、清 Cookie、换域名），
+   卡 60 秒间隔会误伤；日上限 60 已经让爆破无利可图（GitHub 的 code 是一次性的，
+   猜不出来，限流挡的是出站放大和 client_id 滥用，不是猜码）。 */
+export const LOGIN_DAY_MAX = 60;
+const LOGIN_KEY = (ip) => `auth:ip:${ip || 'unknown'}`;
+
+/** 读登录额度。不写库；通过后由 recordLogin() 立刻记一笔。 */
+export async function guardLogin(db, request, nowSec) {
+  const ip = clientIp(request);
+  const rec = await db
+    .prepare('SELECT k, day, hits, last_ts, banned FROM comment_guard WHERE k = ?')
+    .bind(LOGIN_KEY(ip))
+    .first();
+  const v = judge(rec, nowSec, { dayMax: LOGIN_DAY_MAX, checkGap: false });
+  return { ...v, ip };
+}
+
+/** 登录尝试计数：判定通过就记，不等 token 结果。 */
+export async function recordLogin(db, ip, nowSec) {
+  const day = dayKey(nowSec);
+  await db
+    .prepare(
+      `INSERT INTO comment_guard (k, day, hits, last_ts) VALUES (?, ?, 1, ?)
+       ON CONFLICT(k) DO UPDATE SET
+         hits = CASE WHEN comment_guard.day = ? THEN comment_guard.hits + 1 ELSE 1 END,
+         day = ?,
+         last_ts = ?`
+    )
+    .bind(LOGIN_KEY(ip), day, nowSec, day, day, nowSec)
+    .run();
+}
+
+/** 拉黑一个 IP（管理员点「封 IP」时调） */export async function banIp(db, ip) {
   const day = dayKey(Math.floor(Date.now() / 1000));
   await db
     .prepare(

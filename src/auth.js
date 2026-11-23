@@ -1,4 +1,5 @@
 import { parseCookies, setCookie, clearCookie, signToken, verifyToken, json, nowISO } from './utils.js';
+import { guardLogin, recordLogin, LOGIN_DAY_MAX } from './antispam.js';
 
 const COOKIE = 'sid';
 
@@ -51,7 +52,7 @@ export function callbackUrl(env, request) {
 }
 
 /* 提示页：state 校验失败、回调落在别的域名等，给出可读说明而不是纯文本 */
-function noticePage(title, detail, hint = '') {
+function noticePage(title, detail, hint = '', status = 400, extra = {}) {
   const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#faf9f7;color:#1c1b19;
@@ -67,8 +68,8 @@ text-decoration:none;font-size:14px}
 ${hint ? `<div class="hint">${hint}</div>` : ''}
 <a href="/login">重新登录</a></div></body></html>`;
   return new Response(html, {
-    status: 400,
-    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+    status,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...extra },
   });
 }
 
@@ -116,7 +117,19 @@ GitHub 对无效 client_id 返回 404 —— 你刚才看到的就是这个。</
   });
 }
 
-export function loginRedirect(env, request) {
+/** 登录限流的统一出口：429 给人看的页面 + retry-after 给脚本看的头。 */
+function loginThrottled(v) {
+  const retry = Math.max(60, Math.min(Number(v.retry) || 3600, 86400));
+  return noticePage(
+    '登录尝试太频繁',
+    `这个网络已经用掉了今天的 ${LOGIN_DAY_MAX} 次登录额度。`,
+    '额度按 IP 算，每天（UTC+8）零点重置。正常登录碰不到这个上限，碰到多半是共享出口被人拿去刷了。',
+    429,
+    { 'retry-after': String(retry) }
+  );
+}
+
+export async function loginRedirect(env, request) {
   const url = new URL(request.url);
   const origin = resolveOrigin(env, request);
   const next = safeNext(url.searchParams.get('next'), origin);
@@ -131,6 +144,15 @@ export function loginRedirect(env, request) {
       headers: { location: to.toString(), 'cache-control': 'no-store' },
     });
   }
+
+  /* 限流：每次 /auth/github 都会把浏览器送去 GitHub 的授权端点。
+     不限的话，刷这里等于用本站的 client_id 去打 GitHub，把真实用户挡在
+     GitHub 自己的滥用限流外面 —— 成本全落在第三方（P-033）。
+     上面那条跨域 302 不消耗额度：它只回主域，根本没打到 GitHub。 */
+  const nowSec = Math.floor(Date.now() / 1000);
+  const lg = await guardLogin(env.DB, request, nowSec);
+  if (!lg.ok) return loginThrottled(lg);
+  await recordLogin(env.DB, lg.ip, nowSec);
 
   const state = crypto.randomUUID();
   const redirect = callbackUrl(env, request);
@@ -170,6 +192,14 @@ export async function handleCallback(env, request) {
       '重新点一次登录就能恢复。'
     );
   }
+
+  /* 限流必须卡在第一次出站请求**之前**：往下就是 1~3 次到 GitHub 的 fetch
+     （token 交换、user、emails），每一次都是外部可触发的出站成本。
+     上面两个 early return（没 code、state 不对）不占额度 —— 它们连 GitHub 都没碰到。 */
+  const nowSec = Math.floor(Date.now() / 1000);
+  const lg = await guardLogin(env.DB, request, nowSec);
+  if (!lg.ok) return loginThrottled(lg);
+  await recordLogin(env.DB, lg.ip, nowSec);
 
   const redirect = callbackUrl(env, request);
 

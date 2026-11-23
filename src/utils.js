@@ -135,6 +135,16 @@ export async function readJsonLimited(request, max = BODY_LIMIT_JSON) {
   }
 }
 
+/* 客户端 IP 的唯一取法（P-033）。
+   只认 cf-connecting-ip：由 CF 边缘注入，客户端改不动。
+   **不回退 x-forwarded-for** —— 那个头请求方随便写，拿它当限流 key 等于让攻击者
+   每个请求换一个桶，限流等于没做。
+   取不到就返回空串，由调用方决定落到哪个兜底桶（本站是 'unknown' / '0.0.0.0'，
+   绝不会回退到任何请求头）。 */
+export function clientIp(request) {
+  return request.headers.get('cf-connecting-ip') || '';
+}
+
 export function parseCookies(request) {
   const raw = request.headers.get('cookie') || '';
   const out = {};

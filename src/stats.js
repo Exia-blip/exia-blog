@@ -8,7 +8,7 @@
 // 想换成 umami / 其他服务也行：把 UMAMI_SCRIPT、UMAMI_SITE_ID 两个变量写上，
 // 页面会注入那段 script，同时不再往这里记 —— 两套同时开着只会让数字互相矛盾。
 
-import { html, umamiOn, readJsonLimited } from './utils.js';
+import { html, umamiOn, readJsonLimited, clientIp } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { postCacheStats } from './postcache.js';
 import { getSite } from './settings.js';
@@ -34,8 +34,10 @@ export function deviceOf(ua) {
 
 /** IP 不落库：存盐化后的 8 字节摘要，够做 UV 去重，反查不出人 */
 async function ipTag(env, request) {
-  const ip =
-    request.headers.get('cf-connecting-ip') || (request.headers.get('x-forwarded-for') || '').split(',')[0].trim();
+  /* 只认 cf-connecting-ip（P-033）。原来还有一条 x-forwarded-for 回退 ——
+     那是客户端可控头，伪造它就能把同一个访客拆成无数个，UV 立刻虚高。
+     线上拿不到 cf-connecting-ip 的情形不存在（CF 边缘必注入），回退是纯死代码。 */
+  const ip = clientIp(request);
   const salt = String(env.SESSION_SECRET || 'pv').slice(0, 16);
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${ip}|${salt}`));
   return Array.from(new Uint8Array(buf))
