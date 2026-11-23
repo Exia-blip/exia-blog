@@ -130,5 +130,22 @@ check(
     : 'harden 未收到 search 或未改 cdn-cache-control'
 );
 
+/* 单篇写入清的是文章页，但「它属于哪个栏目」是另一次缓存键（/cat/<栏目>）。
+   栏目页 300 秒，pending 的稿子放行前根本不在列表里 —— 那一刻是它第一次进栏目，
+   漏传栏目就等于给自己造了个 300 秒的「写后读到旧值」窗口（KV 才有的问题，我们本来不用付）。
+   判据：凡第二参数带 slug 的 bust 调用，第三参数不许为空数组。 */
+const emptyCatsWithSlug = api
+  .split('\n')
+  .map((l, i) => [i + 1, l])
+  .filter(([, l]) => /bust\(url,\s*\[[^\]]+\],\s*\[\]/.test(l));
+check(
+  'CB-10',
+  '单篇写入必须带栏目清缓存',
+  emptyCatsWithSlug.length === 0,
+  emptyCatsWithSlug.length === 0
+    ? '所有带 slug 的写路径都传了栏目'
+    : emptyCatsWithSlug.map(([n, l]) => `api.js:${n} ${l.trim().slice(0, 60)}`).join(' | ')
+);
+
 console.log(bad ? `\n${bad} 项失败` : '\n全部通过');
 process.exit(bad ? 1 : 0);

@@ -688,12 +688,14 @@ export async function handleApi(env, request, url, ctx) {
     const body = await request.json().catch(() => ({}));
     const action = String(body.action || '');
     if (action !== 'approve' && action !== 'reject') return err('action 只能是 approve 或 reject');
-    const p = await db.prepare('SELECT id, slug, review_status FROM posts WHERE id = ?').bind(id).first();
+    const p = await db.prepare('SELECT id, slug, category, review_status FROM posts WHERE id = ?').bind(id).first();
     if (!p) return err('文章不存在', 404);
     const next = action === 'approve' ? 'approved' : 'rejected';
     await db.prepare('UPDATE posts SET review_status = ?, updated_at = ? WHERE id = ?').bind(next, nowISO(), id).run();
     await logAudit(env, user, action === 'approve' ? 'review.approve' : 'review.reject', 'post', String(id), p.slug || '');
-    if (ctx) ctx.waitUntil(bust(url, [p.slug], [], db).catch(() => {}));
+    /* 栏目必须一起传：pending 的稿子不在任何列表页里，放行那一刻它才第一次
+       进入 /cat/<栏目>。只清文章页的话，栏目列表还压着 300 秒的旧 HTML。 */
+    if (ctx) ctx.waitUntil(bust(url, [p.slug], [p.category], db).catch(() => {}));
     return json({ ok: true, id, review_status: next });
   }
 
@@ -1009,7 +1011,9 @@ export async function handleApi(env, request, url, ctx) {
       .run();
     await syncTags(db, id, rev.content || '');
     await logAudit(env, u, 'post.restore', 'post', String(id), `回滚到版本 #${rid}`);
-    if (ctx) ctx.waitUntil(bust(url, [p.slug], [], db).catch(() => {}));
+    /* 回滚会连 category 一起改回旧值，而旧版本可能在别的栏目里。
+       两个栏目都得清 —— 只清当前那个，另一个列表页会留着 300 秒的错分栏。 */
+    if (ctx) ctx.waitUntil(bust(url, [p.slug], [p.category, rev.category], db).catch(() => {}));
     return json({ ok: true, id, restored_from: rid });
   }
 
