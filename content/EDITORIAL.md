@@ -96,6 +96,14 @@
 
 这六篇与 `css-minimal-set-tradeoffs` 同批，都是「先做事、后落字」的实录，不占 2027-02-03 之前的坑位。数字索引页 `/numbers` 已把这六篇里的关键数字登记进 `src/numbers.js`，未上线的 slug 在 `PENDING_SLUGS` 里标记、线上核对脚本会自动跳过。
 
+### 对比文：Rin 与自研站（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `rin-vs-selfhosted` | 同一套 Cloudflare 全家桶，两种极端：Rin 与我自研站的三处分野 | 工程实录 | `rin cloudflare 博客` / `cloudflare workers 博客 对比` | 运行时依赖 15+42 vs 0；Rin 后端是 **Hono 不是 Elysia**（别家资料写错过）；配置优先级「设置页 > 环境变量 > 默认值」可抄、首注册即管理员 + `admin/admin123` 默认凭据不可抄；友链三态是 `0 网络层没通 / 1 2xx-3xx / 2 有响应但异常`，403 落 2 不落 0 |
+
+**来源全部为公开文件，未部署运行 Rin**：README、根/`server`/`client` 三份 `package.json`、`.env.example`、GitHub API（3151 star @2026-11-23）。正文「明说的没做」已列六条边界，含"没做性能对比"和"star 是快照"。**发布时若 Rin 已改版，先复核这五个文件再发。**
+
 ### 收尾两篇（已写完入库，12-19 / 12-21）
 
 两篇来自 11-20 收尾的第二档交互优化，都是 tools：代码能直接拖走跑，素材是本机实测，不是凑坑位。按 2 天一篇接在 12-17 `csp-nonce-cache` 之后，12-19 / 12-21。`scripts/seed-27-28.mjs` 已带 `published_at`（UTC 01:00）入库，与其余存稿同口径，不靠 automation 改 hidden。
