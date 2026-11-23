@@ -169,6 +169,25 @@
 
 **明说的没做**：角色表 / ACL；入口与 handler 的 `users` 双查（2 次 D1 往返）未优化；白名单无线上演练（与 `READONLY_MODE` 同属「越过 HTTP 边界的那层靠推理」的系统性盲区）；`ALLOWED_LOGINS` 默认不配，等于没改。
 
+### 审计清单：8 项里 3 错 3 半对（2026-11-23 完成，未入库）
+
+| slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
+|---|---|---|---|---|
+| `audit-checklist-reconciliation` | 清单说我没有 CSP：8 项「需复核」里 3 项判断错了 | 工程实录 | `workers csp 响应头` / `img 代理 ssrf` | **CSP 早就有**且是 enforcing（8 条路径逐条实测响应头表）；`/img/` 只读 R2 零 fetch，SSRF 不适用；**本站没有 Device Flow**（清单把文章主题当功能），自签 token 是 2 段无 header → 无 `alg:none` 面；限流**累加原子但判定不原子**（P-022）；蜜罐返回 400 不是 403 |
+
+**这篇只改断言，不改业务代码**（查完发现代码本身无需改）：
+
+1. `scripts/test-md-guard.mjs`：编辑器预览入口 `renderMarkdown` 单独跑 27 条探针 + 变异体上也要红 + 源码守「不许第二个渲染器」。
+2. `scripts/test-comment-ssr.mjs`：三条——`post.html` 必须 import 而非复制 `safeWebsite`、`renderCmt` 的 href/正文、后台待审页不出现 `c.website`。
+3. `scripts/test-antispam.mjs`：`[P-022]` 锁「guard 只读、record 才累加」这个事实。
+4. `PITFALLS.md` 新增 P-022。
+
+七处注入全验过（预览换 `marked`、暗插 `marked`、跳过 `safeWebsite`、复制 `safeWebsite`）。
+
+**材料口径**：清单称「缺 CSP」「`/img/` 有 SSRF」「有 Device Flow 要查 device_code」三条均不成立；「渲染器顺序守护缺失」「评论字段协议校验」「D1 原子递增」三条半对。Rin 侧 7 项全部按材料引用未复核。
+
+**明说的没做**：不改限流判定原子性（会误伤填错邮箱的真人）；不给预览加 sanitize；无真实并发压测（P-022 的 10N 是推理）；响应头只测 8 条路径。
+
 ### 收尾两篇（已写完入库，12-19 / 12-21）
 
 两篇来自 11-20 收尾的第二档交互优化，都是 tools：代码能直接拖走跑，素材是本机实测，不是凑坑位。按 2 天一篇接在 12-17 `csp-nonce-cache` 之后，12-19 / 12-21。`scripts/seed-27-28.mjs` 已带 `published_at`（UTC 01:00）入库，与其余存稿同口径，不靠 automation 改 hidden。
