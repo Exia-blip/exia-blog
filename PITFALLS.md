@@ -336,6 +336,42 @@
 - **教训**：**一个「上限」如果写在解析之前，就必须同时写在每一个解析点**。修法不是把顶层的判断写得更严（`content-length` 可以撒谎，也完全可以不给），而是让所有分支只剩一条读体路径：`readBody(request, path)` 内部按流数、和顶层共用同一张路径上限表，连「回什么」都替调用方定好（`if (rb.res) return rb.res;`）。表单那条同理走 `readForm()`，计数逻辑与 JSON 共用 `readBytesLimited`（一份逻辑，两种解析）。这样新加一个写接口时，漏掉闸门的写法在语法上就不顺手了。同族：P-030（同一个判据两个实现）、P-035（只夹下界）。附带一条：蜜罐的断言不能只写「拦住了」，要同时断言「没有 INSERT、没有动限流计数表」——否则拦住的可能只是响应，垃圾照样落库。
 - **出处**：站务记录（本文件，2026-11-24）；`src/utils.js` 的 `readBytesLimited` / `readFormLimited`、`src/api.js` 的 `readBody()` / `readForm()`；`scripts/test-body-limit.mjs`、`scripts/test-antispam.mjs`、`scripts/test-sticky-css.mjs`
 
+## P-038 封面「永远有值」这条，只有一条路径在守
+
+- **现象**：`coverOf()` 注释写着「最终生效的封面地址，永远非空」，三层回落（手填 → 正文首图 → 预设图）也是这么写的。但只要有人把 `usableCover()` 的 SVG 过滤放宽一行、或在某个入口直接用 `post.cover` 而不走 `coverOf()`，列表就会冒出一格空图：`<img src="">` 在页面上是空白方块，og 里是 `content=""`，两者都不会报错，`check-live` 当时也不看封面。<br>同一族还有另一次真实踩坑：预设图 `auto-N.jpg` 的 N 由 `id % 6` 决定，改 `AUTO_COVER_COUNT` 却忘了补图，`auto-7.jpg` 直接 404，而列表仍是 200。
+- **根因**：这段逻辑的出口有四个（列表缩略图、og:image、RSS enclosure、编辑器预览），回落顺序又在注释里而不是在断言里。没有一条断言跑 `coverOf()` 本身，所以「永远非空」只是一句注释。
+- **复现**：`node scripts/test-cards.mjs`，用 `undefined` / `null` / `{}` / `{id:0,slug:'',title:''}` 四种空输入打 `coverOf()`；再对 `id 1..AUTO_COVER_COUNT` 逐张取图，要求命中 N 张不同文件、路径落在 `/thumbs/auto-[1-N].jpg` 内。把 `usableCover` 的 SVG 判断去掉、或把 `|| autoCover(post)` 删掉，立刻变红。
+- **断言**：`scripts/test-cards.mjs` 的四条 `[P-038]`：空输入非空、路径在白名单内、同一篇两次一致（列表不能刷一次变一次）、`1..N` 有分散度。
+- **教训**：「永远非空」这种全局不变量，断言要打在**唯一的那个出口函数**上，而不是每个调用点。调用点会越加越多，出口只有一个。同族：P-032（唯一出口被改就全体失明）。
+- **出处**：站务记录（本文件，2026-11-24）；`src/cover.js` 的 `coverOf` / `autoCover`；`scripts/test-cards.mjs`
+
+## P-039 封面指向的文件被删了，页面照样 200，分享出去是裂图
+
+- **现象**：`posts.cover` 是一列字符串。卡片文件被改名、被 `gen-cards` 覆盖成别的 slug、或手填一个不存在的 `/cards/xxx.png` 之后，文章页仍然是 200，`og:image` 仍然有值且是绝对 URL，`check-live` 全绿。只有真去抓那张图才会发现 404 —— 而社交平台抓图失败时**什么都不会告诉你**，卡片就是一张空白。
+- **根因**：断言只验了「页面里有没有这个标签」，没验「标签指向的东西取不取得回来」。HTML 正确和资源存在是两件事，前者是字符串，后者要发请求。
+- **复现**：`node scripts/check-live.mjs` 的 `[P-039]` 两条：把 `/api/posts` 返回的封面逐张 HEAD（每篇一张，去重后 ≤20 个请求），要求 200 + `content-type: image/*`；任一张 404 或返回 `text/html`（SPA 回落那种「200 的错误页」）即红。<br>本地等价复现：`SELECT slug FROM posts WHERE cover LIKE '/cards/%'` 之后逐条 `ls public/cards/`。
+- **断言**：`scripts/check-live.mjs` `[P-039]` 两条（每篇有地址、地址全部可取且是图片）。离线侧由 `test-cards.mjs` 守仓库内图片的真实尺寸（P-041），两边合起来覆盖「文件在不在」与「文件对不对」。
+- **教训**：**「有链接」不等于「链接有效」**。凡是要被外部抓取的资源（og:image、RSS enclosure、sitemap 里的 URL），断言必须走到「真取一次」这一层。同族：P-020（缩略图 404 但页面 200）。
+- **出处**：站务记录（本文件，2026-11-24）；`src/cover.js`、`src/index.js` 的 og 段；`scripts/check-live.mjs`
+
+## P-040 og:image 与它声明的尺寸，是两个地方各写一遍
+
+- **现象**：文章页里 `og:image:width/height/type` 与 `og:image` 是分开生成的：地址来自 `coverOf(post)`，尺寸来自一段内联三元。两者一旦不同步（比如把「标题卡 1200×630」那条分支的 `w` 写成预设图的 784，或者给作者自传的图也硬标 1200×630），页面完全正常、校验器不报错，只有分享卡片被平台按错的框裁一刀 —— 标题被切掉半个字那种。<br>更常见的是第三个分支缺失：作者自传的图尺寸未知，代码却给了默认值。
+- **根因**：能确认尺寸的只有两种图（预设图 1200×784 JPEG、标题卡 1200×630 PNG），第三种「不知道」被当成「按最常见的填」。而这段判定原来内联在模板字符串里，测试只能断言「页面上有没有这个 meta」，测不了「哪种封面配哪组尺寸」—— P-032 的同一个病：断言还在，被测的东西被结构改动换掉了。
+- **复现**：`ogCoverOf(post)` 现在返回 `{ path, type, w, h }`，`type` 为 `null` 就是「不知道」。把卡片分支的 `h` 改成 784 → `test-cards` 的 `[P-041]` 红；把 `index.js` 退回内联三元 → `[P-040]` 的元断言红（实测两次都还原过）。线上侧 `check-live` 会把页面声明的 `width/height/type` 和实际字节解析结果比一遍。
+- **断言**：`scripts/test-cards.mjs` 三条 `[P-040]`：自传封面三项全 `null`、`index.js` 确实走 `ogCoverOf`（含「不许再出现内联三元」的负断言）、`check-live.mjs` 里确实有 og 断言（防删）；`scripts/check-live.mjs` 两条：同源、声明与实际一致、自传封面不标尺寸。
+- **教训**：**声明资源和描述资源必须是同一次计算的输出**。分两处写，早晚不一致，而且不一致时没有任何一方会报错。顺带：「不知道」要能表达出来 —— `type: null` 比「填个最常见值」更安全。
+- **出处**：站务记录（本文件，2026-11-24）；`src/cover.js` 的 `ogCoverOf`、`src/index.js` 的文章页 og 段；`scripts/test-cards.mjs`、`scripts/check-live.mjs`
+
+## P-041 尺寸断言拿 utf8 读二进制，永远读不出尺寸，也就永远绿
+
+- **现象**：一段看着没问题的 PNG 尺寸读取：`readFile(..., 'utf8')` 拿到字符串，再 `Buffer.from(str, 'binary')` 还原。实测 `public/cards/about.png`：原文件 17360 字节，这样来回一趟变 16544 字节，签名从 `89504e47` 变成 `fd504e47`，宽度从 1200 读成 1277。`readPngSize` 于是返回 `null`，调用处一句 `if (size) check(...)` —— **条件不成立就跳过，不报错**。整条断言在任何输入下都是绿的，包括图片真被压成 800×420 的时候。
+- **根因**：`readFileSync` 的 `encoding` 参数一给，返回的就不是字节了；`0x89` 不是合法 UTF-8，被替换成 `EF BF BD`（3 字节换 1 个替换符），长度和内容一起失真。第二层原因是 `if (size)` 把「解析失败」当成「不适用」：解析失败恰恰是文件坏了或代码写错了，应该红。
+- **复现**：`node -e "const b=require('fs').readFileSync('public/cards/about.png');console.log(b.toString('utf8').length, Buffer.from(b.toString('utf8'),'binary').readUInt32BE(0).toString(16))"` → 签名不是 `89504e47`。<br>换成不带 encoding 的 `readFileSync(path)`，签名与 `1200×630` 立刻都对了；`test-cards.mjs` 对 `public/cards/` 14 张、`public/thumbs/` 6 张逐一断言就是这个写法。
+- **断言**：`scripts/test-cards.mjs` 的 `[P-041]`：卡片真值表 1200×630 PNG、预设图真值表 1200×784 JPEG（JPEG 走 SOF 段扫描，不是看文件头猜），以及两个目录**逐文件**断言 —— 目录空要红（`至少有一张`），不做「空就跳过」。`check-live` 侧对线上实际字节再验一遍。
+- **教训**：**「跳过」和「通过」必须分开**。凡是 `if (拿得到) 断言(...)` 的写法，都要问一句：拿不到时会发生什么？如果答案是「静默通过」，那这条断言只在最理想的情况下有效。同族：P-034（排除目录后把测试代码报成越权 = 假红）、P-035（只夹下界）。
+- **出处**：站务记录（本文件，2026-11-24）；`scripts/test-cards.mjs` 的 `pngSize` / `jpegSize`；对照 `scripts/gen-title-cards.py`（生成侧 `W, H = 1200, 630`）
+
 ---
 
 ## 每篇长文末尾的「复现条件 + 断言代码」模板

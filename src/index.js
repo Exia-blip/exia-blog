@@ -4,7 +4,7 @@ import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay,
 import { checkFriends, checkSelfHealth } from './cron.js';
 import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
-import { coverOf, autoThumb, isAutoCover, isCardCover, thumbOf } from './cover.js';
+import { coverOf, autoThumb, isAutoCover, ogCoverOf, thumbOf } from './cover.js';
 import { avatarSrc, avatarTone, safeWebsite, tagClass } from '../public/avatar.js';
 import { rankRelated } from './related.js';
 import { sanitizeHtml } from './clean.js';
@@ -1167,18 +1167,14 @@ async function servePostPage(env, request, slug) {
   const canonical = new URL(`/p/${encodeURIComponent(post.slug)}`, origin).toString();
 
   const desc = metaDesc(post.summary || extractExcerpt(post.content, 260), site.desc || site.name);
-  // 手填封面 → 正文首图 → 预设自动图，永远有值
-  const cover = coverOf(post);
-  // 封面 → 本站分享图。站点头像不参与：GitHub 头像只有 460px，社交卡片会糊成一团，
-  // 而且外链域名不受自己控制（改天换图床就 404）。
-  const ogImage = new URL(cover, origin).toString();
-  /* og:image 的尺寸只标能确认的两种：预设图 1200×784 JPEG、标题卡 1200×630 PNG。
-     作者自己传的图尺寸未知，标错了平台会按错的框去裁。 */
-  const ogKind = isAutoCover(post)
-    ? { type: 'image/jpeg', w: 1200, h: 784 }
-    : isCardCover(post)
-      ? { type: 'image/png', w: 1200, h: 630 }
-      : null;
+  /* 手填封面 → 正文首图 → 预设自动图，永远有值；尺寸元信息一并由它给出。
+     站点头像不参与 og:image：GitHub 头像只有 460px，社交卡片会糊成一团，
+     而且外链域名不受自己控制（改天换图床就 404）。 */
+  const og = ogCoverOf(post);
+  const ogImage = new URL(og.path, origin).toString();
+  /* 尺寸只标能确认的两种，第三种（作者自传）连 type 都不标。
+     ogCoverOf 返回 null 就是「不知道」，别在这里补默认值。 */
+  const ogKind = og.type ? { type: og.type, w: og.w, h: og.h } : null;
 
   /* 发布时已经渲染 + 消毒并落库（html_content），这里只读成品。
      缓存 miss 的那一次回源不再跑 Markdown 解析 —— 长文 miss 是最吃亏的场景：

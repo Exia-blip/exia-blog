@@ -78,3 +78,18 @@ export function thumbOf(post) {
 export function isCardCover(post) {
   return /^\/cards\/.+\.png$/.test(coverOf(post));
 }
+
+/* og:image 的完整元信息：地址 + **能确认的** MIME 与尺寸。
+   只标三种里确认得了的两种：预设图 1200×784 JPEG、标题卡 1200×630 PNG。
+   作者自己传的图尺寸未知（也可能根本不是本站文件），type/w/h 一律 null ——
+   标错了平台会按错的框去裁，比不标更糟。
+
+   为什么单独成函数而不是在 index.js 里写三元：那段尺寸元信息原来内联在
+   模板里，只能靠字符串断言它在不在，测不了「哪种封面配哪组尺寸」。
+   P-032 就是这么失明的：结构一改，断言还在，测的东西没了。 */
+export function ogCoverOf(post) {
+  const path = coverOf(post);
+  if (isAutoCover(post)) return { path, type: 'image/jpeg', w: 1200, h: 784 };
+  if (isCardCover(post)) return { path, type: 'image/png', w: 1200, h: 630 };
+  return { path, type: null, w: null, h: null };
+}

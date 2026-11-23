@@ -510,6 +510,147 @@ console.log(`\n${ORIGIN}\n`);
   }
 }
 
+/* ---------- 12. 标题卡与 og:image（P-039 / P-040 / P-041）
+
+   代码里算得对，不等于分享出去能看：posts.cover 指向一张已经被删的卡片，
+   页面照样 200、og:image 照样有值，抓图工具拿到的是 404 —— 分享卡片上是空白。
+   这一组只验「线上真取到的那张图」：取得到、MIME 对、尺寸和页面声明的一致。
+
+   P-040 的另一半是负断言：作者自传封面尺寸未知，页面**不该**标 width/height。
+   标错了平台按错的框裁，比不标更差。 */
+{
+  const metaOf = (html, prop) => {
+    const a = new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]*content=["']([^"']*)["']`, 'i');
+    const b = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${prop}["']`, 'i');
+    const m = html.match(a) || html.match(b);
+    return m ? m[1] : '';
+  };
+
+  const png = (buf) =>
+    buf.length >= 24 && buf.readUInt32BE(0) === 0x89504e47 && buf.readUInt32BE(4) === 0x0d0a1a0a
+      ? { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) }
+      : null;
+  const jpeg = (buf) => {
+    if (buf.length < 4 || buf.readUInt16BE(0) !== 0xffd8) return null;
+    let i = 2;
+    while (i + 9 < buf.length) {
+      if (buf[i] !== 0xff) {
+        i++;
+        continue;
+      }
+      const m = buf[i + 1];
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+        return { w: buf.readUInt16BE(i + 7), h: buf.readUInt16BE(i + 5) };
+      }
+      if (m === 0xd8 || m === 0xd9 || (m >= 0xd0 && m <= 0xd7) || m === 0x01) {
+        i += 2;
+        continue;
+      }
+      i += 2 + buf.readUInt16BE(i + 2);
+    }
+    return null;
+  };
+
+  const { body: listRaw } = await get(bustUrl('/api/posts?page=1&size=50'));
+  let list = [];
+  try {
+    list = JSON.parse(listRaw).posts || [];
+  } catch {}
+  ok('列表接口可取（og 断言的前提）', list.length > 0, `${list.length} 篇`);
+
+  /* P-039：列表缩略图逐张取。列表就是这个接口喂的，这里 404 等于首页一列裂图。 */
+  const covers = list.slice(0, 20).map((p) => String(p.cover || ''));
+  ok('每篇都有封面地址（不为空）', covers.length > 0 && covers.every((c) => c.trim()), `${covers.length} 篇`);
+  const broken = [];
+  for (const c of new Set(covers)) {
+    if (!c) continue;
+    let u;
+    try {
+      u = new URL(c, ORIGIN).toString();
+    } catch {
+      broken.push(`${c} 不是合法 URL`);
+      continue;
+    }
+    try {
+      const r = await fetch(u, { method: 'HEAD', signal: AbortSignal.timeout(8000) });
+      if (!r.ok) broken.push(`${c} → HTTP ${r.status}`);
+      else if (!/^image\//i.test(r.headers.get('content-type') || '')) {
+        broken.push(`${c} → ${r.headers.get('content-type')}`);
+      }
+    } catch (e) {
+      broken.push(`${c} → ${e.message}`);
+    }
+  }
+  ok('[P-039] 列表封面全部取得到且是图片', broken.length === 0, broken.slice(0, 3).join('; ') || `${covers.length} 张`);
+
+  /* 抽最新 4 篇看文章页：不同封面类型混在里头，三种分支都能被走到 */
+  const sample = list.slice(0, 4).map((p) => p.slug).filter(Boolean);
+  ok('文章页样本不为零', sample.length > 0, sample.join(', '));
+
+  let seenCard = 0;
+  let seenPreset = 0;
+  for (const slug of sample) {
+    const { body: html } = await page(`/p/${slug}`);
+    const img = metaOf(html, 'og:image');
+    const tw = metaOf(html, 'og:image:type');
+    const ww = metaOf(html, 'og:image:width');
+    const hh = metaOf(html, 'og:image:height');
+
+    if (!img) {
+      ok(`[P-040] ${slug} 有 og:image`, false, '(没有)');
+      continue;
+    }
+    let abs;
+    try {
+      abs = new URL(img);
+    } catch {
+      ok(`[P-040] ${slug} 的 og:image 是绝对 URL`, false, img);
+      continue;
+    }
+    ok(`[P-040] ${slug} 的 og:image 与站点同源`, abs.origin === new URL(ORIGIN).origin, abs.origin);
+
+    const isCard = /^\/cards\/.+\.png$/.test(abs.pathname);
+    const isAuto = /^\/thumbs\/auto-\d\.jpg$/.test(abs.pathname);
+    if (isCard) seenCard++;
+    if (isAuto) seenPreset++;
+
+    let r;
+    let buf;
+    try {
+      r = await fetch(abs.toString(), { signal: AbortSignal.timeout(10000) });
+      buf = Buffer.from(await r.arrayBuffer());
+    } catch (e) {
+      ok(`[P-041] ${slug} 的 og:image 取得到`, false, e.message);
+      continue;
+    }
+    ok(`[P-041] ${slug} 的 og:image 取得到`, r.ok, `HTTP ${r.status}`);
+
+    const size = isCard ? png(buf) : isAuto ? jpeg(buf) : null;
+    const want = isCard ? { w: 1200, h: 630 } : isAuto ? { w: 1200, h: 784 } : null;
+    if (want) {
+      ok(
+        `[P-041] ${slug} 分享图实际 ${want.w}×${want.h}`,
+        !!size && size.w === want.w && size.h === want.h,
+        size ? `实际 ${size.w}×${size.h}` : '解析不出尺寸'
+      );
+      ok(
+        `[P-040] ${slug} 声明的尺寸与实际一致`,
+        ww === String(want.w) && hh === String(want.h) && tw === (isCard ? 'image/png' : 'image/jpeg'),
+        `声明 ${ww}×${hh} ${tw || '(无 type)'}`
+      );
+    } else {
+      /* 作者自传封面：尺寸未知 → 页面不该标任何尺寸/类型 */
+      ok(
+        `[P-040] ${slug} 自传封面不标尺寸`,
+        !ww && !hh && !tw,
+        `声明 ${ww || '-'}×${hh || '-'} ${tw || '(无 type)'}`
+      );
+    }
+  }
+  ok('[P-040] 样本里至少命中一张标题卡或预设图', seenCard + seenPreset > 0, `卡 ${seenCard} / 预设 ${seenPreset}`);
+  console.log(`  ·    封面类型样本：标题卡 ${seenCard}，预设图 ${seenPreset}`);
+}
+
 /* 体检有几十条，失败夹在中间的 ok 里很容易漏读。末尾把失败项单独列一遍。 */
 if (failed.length) {
   console.log('\n失败项：');
