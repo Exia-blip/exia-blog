@@ -109,8 +109,11 @@
 | slug | 标题 | 栏目 | 目标查询词 | 别处没有的东西 |
 |---|---|---|---|---|
 | `route-boundaries-from-rin` | 抄 Rin 的结构，最后只抄成了一条断言 | 站务 | `cloudflare workers 路由 分层` / `路由边界 测试` | Rin 的 `route-boundaries.test.ts` **2689 B 比实现 2442 B 还大**；`services/` 装的是横切能力不是功能（`features/` 只有一个 `feed/repository.ts`）；sanitize 在 **client** 不在 server，服务端方向是 MD→HTML；v0.2.0→v0.3.0 隔 **21 个月**，不算快变期 |
+| `cache-invalidation-two-ways` | 缓存清不掉的两种写法：Rin 能 deletePrefix，我只能枚举 | 工程实录 | `cloudflare cache api 缓存 失效` / `cache busting` | `bust()` 漏 tag/series/`/series` 三类；`/?page=2` 与 `/` 是两条键、`caches.default` 无 list/deletePrefix；Rin 的 `deletePrefix` 靠 SQL `LIKE`（database）或全量 JSON 重传（s3，`supportsPartialAccess=false`）；Rin 缓存 `cache.enabled` **默认 false** |
 
 **这篇带代码改动**：新增 `scripts/test-route-boundaries.mjs`（RB-01~RB-06，已进 `npm test` 链），`tagHasLivePosts()` 抽到 `api.js`，`route()` 111→105 行、分发器内 SQL 归零。失败分支验过（注入重复路由 → RB-04 exit 1；注入未登记路由 → RB-01 exit 1），本地 Worker 打过 7 条路径行为不变。**发布前若 `route()` 再重构，先跑 `node scripts/test-route-boundaries.mjs` 确认六条还绿。**
+
+**缓存这篇带代码改动**：`bust()` 加 `db` 参数 + 枚举全量 tags/series（一次发布 8→30 条 delete），`bust()` 改 async 且 9 处调用全补 `.catch`，`cacheable` 加 `!url.search`，`harden()` 加 `search` 参数并把带 query 的页面两层都设 `no-store`。新增 `scripts/test-cache-bust.mjs`（CB-01~CB-09，已进 `npm test` 链）。失败分支验过（`!url.search` 改 `true` → CB-04 exit 1；删 tag 枚举 → CB-02 exit 1），本地 Worker 实测 7 条路径缓存头 + 5 个中文/含空格键逐字符一致。**改缓存逻辑后先跑 `node scripts/test-cache-bust.mjs`。**
 
 ### 收尾两篇（已写完入库，12-19 / 12-21）
 

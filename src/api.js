@@ -57,15 +57,34 @@ async function seriesSiblingSlugs(db, series) {
 }
 
 /* 发布 / 修改 / 删除后主动删掉边缘缓存：不用等 TTL 过期 */
-function bust(url, slugs = [], cats = []) {
+/* 清单里必须有「全部会因文章集合变化而变旧的页面形态」，少一类就等于留一个
+   5 分钟窗口：读者看到已删的文章、新文章在标签页里不存在、系列目录漏一篇。
+   所以这里不按「这次动了哪几个标签」精确算，而是把 tag / series 全清 ——
+   跟下面 postCacheDrop() 同一个理由：几十次 delete 是本地操作，比漏清便宜。 */
+async function bust(url, slugs = [], cats = [], db = null) {
   /* 进程内那份一起清。按 slug 精准清是不够的 —— 缓存里除了文章本体，
      还带着「同栏目列表」和「系列目录」，删掉一篇会影响别的文章那一块。
      chunk 只有几十条，全清之后下次 miss 一次就回来了，比漏清安全得多。 */
   postCacheDrop();
-  const paths = ['/', '/archive', '/categories'];
+  const paths = ['/', '/archive', '/categories', '/series'];
   for (const c of cats.filter(Boolean)) paths.push(`/cat/${encodeURIComponent(c)}`);
   for (const s of slugs.filter(Boolean)) {
     paths.push(`/p/${encodeURIComponent(s)}`, `/${encodeURIComponent(s)}`);
+  }
+  /* tag / series 的清单只能查库拿：缓存 API 没有 list / deletePrefix，
+     caches.default 只认具体 URL。查失败就跳过——宁可留 5 分钟旧页面，
+     也不能让一次 delete 失败把整个发布响应的 waitUntil 拖成 unhandled rejection。 */
+  if (db) {
+    try {
+      const [ts, ss] = await Promise.all([
+        db.prepare('SELECT name FROM tags').all(),
+        db.prepare("SELECT DISTINCT series FROM posts WHERE series != ''").all(),
+      ]);
+      for (const r of ts.results || []) paths.push(`/tag/${encodeURIComponent(r.name)}`);
+      for (const r of ss.results || []) paths.push(`/series/${encodeURIComponent(r.series)}`);
+    } catch {
+      /* 库抖动：留 TTL 兜底 */
+    }
   }
   return bustPaths(url.origin, paths);
 }
@@ -623,7 +642,7 @@ export async function handleApi(env, request, url, ctx) {
     const next = action === 'approve' ? 'approved' : 'rejected';
     await db.prepare('UPDATE posts SET review_status = ?, updated_at = ? WHERE id = ?').bind(next, nowISO(), id).run();
     await logAudit(env, user, action === 'approve' ? 'review.approve' : 'review.reject', 'post', String(id), p.slug || '');
-    if (ctx) ctx.waitUntil(bust(url, [p.slug]).catch(() => {}));
+    if (ctx) ctx.waitUntil(bust(url, [p.slug], [], db).catch(() => {}));
     return json({ ok: true, id, review_status: next });
   }
 
@@ -787,7 +806,7 @@ export async function handleApi(env, request, url, ctx) {
 
     await syncTags(db, id, content);
     await logAudit(env, u, 'post.create', 'post', String(id), title);
-    if (ctx) ctx.waitUntil(bust(url, [slug, ...(await seriesSiblingSlugs(db, seriesOf(body)))], [category]));
+    if (ctx) ctx.waitUntil(bust(url, [slug, ...(await seriesSiblingSlugs(db, seriesOf(body)))], [category], db).catch(() => {}));
     return json({ ok: true, id, slug, summary: manual, ai: hasAI(env), published_at: published });
   }
 
@@ -894,7 +913,7 @@ export async function handleApi(env, request, url, ctx) {
           ...(await seriesSiblingSlugs(db, p.series)),
         ]),
       ];
-      ctx.waitUntil(bust(url, [slug, p.slug, ...touched], [category, p.category]));
+      ctx.waitUntil(bust(url, [slug, p.slug, ...touched], [category, p.category], db).catch(() => {}));
     }
     return json({ ok: true, id, slug, updated_at: nowISO(), published_at: published, ai: hasAI(env) });
   }
@@ -939,7 +958,7 @@ export async function handleApi(env, request, url, ctx) {
       .run();
     await syncTags(db, id, rev.content || '');
     await logAudit(env, u, 'post.restore', 'post', String(id), `回滚到版本 #${rid}`);
-    if (ctx) ctx.waitUntil(bust(url, [p.slug]).catch(() => {}));
+    if (ctx) ctx.waitUntil(bust(url, [p.slug], [], db).catch(() => {}));
     return json({ ok: true, id, restored_from: rid });
   }
 
@@ -997,7 +1016,7 @@ export async function handleApi(env, request, url, ctx) {
       db.prepare('DELETE FROM comments WHERE post_id = ?').bind(id),
       db.prepare('DELETE FROM posts WHERE id = ?').bind(id),
     ]);
-    if (ctx) ctx.waitUntil(bust(url, [p.slug, ...(await seriesSiblingSlugs(db, p.series))], [p.category]));
+    if (ctx) ctx.waitUntil(bust(url, [p.slug, ...(await seriesSiblingSlugs(db, p.series))], [p.category], db).catch(() => {}));
     return json({ ok: true });
   }
 
@@ -1152,7 +1171,7 @@ export async function handleApi(env, request, url, ctx) {
       const out = await db.prepare("UPDATE comments SET status = 'approved' WHERE status = 'pending'").run();
       released = out.meta?.changes || 0;
       // 放行后前台评论数与该显出来的正文都变了，边缘缓存跟着清
-      if (released && ctx) ctx.waitUntil(bust(url, [], []).catch(() => {}));
+      if (released && ctx) ctx.waitUntil(bust(url, [], [], db).catch(() => {}));
     }
 
     await logAudit(env, user, 'comment.moderation', 'settings', 'comment_moderation',
@@ -1175,7 +1194,7 @@ export async function handleApi(env, request, url, ctx) {
     await db.prepare('UPDATE comments SET status = ? WHERE id = ?').bind(next, id).run();
     await logAudit(env, user, action === 'approve' ? 'comment.approve' : 'comment.reject',
       'comment', String(id), `post=#${c.post_id}`);
-    if (ctx) ctx.waitUntil(bust(url, [], []).catch(() => {}));
+    if (ctx) ctx.waitUntil(bust(url, [], [], db).catch(() => {}));
     return json({ ok: true, id, status: next });
   }
 
@@ -1331,7 +1350,7 @@ export async function handleApi(env, request, url, ctx) {
         changed.push({ slug: p.slug, before: String(p.content || '').length, after: cleaned.length });
       }
     }
-    if (changed.length && ctx) ctx.waitUntil(bust(url, results.map((p) => p.slug)));
+    if (changed.length && ctx) ctx.waitUntil(bust(url, results.map((p) => p.slug), [], db).catch(() => {}));
     return json({ ok: true, scanned: results.length, changed: changed.length, detail: changed.slice(0, 50) });
   }
 
@@ -1386,7 +1405,7 @@ export async function handleApi(env, request, url, ctx) {
       .run();
 
     const { results: left } = await db.prepare('SELECT name FROM tags ORDER BY name').all();
-    if (ctx) ctx.waitUntil(bust(url, posts.map((p) => p.slug), posts.map((p) => p.category)));
+    if (ctx) ctx.waitUntil(bust(url, posts.map((p) => p.slug), posts.map((p) => p.category), db).catch(() => {}));
     return json({
       ok: true,
       categories: catChanges,

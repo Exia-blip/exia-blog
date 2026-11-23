@@ -2023,7 +2023,7 @@ export async function editorGate(env, request, path) {
   });
 }
 
-export async function harden(res, env, path = '') {
+export async function harden(res, env, path = '', search = '') {
   // 配了 Turnstile 才在 CSP 里放行它的域名；没配就保持零第三方
   const tsOn = !!(env && env.TURNSTILE_SITE_KEY);
   const anCfg = analyticsCfg(env);
@@ -2060,6 +2060,15 @@ export async function harden(res, env, path = '') {
       // 后台页：浏览器与 CF 边缘都不缓存，改完立刻可见
       headers.set('cache-control', 'private, no-store');
       headers.set('cdn-cache-control', 'private, no-store');
+    } else if (search) {
+      /* 带 query 的读者页：分页（?page=）与搜索（?q=）。
+         光让 Worker 内的 caches.default 不写还不够 —— CF 边缘看到
+         s-maxage 仍会自己存一份，而那份是 bust 删不掉的（键里带 query，
+         无法枚举）。所以头也必须改，否则"改了但没效果"。
+         代价：?utm_source= 这类分享链接也走回源。这是故意的 ——
+         只要放行任意参数，就等于允许别人用不重复的 query 灌缓存。 */
+      headers.set('cache-control', 'no-store');
+      headers.set('cdn-cache-control', 'no-store');
     } else {
       if (!cc.includes('no-store') && !cc.includes('private')) headers.set('cache-control', pageCacheControl());
       headers.set('cdn-cache-control', `public, s-maxage=${EDGE_TTL}, stale-while-revalidate=${EDGE_SWR}`);
@@ -2740,7 +2749,17 @@ export default {
       const cookie = request.headers.get('cookie') || '';
       const loggedIn = /(^|;\s*)sid=/.test(cookie);
       const cacheable =
-        request.method === 'GET' && !loggedIn && isPagePath(url.pathname);
+        request.method === 'GET' && !loggedIn && isPagePath(url.pathname) &&
+        /* 带 query 的页面一律不进缓存。两条理由，都不是洁癖：
+           1) 清不掉。缓存键是完整 URL，`/?page=2` 与 `/` 是两条独立条目，
+              而 caches.default 没有 list / deletePrefix，bust 只能删得掉
+              自己能枚举出来的键。发布新文章后第 2 页的偏移全变了，
+              清不到就是读者看到已删的文章还在列表里。
+           2) 能灌满。`?q=` 是任意字符串，任何爬虫刷一批不重复的搜索词
+              就能往里塞无限条 200 页面，把配额换成垃圾。
+           代价是分页和搜索每次回源。第 2 页的访问量本来就低，省下的
+           那点缓存命中换不来一个「发布后列表仍然是旧的」的 bug。 */
+        !url.search;
 
       if (cacheable) {
         const hit = await edgeGet(url);
@@ -2758,7 +2777,7 @@ export default {
          跟着攻击者伪造的 Host 走。这里不动 edgeGet 的缓存键，只改派生来源。 */
       const seoUrl = new URL(url.pathname + url.search, siteOrigin(env, request));
       res = await injectTheme(env, res, seoUrl);
-      res = await harden(res, env, url.pathname);
+      res = await harden(res, env, url.pathname, url.search);
       res = await withEtag(res);
 
       /* 顺序很重要：先按 200 写边缘缓存，再决定要不要改回 304。
