@@ -48,6 +48,33 @@ t(future.length === 0, '没有未来日期的 lastmod（预排文章的 updated_
 const dup = locs.filter((l, i) => locs.indexOf(l) !== i);
 t(dup.length === 0, '没有重复的 <loc>', dup.slice(0, 3).join(','));
 
+/* [P-043] lastmod 与页面里的 datePublished 必须自洽。
+   排期稿的通病：11 月写完、1 月才发，lastmod 取 updated_at 就早于发布日 ——
+   sitemap 和结构化数据互相打脸，Google 会认为这套时间信号不可信。
+   抽最新三篇（排在最前面的最可能刚被排期改动过）。 */
+{
+  const picks = locs.filter((l) => l.includes('/p/')).slice(0, 3);
+  const bad = [];
+  for (const l of picks) {
+    const i = locs.indexOf(l);
+    let html = '';
+    try {
+      html = await (await fetch(`${l}?cb=${Date.now()}`)).text();
+    } catch (e) {
+      bad.push(`${l} 抓不到：${e.message}`);
+      continue;
+    }
+    const dp = (html.match(/"datePublished":"([^"]+)"/) || [])[1] || '';
+    if (!dp) {
+      bad.push(`${l} 页面里没有 datePublished`);
+      continue;
+    }
+    const day = dp.slice(0, 10);
+    if (lasts[i] && lasts[i] < day) bad.push(`${l} lastmod ${lasts[i]} < datePublished ${day}`);
+  }
+  t(bad.length === 0, `[P-043] 每篇的 lastmod 不早于 datePublished（抽 ${picks.length} 篇）`, bad.slice(0, 3).join('; '));
+}
+
 // 首页 / 归档 / 标签页是这次要补的那三类，单独点名，缺了能一眼看出来
 const need = ['/', '/archive', '/categories'];
 const miss = need.filter((p) => !locs.some((l) => l === base + p || l === base + p + '/'));

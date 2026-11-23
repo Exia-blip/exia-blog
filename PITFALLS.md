@@ -372,6 +372,33 @@
 - **教训**：**「跳过」和「通过」必须分开**。凡是 `if (拿得到) 断言(...)` 的写法，都要问一句：拿不到时会发生什么？如果答案是「静默通过」，那这条断言只在最理想的情况下有效。同族：P-034（排除目录后把测试代码报成越权 = 假红）、P-035（只夹下界）。
 - **出处**：站务记录（本文件，2026-11-24）；`scripts/test-cards.mjs` 的 `pngSize` / `jpegSize`；对照 `scripts/gen-title-cards.py`（生成侧 `W, H = 1200, 630`）
 
+## P-042 越界页码是 200 的空页，而且每张都自称规范地址
+
+- **现象**：`/?page=99`、`/tag/cloudflare?page=99`、`/cat/log?page=99` 一律返回 **200**，正文是「还没有文章」的空态，`canonical` 却写着 `…?page=99` 本身。`/archive?page=9` 更怪：归档一次列全部、`page` 根本不参与查询，所以 1 和 9 输出同一份内容，而两份各自声明自己是规范地址。分页链接是有边界的（末页没有「下一页」），但 URL 是无边界的 —— 爬虫不需要点链接，拼数字就能造出无限张空页，每张都 200、都自指、都能被收录。顺带 `/`、`/?page=1` 也是同一页的两份地址。
+- **根因**：两处都只处理了「合法输入」。分页只管对 `LIMIT/OFFSET` 夹上下界（P-035 修过），没人问「OFFSET 越过末尾时该回什么」，默认就是空数组 + 200。canonical 那边把 `page` 当无条件有效的参数抄进规范地址，没区分「真分页的三种列表」与「`page` 只是噪声的归档页」，也没把 `page=1` 归一到无参数地址。
+- **复现**：本地 `npm run seed:ci && npx wrangler dev`，`curl -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8787/?page=999'`。修复前 200 且页面是空态、canonical 是 `?page=999`；修复后 404，`/?page=1` 的 canonical 是 `/`，`/archive?page=9` 的 canonical 是 `/archive`，`/?page=2` 仍然保留 `?page=2`（18 篇、每页 10 → 真有第 2 页）。
+- **断言**：`scripts/check-live.mjs` 第 13 节 5 条 `[P-042]`（`?page=1` 归一、第 2 页保留页码、首页/栏目页越界 404、404 页里不许出现列表空态、归档页 page 不进 canonical）；离线一半在 `scripts/test-query-params.mjs` QP-06（`list.total > 0 && list.page > list.pages` 与 `notFoundPage` 必须在）与 QP-07（`paged` 只认 `/`、`/tag/`、`/cat/`，且 `pageNo > 1` 才写页码）。
+- **教训**：**分页有两种边界，一种在页面里，一种在 URL 里**。页面上的边界由链接保证（末页不渲染「下一页」），URL 的边界必须由服务端保证，因为参数是用户/爬虫直接拼出来的。凡「无效输入仍返回 200」的地方，都要问一句：这个 200 会不会被当成一张独立页面索引？同族：P-035（只夹下界）、P-039（有链接 ≠ 链接有效）。
+- **出处**：站务记录（本文件，2026-11-24）；`src/index.js` 的 `injectTheme`（越界 404）与 `fillSeo`（canonical 归一）；`scripts/check-live.mjs`、`scripts/test-query-params.mjs`
+
+## P-043 排期稿的 sitemap lastmod 早于 datePublished
+
+- **现象**：一篇文章 11 月写完、定在次年 1 月发。上线后 `sitemap.xml` 给它的 `<lastmod>` 是 11 月（最后一次编辑），页面结构化数据里的 `datePublished` 是 1 月。两个日期出自同一个 Worker、同一份数据，却互相矛盾：`lastmod` 比发布日还早。页面、RSS、收录全都正常，没有任何工具会为「时间信号自相矛盾」报警。
+- **根因**：`lastmod` 取的是 `updated_at`，而排期稿的 `updated_at` 停在写稿那一刻，`published_at` 才是它真正对外可见的时间。单篇和列表页聚合（栏目 / 标签 / 系列页的 `MAX(...)`）用的是同一处错口径 —— 一处写错，五处跟着错。
+- **复现**：本地把某篇改成 `published_at` 晚于 `updated_at`（模拟排期），`curl /sitemap.xml | grep 该 slug`。修复前 `<lastmod>` 是编辑日，修复后是发布日；`/p/<slug>` 的 `datePublished` 与它一致。
+- **断言**：`scripts/check-sitemap.mjs` `[P-043]`：抽 sitemap 里最新 3 篇文章页，逐篇比 `lastmod >= datePublished.slice(0,10)`，任何一篇倒挂即红；同时保留原有一条「没有未来日期的 lastmod」。
+- **教训**：**同一份数据派生出的两个字段，要么同源，要么有一条断言把它们钉在一起**。`lastmod` 与 `datePublished` 属于后者：它们没有代码上的依赖关系，只有语义约束，「发布即一次修改」这条语义必须显式落到 SQL 里（`MAX(published_at, updated_at)`），否则排期越多，倒挂越多。
+- **出处**：站务记录（本文件，2026-11-24）；`src/index.js` 的 `serveSitemap`；`scripts/check-sitemap.mjs`
+
+## P-044 500 页按观众分成两种，其中一种被告知了表名
+
+- **现象**：站点挂了的时候，浏览器（`Accept: text/html`）拿到的是自绘的 500 页「服务暂时不可用」，深色模式都有；而随手 `curl` 同一个地址，拿到的是 `{"ok":false,"error":"D1_ERROR: no such table: posts: SQLITE_ERROR"}`。同一份故障，两种观众：一种被保护，一种拿走了库结构、SQL 方言和出错位置。404 页也一样是自定义的 —— 所以「没有自定义错误页、会露出 Workers 默认页」这个判断本身是错的，漏的是最后那行兜底。
+- **根因**：内容协商只回答了一个问题（「这是不是浏览器」），没回答第二个（「这个错误该不该把细节说给调用方」）。API 分支要 `e.message` 是因为前端要显示「保存失败：xxx」，但这行兜底没有区分「`/api/` 的调用方」与「随手 curl 页面路径的人」，一律把 `e.message` 回出去了。
+- **复现**：本地临时在 `handleFetch` 里 `throw new Error('D1_ERROR: no such table: posts')`，然后 `curl` 两次：不带 `Accept` 拿到 500 + 异常原文；带 `Accept: text/html` 拿到 500 + 静态页。修好后前者是 `{"ok":false,"error":"服务器错误"}`，后者仍是那张静态页（实测：正文里 `D1_ERROR` 出现 0 次）。注入的那行验证完已删除。
+- **断言**：`scripts/test-route-boundaries.mjs` RB-07 两条：`serverErrorPage()` 里不许有 `${` 插值与 `e.message`；内层 catch 必须按 `here.startsWith('/api/')` 分流，非 API 回固定文案。另有一条实测口径记在这里：404 与 500 都是自定义页，别再把「没有错误页」写成待办。
+- **教训**：**错误信息也是响应体，要按观众分级**。「给调用方看」和「给调试用」是两拨人：堆栈进日志（observability 可查），API 回可执行的原因，给普通请求回一句通版话。反过来的错也常见 —— 为了「方便排查」把 `e.message` 回给所有人，等于把内部结构贴到门口。
+- **出处**：站务记录（本文件，2026-11-24）；`src/index.js` 的 `serverErrorPage()` 与 `handleFetch` 的 catch；`scripts/test-route-boundaries.mjs`
+
 ---
 
 ## 每篇长文末尾的「复现条件 + 断言代码」模板

@@ -47,7 +47,7 @@
     "vitals": "node scripts/perf-vitals.mjs",
     "vitals:mobile": "node scripts/perf-vitals.mjs https://exia.de5.net/ --mobile --runs=3",
     "cls": "node scripts/cls-dig.mjs",
-    "check:live": "node scripts/check-live.mjs && node scripts/check-numbers-live.mjs",
+    "check:live": "node scripts/check-live.mjs && node scripts/check-sitemap.mjs && node scripts/check-numbers-live.mjs",
     "verify:mermaid": "node scripts/verify-mermaid.mjs",
     "verify:editor": "node scripts/verify-editor.mjs",
     "backfill:html": "node scripts/backfill-html.mjs",

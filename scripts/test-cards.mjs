@@ -128,21 +128,50 @@ t('P-038', '预设图有分散度：id 1..N 命中 N 张不同图', () => {
 /* ---------- 2. 仓库里的图，尺寸必须是声明的那样 ----------
 
    逐文件断言，不做「目录空就跳过」：空目录才是最大的故障（分享图全裂），
-   跳过等于把最坏情况当通过。 */
+   跳过等于把最坏情况当通过。
+
+   判定抽成 sizeMatches 是为了能被自检 —— 一条只会返回 true 的尺寸断言，
+   和没有这条断言是同一件事，而它自己不会告诉你。 */
+function sizeMatches(buf, parse, want) {
+  const s = parse(buf);
+  return !!s && s.w === want.w && s.h === want.h;
+}
+
 function sweep(dir, ext, parse, want, id, label) {
   const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(ext)) : [];
   t(id, `${label}目录里至少有图（${files.length} 张）`, () => assert.ok(files.length > 0, '一张都没有'));
   for (const f of files) {
     t(id, `${label} ${f} 是 ${want.w}×${want.h}`, () => {
-      const s = parse(readFileSync(join(dir, f)));
+      const buf = readFileSync(join(dir, f)); // 不带 encoding：给了 utf8 就不是字节了
+      const s = parse(buf);
       assert.ok(s, '读不出尺寸（文件损坏或格式不对）');
       assert.deepEqual(s, want, `实际 ${s.w}×${s.h}`);
+      assert.equal(sizeMatches(buf, parse, want), true);
     });
   }
 }
 
 sweep(CARDS, '.png', pngSize, { w: 1200, h: 630 }, 'P-041', '标题卡');
 sweep(THUMBS, '.jpg', jpegSize, { w: 1200, h: 784 }, 'P-041', '预设图');
+
+/* 断言自己的自检：把一张真图改成 800×420、再喂一段乱码，判定必须为假。
+   如果哪天 sizeMatches 被改成「不抛错就算过」，这两条立刻红 ——
+   上一版脚本里 `if (size) check(...)` 就是这个形态，结果永远绿。 */
+t('P-041', '自检：尺寸判定对错图必须为假', () => {
+  const files = readdirSync(CARDS).filter((f) => f.endsWith('.png'));
+  assert.ok(files.length > 0, '没有可比对的真图');
+  const good = readFileSync(join(CARDS, files[0]));
+  const want = { w: 1200, h: 630 };
+  assert.equal(sizeMatches(good, pngSize, want), true, '真图被判成不合格');
+
+  const wrong = Buffer.from(good);
+  wrong.writeUInt32BE(800, 16);
+  wrong.writeUInt32BE(420, 20);
+  assert.equal(sizeMatches(wrong, pngSize, want), false, '800×420 被判成 1200×630');
+
+  assert.equal(sizeMatches(Buffer.from('这不是图片'), pngSize, want), false, '乱码被判成合格');
+  assert.equal(sizeMatches(Buffer.alloc(0), pngSize, want), false, '空 buffer 被判成合格');
+});
 
 /* ---------- 3. 元断言：防止「断言还在，测的东西没了」 ---------- */
 

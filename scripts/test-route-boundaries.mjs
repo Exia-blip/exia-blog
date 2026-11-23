@@ -188,6 +188,20 @@ const sqlHits = body
 check('RB-06', '分发器不含 SQL', sqlHits.length === 0,
   sqlHits.length ? `命中 ${sqlHits.length} 处：L${sqlHits.map((x) => x.line).join(',L')}` : '路由层只分发');
 
+/* ---------- RB-07 500 页与错误文本（[P-044]） ----------
+   实测过一整圈：404 与 500 都是自定义页，不是 Workers 的英文白屏。
+   真正的问题在最后一行兜底 —— 不带 Accept: text/html 的请求（curl、探针）
+   拿到的是 `{"error":"D1_ERROR: no such table: posts"}`，SQL 和表名一起送出去。
+   这条守两件事：500 页是静态字符串（不插值异常）；非 API 的 500 不回原文。 */
+const idxAll = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+const errPage = (idxAll.match(/export function serverErrorPage\([\s\S]*?\n\}/) || [])[0] || '';
+check('RB-07', '500 页是静态字符串，不插值异常',
+  !!errPage && !/\$\{/.test(errPage) && !/\be\.(message|stack)\b/.test(errPage),
+  errPage ? (/\$\{/.test(errPage) ? '500 页里出现动态插值' : '纯静态') : '没有 serverErrorPage');
+check('RB-07', '非 API 的 500 不回异常原文',
+  /here\.startsWith\('\/api\/'\)/.test(idxAll) && /error: '服务器错误'/.test(idxAll),
+  /here\.startsWith\('\/api\/'\)/.test(idxAll) ? '按路径分流' : '又变成一律回 e.message 了');
+
 /* ---------- 汇总 ---------- */
 console.log('');
 if (warnList.length) console.log(`${warn} 条警告（不失败）：\n  ${warnList.join('\n  ')}`);

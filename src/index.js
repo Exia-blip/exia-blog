@@ -1739,10 +1739,19 @@ function fillSeo(body, site, url) {
   const desc = metaDesc(cat ? cat.desc : isTag ? `${label} 标签下的全部文章` : '', site.desc || `${site.name} · 记录思考、代码与生活`);
   /* canonical 保留页码：第 2 页的规范地址是 /?page=2 而不是首页，
      否则搜索引擎把分页当首页的重复内容。其余 query（搜索词、utm、缓存穿透参数）
-     一律丢掉，只留纯页码 —— 否则每一份 ?cb= 都成一个新的规范地址。 */
+     一律丢掉，只留纯页码 —— 否则每一份 ?cb= 都成一个新的规范地址。
+
+     两个例外，都是「无效页码」：
+       · page=1 —— 内容与不带参数时逐字相同，留着就是同一页的两份地址；
+       · 归档页 —— 它一次列全部，page 根本不参与查询，?page=99 与 /archive
+         输出同一份内容，于是每个页码都是一张自指的重复页。
+     只让真分页的三种列表（首页 / 标签 / 栏目）在 page > 1 时保留页码。 */
   const canonicalUrl = url ? new URL(url.pathname, url.origin) : null;
-  if (canonicalUrl && /^\d+$/.test(url.searchParams.get('page') || '')) {
-    canonicalUrl.searchParams.set('page', url.searchParams.get('page'));
+  const paged = !!url && (url.pathname === '/' || url.pathname.startsWith('/tag/') || url.pathname.startsWith('/cat/'));
+  // 页码仍然只在这一处解析一次（QP-05）：用 pageParams 而不是自己 parseInt
+  const pageNo = url ? pageParams(url).page : 1;
+  if (canonicalUrl && paged && pageNo > 1) {
+    canonicalUrl.searchParams.set('page', String(pageNo));
   }
   const canonical = canonicalUrl ? canonicalUrl.toString() : '';
   const origin = url ? url.origin : '';
@@ -1883,6 +1892,15 @@ async function injectTheme(env, res, url) {
   body = renderHero(body, s, url.pathname);
 
   const { body: listed, list } = applyList(body, await listP);
+  /* 越界页码：D1 的 OFFSET 越过末尾只返回空数组，模板照样渲染成 200 的
+     「这个栏目下还没有文章」，而且 canonical 是自指的 —— 于是 /?page=2..999、
+     /tag/x?page=2..999 变成无限多个可索引的空页，每个都自称规范地址。
+     爬虫真的会顺着分页链一路收到这些页（P-042）。
+     总数 > 0 且页码超出末页时才 404；一篇都没有的站仍然给 200 的首页空态。
+     notFoundPage 不读 request，传 null 就够。 */
+  if (list && list.total > 0 && list.page > list.pages) {
+    return await notFoundPage(env, null, '这一页没有文章');
+  }
   body = renderCats(listed, counts, tags);
   body = renderListBars(body, counts, tags, url);
 
@@ -2273,12 +2291,19 @@ async function serveSitemap(env, request) {
   const publicOnly = `p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}`;
   // 列表页也要 lastmod：一个栏目页的内容变了，是因为它下面某篇文章变了，
   // 所以取组内 MAX(updated_at)。以前只有文章页带，列表页对爬虫等于"从不更新"。
-  const lastUpd = (a) => `MAX(COALESCE(p.updated_at, p.created_at))`;
+  // 排期稿有个例外：写完在 11 月、定在 1 月发，updated_at 早于 published_at，
+  // 直接取 updated_at 会给出「lastmod 早于 datePublished」的矛盾组合（P-043）。
+  /* 外层 MAX 是聚合（组内最大），内层 MAX 是标量（同一行的两列取大）。
+     写成 `MAX(a, b)` 会被 SQLite 当成标量函数，GROUP BY 时只返回组内任意一行
+     的值 —— 那是「看着有 lastmod、其实随机取一条」的静默错。 */
+  const stamp = (a) =>
+    `MAX(MAX(COALESCE(NULLIF(${a}.published_at, ''), '0'), COALESCE(${a}.updated_at, ${a}.created_at, '0')))`;
+  const lastUpd = (a = 'p') => stamp(a);
 
   const [{ results: posts }, { results: cats }, { results: tags }, { results: series }, { results: friendRow }] =
     await Promise.all([
       env.DB.prepare(
-        `SELECT p.slug, p.updated_at FROM posts p WHERE ${publicOnly}
+        `SELECT p.slug, p.updated_at, p.published_at FROM posts p WHERE ${publicOnly}
          ORDER BY COALESCE(NULLIF(p.published_at, ''), p.created_at) DESC LIMIT 1000`
       ).all(),
       env.DB.prepare(
@@ -2302,16 +2327,21 @@ async function serveSitemap(env, request) {
       env.DB.prepare(`SELECT MAX(COALESCE(created_at, '')) AS last FROM friends`).all(),
     ]);
 
+  /* 单篇的 lastmod 也取两者之大：排期稿发布就是一次内容变化，
+     拿「最后编辑」当 lastmod 会给出早于 datePublished 的日期，
+     搜索引擎会认为这个 lastmod 不可信，整套时间信号一起打折。 */
+  const lastOf = (p) => {
+    const a = String(p.updated_at || '');
+    const b = String(p.published_at || '');
+    return (a > b ? a : b).slice(0, 10);
+  };
   const urls = posts
-    .map(
-      (p) =>
-        `  <url><loc>${origin}/p/${encodeURIComponent(p.slug)}</loc><lastmod>${String(p.updated_at || '').slice(0, 10)}</lastmod></url>`
-    )
+    .map((p) => `  <url><loc>${origin}/p/${encodeURIComponent(p.slug)}</loc><lastmod>${lastOf(p)}</lastmod></url>`)
     .join('\n');
 
   const lm = (v) => (v ? `<lastmod>${String(v).slice(0, 10)}</lastmod>` : '');
   // 首页 / 归档 / 栏目总览都是"全站文章"的另一种切法，用同一份最大值
-  const siteLast = posts.reduce((m, p) => ((p.updated_at || '') > m ? p.updated_at : m), '');
+  const siteLast = posts.reduce((m, p) => (lastOf(p) > m ? lastOf(p) : m), '');
 
   // 栏目页只在真有文章时进 sitemap；空栏目页对爬虫是薄内容。
   // 多个原始栏目名可能归一成同一个 slug，所以取归一后的最大值，不是逐行取。
@@ -2816,7 +2846,12 @@ export default {
           },
         });
       }
-      return json({ ok: false, error: e.message }, 500);
+      /* 非 HTML 的页面请求（curl、监控探针、爬虫不带 Accept）拿到的仍是 JSON，
+         但不给原文：那是 SQL、表名、SQLite 的报错文案。API 保持原样 ——
+         前端要 message 才能把「保存失败：xxx」说清楚。 */
+      return here.startsWith('/api/')
+        ? json({ ok: false, error: e.message }, 500)
+        : json({ ok: false, error: '服务器错误' }, 500);
     }
   },
 

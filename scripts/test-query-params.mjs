@@ -84,5 +84,29 @@ t('QP-05 page 只许在 utils.js 解析一次（两处实现 = 修一处漏一�
   assert.deepEqual(offenders, [], `page 又被自己解析了，应改用 pageParams()：\n${offenders.join('\n')}`);
 });
 
+/* QP-06 / QP-07 是 [P-042] 的离线一半：线上由 check-live 打真地址，
+   这里守「那条规则还在代码里」。删掉分支、把 canonical 改回「照抄 page」，
+   都会在这里先红 —— 不用等部署。 */
+const idx = () => srcEntries(path.join(here, '..')).find((f) => f.rel === 'index.js').text;
+
+t('QP-06 越界页码落到 404，而不是 200 的空列表', () => {
+  const s = idx();
+  assert.match(s, /list\.total > 0 && list\.page > list\.pages/, '越界判定没了，页码会被当空列表现出去');
+  assert.match(s, /notFoundPage\(env, null, '这一页没有文章'\)/, '判定在，但没有真的返回 404');
+});
+
+t('QP-07 canonical 只给真分页的路径保留页码，且第 1 页不带参数', () => {
+  const s = idx();
+  const line = s.split('\n').find((l) => /const paged = /.test(l)) || '';
+  assert.match(line, /pathname === '\/'/, 'paged 判定没覆盖首页');
+  assert.match(line, /'\/tag\/'/, 'paged 判定没覆盖标签页');
+  assert.match(line, /'\/cat\/'/, 'paged 判定没覆盖栏目页');
+  assert.match(s, /if \(canonicalUrl && paged && pageNo > 1\)/, 'page>1 的条件被改掉，?page=1 又会有独立规范地址');
+  assert.ok(
+    !/searchParams\.set\('page', url\.searchParams\.get\('page'\)\)/.test(s),
+    'canonical 又开始照抄原始 page 参数（=?page=abc 会被当成页码）'
+  );
+});
+
 console.log(bad ? `\n${bad} 项失败` : '\n全部通过');
 process.exit(bad ? 1 : 0);

@@ -651,6 +651,38 @@ console.log(`\n${ORIGIN}\n`);
   console.log(`  ·    封面类型样本：标题卡 ${seenCard}，预设图 ${seenPreset}`);
 }
 
+/* ---------- 13. 分页边界与规范地址（P-042）
+
+   越界页码以前返回 200 的空列表，canonical 还自指 `?page=99` —— 于是
+   /?page=2..999、/cat/x?page=2..999 是无限多张可索引的空页，每张都自称规范地址。
+   爬虫顺着分页链就能一路收进去；工具不报警，页面看着也正常。
+
+   两条规则：页码超出末页 → 404；page=1 与归档页的 page 不进 canonical。
+   归档页的 page 本来就不参与查询，留着它只是给同一份内容多发几个地址。 */
+{
+  const canon = (html) => (html.match(/<link rel="canonical" href="([^"]+)"/) || [])[1] || '';
+
+  const p1 = await page('/?page=1');
+  ok('[P-042] 首页 ?page=1 归一到根路径', canon(p1.body) === `${ORIGIN}/`, canon(p1.body));
+
+  const p2 = await page('/?page=2');
+  ok(
+    '[P-042] 第 2 页保留页码（分页不能全塌回首页）',
+    p2.res.status === 200 && canon(p2.body) === `${ORIGIN}/?page=2`,
+    `HTTP ${p2.res.status} ${canon(p2.body)}`
+  );
+
+  const far = await page('/?page=999');
+  ok('[P-042] 首页越界页码 404（不是 200 空列表）', far.res.status === 404, `HTTP ${far.res.status}`);
+  ok('[P-042] 越界页不再是 200 的空列表', !/还没有文章|这个栏目下还没有文章/.test(far.body), '404 页里出现了列表空态');
+
+  const arch = await page('/archive?page=9');
+  ok('[P-042] 归档页的 page 不进 canonical', canon(arch.body) === `${ORIGIN}/archive`, canon(arch.body));
+
+  const cat = await page('/cat/log?page=999');
+  ok('[P-042] 栏目页越界页码 404', cat.res.status === 404, `HTTP ${cat.res.status}`);
+}
+
 /* 体检有几十条，失败夹在中间的 ok 里很容易漏读。末尾把失败项单独列一遍。 */
 if (failed.length) {
   console.log('\n失败项：');
