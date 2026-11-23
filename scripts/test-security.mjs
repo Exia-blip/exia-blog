@@ -152,4 +152,4 @@ for (const [name, fn] of cases) {  try {
     process.exitCode = 1;
   }
 }
-console.log(`\n${pass}/${cases.length} passed`);
+console.log(`\n[P-012] ${pass}/${cases.length} passed`);

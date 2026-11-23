@@ -3,12 +3,13 @@
 // 写 0 会让人以为真的没消耗，写编造值更糟。
 import assert from 'node:assert/strict';
 import { BUDGETS, requestLog, alertsOf, cacheStatusOf } from '../src/observe.js';
+import { report } from './pitfall-check.mjs';
 
 let pass = 0;
 const fails = [];
-const t = (name, fn) => {
-  try { fn(); pass++; console.log(`  ok   ${name}`); }
-  catch (e) { fails.push(name); console.log(`  FAIL ${name}: ${e.message}`); }
+const t = (name, fn, id = '') => {
+  try { fn(); pass++; report(id, name, true); }
+  catch (e) { fails.push(name); report(id, name, false, e.message); }
 };
 console.log('[结构化日志]');
 
@@ -34,7 +35,7 @@ t('不可得字段显式 null，不是 0', () => {
   const log = requestLog({ request: req(), response: res(), durationMs: 10 });
   assert.strictEqual(log.cpuMs, null);
   assert.strictEqual(log.subrequests, null);
-});
+}, 'P-005');
 
 t('缓存状态优先 cf-cache-status，其次自身标记，最后 -', () => {
   assert.equal(cacheStatusOf(new Headers({ 'cf-cache-status': 'HIT', 'x-edge-cache': 'MISS' })), 'HIT');

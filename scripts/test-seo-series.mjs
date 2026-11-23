@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { postLd } from '../src/seo.js';
+import { report } from './pitfall-check.mjs';
 
 const src = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
@@ -34,7 +35,7 @@ const withSeries = (over = {}) =>
   });
 
 const cases = [];
-const t = (name, fn) => cases.push([name, fn]);
+const t = (name, fn, id = '') => cases.push([name, fn, id]);
 
 t('系列文带 position，值就是 series_order', () => {
   const a = withSeries()['@graph'][0];
@@ -46,7 +47,7 @@ t('isPartOf 指向 /series/<名称>，不是文章自己', () => {
   assert.equal(a.isPartOf['@type'], 'CreativeWorkSeries');
   assert.equal(a.isPartOf.url, `${origin}/series/${encodeURIComponent('OAuth 授权流程拆解')}`);
   assert.notEqual(a.isPartOf.url, base.url);
-});
+}, 'P-006');
 
 t('系列名里的特殊字符被转义进 URL', () => {
   const a = withSeries({ series: 'A/B 系列' })['@graph'][0];
@@ -140,13 +141,13 @@ t('404 有 skip-link 且指向可用的 #main', () => {
 });
 
 let bad = 0;
-for (const [name, fn] of cases) {
+for (const [name, fn, id] of cases) {
   try {
     fn();
-    console.log('  ok  ' + name);
+    report(id, name, true);
   } catch (e) {
     bad++;
-    console.log('  FAIL  ' + name + ' — ' + e.message);
+    report(id, name, false, e.message);
   }
 }
 console.log(`\n${cases.length - bad}/${cases.length} 通过`);

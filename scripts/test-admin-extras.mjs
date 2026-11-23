@@ -104,4 +104,4 @@ assert.ok(cmSrc.includes('一并放行下面所有待审评论'), '后台未说�
 assert.ok(cmSrc.includes('window.confirm'), '关闭前没有二次确认');
 ok('关闭审核开关：放行 pending / 翻转限定 / 审计留痕 / 二次确认');
 
-console.log(`\nadmin extras: ${pass} passed`);
+console.log(`\n[P-011] admin extras: ${pass} passed`);

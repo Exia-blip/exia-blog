@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderBody } from '../public/md.js';
 import { probes } from './md-probes.mjs';
+import { report } from './pitfall-check.mjs';
 
 const SNAP = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'md-snapshots.json');
 const WRITE = process.argv.includes('--write');
@@ -53,10 +54,10 @@ function hasBareEventAttr(html) {
 
 let pass = 0;
 for (const [name, out] of Object.entries(actual)) {
-  assert.equal(out, expected[name], `${name}：渲染输出相对快照漂移`);
-  assert.ok(!hasBareEventAttr(out), `${name}：输出里出现真·事件属性`);
-  assert.ok(!/href="(?:javascript:|data:text\/html)/i.test(out), `${name}：输出里出现危险 href`);
-  assert.ok(!/<script\b/i.test(out), `${name}：输出里出现裸 <script>`);
+  assert.equal(out, expected[name], `[P-008] ${name}：渲染输出相对快照漂移`);
+  assert.ok(!hasBareEventAttr(out), `[P-008] ${name}：输出里出现真·事件属性`);
+  assert.ok(!/href="(?:javascript:|data:text\/html)/i.test(out), `[P-008] ${name}：输出里出现危险 href`);
+  assert.ok(!/<script\b/i.test(out), `[P-008] ${name}：输出里出现裸 <script>`);
   pass++;
 }
-console.log(`  ok  ${pass}/${probes.length} 条探针输出与快照一致，且通用安全不变量成立`);
+report('P-008', 'XSS 探针快照与安全不变量', pass === probes.length, `${pass}/${probes.length} 条一致`);

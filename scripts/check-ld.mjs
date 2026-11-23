@@ -88,7 +88,7 @@ for (const r of rows) console.log(pad(r.slug, 30), pad(r.ld, 12), pad(r.headline
 const bad = rows.filter(
   (r) => r.ld !== 'ok' || r.headline !== 'ok' || !String(r.partOf).startsWith('200') && r.partOf !== '站点级' || String(r.pos).includes('不一致') || r.pos === '不在系列页'
 );
-console.log(`\n${rows.length} 篇，坏 ${bad.length} 篇，耗时 ${Date.now() - t0}ms`);
+console.log(`\n[P-006] ${rows.length} 篇，坏 ${bad.length} 篇，耗时 ${Date.now() - t0}ms`);
 if (bad.length) {
   console.log('问题：', bad.map((b) => b.slug).join(', '));
   process.exitCode = 1;

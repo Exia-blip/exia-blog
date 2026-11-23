@@ -7,6 +7,7 @@
 // 用法：node scripts/check-css-baseline.mjs [base]
 import puppeteer from 'puppeteer-core';
 import { resolveChrome } from './chrome.mjs';
+import { report } from './pitfall-check.mjs';
 
 const base = (process.argv[2] || 'http://127.0.0.1:8799/').replace(/\/$/, '');
 const CHROME = resolveChrome();
@@ -18,8 +19,7 @@ const browser = await puppeteer.launch({
 
 let fail = 0;
 const check = (ok, msg) => {
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${msg}`);
-  if (!ok) fail++;
+  if (!report('P-016', msg, ok)) fail++;
 };
 
 for (const [label, url] of [

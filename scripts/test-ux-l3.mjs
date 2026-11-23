@@ -81,4 +81,4 @@ assert.ok(post.includes('lazyIframes(document)'), '文章页未接 iframe 懒加
 assert.match(clean, /BAD_(BLOCK|SELF)[^;\n]*iframe/, 'clean.js 必须继续剥 iframe');
 ok('iframe 懒加载兜底接线，SSR 保持零 iframe 输出');
 
-console.log(`\nux L3: ${pass} passed`);
+console.log(`\n[P-013] ux L3: ${pass} passed`);

@@ -14,6 +14,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseSchema, mergeSchema, splitStatements, stripComments } from './sql-schema.mjs';
+import { report } from './pitfall-check.mjs';
 
 const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const MIG_DIR = join(ROOT, 'migrations');
@@ -21,14 +22,14 @@ const SRC_DIR = join(ROOT, 'src');
 
 let pass = 0;
 const fails = [];
-const t = (name, fn) => {
+const t = (name, fn, id = '') => {
   try {
     fn();
     pass++;
-    console.log(`  ok   ${name}`);
+    report(id, name, true);
   } catch (e) {
     fails.push(name);
-    console.log(`  FAIL ${name} — ${e.message}`);
+    report(id, name, false, e.message);
   }
 };
 const assert = {
@@ -100,7 +101,7 @@ t('schema.sql 每张表的列与 migrations 一致', () => {
     assert.ok(got, `schema.sql 没有表 ${tb}`);
     assert.deepEqual([...got].sort(), [...cols].sort(), `表 ${tb} 列不一致`);
   }
-});
+}, 'P-007');
 
 t('schema.sql 的索引与 migrations 一致', () => {
   assert.deepEqual(

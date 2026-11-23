@@ -33,5 +33,5 @@ t('正常图片 key 不受影响', () => {
   }
 });
 
-console.log(`\n${pass} passed, ${fails.length} failed  （image key gate）`);
+console.log(`\n[P-014] ${pass} passed, ${fails.length} failed  （image key gate）`);
 if (fails.length) process.exit(1);

@@ -168,7 +168,7 @@ t('参与 SRI 的文件都是 LF 行尾（与仓库索引一致）', () => {
   assert.deepEqual(offenders, [], `CRLF：${offenders.join('、')}`);
 });
 
-console.log(`\nPASS  ${pass} passed, ${fails.length} failed  （SRI / immutable）`);
+console.log(`\n[P-009] PASS  ${pass} passed, ${fails.length} failed  （SRI / immutable）`);
 if (fails.length) {
   console.log(fails.map((f) => '   · ' + f).join('\n'));
   process.exit(1);

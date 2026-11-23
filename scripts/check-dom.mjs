@@ -7,6 +7,7 @@
 // 哪天又改成客户端填充，这一行会红。
 // 第 6 条对应「省掉的全是等待」：canonical/alternate 这类不发起请求的 link 不算外链。
 import { readFile } from 'node:fs/promises';
+import { report } from './pitfall-check.mjs';
 
 const TARGET = process.argv[2] ?? process.env.BASE ?? 'http://127.0.0.1:8787';
 let html;
@@ -31,33 +32,32 @@ try {
 }
 
 let bad = 0;
-const check = (name, cond, detail = '') => {
-  if (!cond) bad++;
-  console.log(`${cond ? 'pass' : 'FAIL'}  ${name.padEnd(26)} ${detail}`);
+const check = (id, name, cond, detail = '') => {
+  if (!report(id, name, cond, detail)) bad++;
 };
 
 // 1) 基线没塌：唯一 h1
 const h1 = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
-check('首页存在唯一 h1', !!h1 && !html.slice(html.indexOf('</h1>') + 5).includes('<h1'),
+check('', '首页存在唯一 h1', !!h1 && !html.slice(html.indexOf('</h1>') + 5).includes('<h1'),
   h1 ? `内容「${h1[1].replace(/<[^>]+>/g, '').trim().slice(0, 12)}」` : '未找到');
 
 // 2) 视口与缩放未被锁死（CLS 与移动端的前提）
-check('viewport 允许缩放', !/user-scalable\s*=\s*no|maximum-scale\s*=\s*1(\.0)?\b/i.test(html));
+check('', 'viewport 允许缩放', !/user-scalable\s*=\s*no|maximum-scale\s*=\s*1(\.0)?\b/i.test(html));
 
 // 3) 图片宽高齐全 —— CLS 归零的硬约束
 const imgs = [...html.matchAll(/<img\b[^>]*>/gi)].map((m) => m[0]);
 const noDim = imgs.filter((t) => !/\bwidth\s*=/.test(t) || !/\bheight\s*=/.test(t));
-check('图片均含 width/height', noDim.length === 0, `共 ${imgs.length} 张，缺尺寸 ${noDim.length} 张`);
+check('P-002', '图片均含 width/height', noDim.length === 0, `共 ${imgs.length} 张，缺尺寸 ${noDim.length} 张`);
 
 // 4) 首屏不出现异步占位：等 JS 填内容的空位会把 CLS 推回去
 const placeholders = [...html.matchAll(/<(nav|div|section)\b[^>]* class="[^"]*(?:skeleton|placeholder|loading|js-fill)[^"]*" /gi)];
-check('无首屏异步占位', placeholders.length === 0, `命中 ${placeholders.length} 处`);
+check('P-003', '无首屏异步占位', placeholders.length === 0, `命中 ${placeholders.length} 处`);
 
 // 5) 关键语义锚点
-check('跳到正文链接', /<a\b[^>]+#(main|content)[^>]*>/i.test(html) || /跳到正文/.test(html));
-check('搜索框有 aria-label', /<input\b[^>]*aria-label=/i.test(html) || /<input\b[^>]*id="search" /i.test(html));
-check('分页有 nav 语义', /<nav\b[^>]*aria-label=["'][^"']*分页/i.test(html) || /aria-label=["'][^"']*分页/.test(html));
-check('当前页有 aria-current', /aria-current=["']page/i.test(html));
+check('', '跳到正文链接', /<a\b[^>]+#(main|content)[^>]*>/i.test(html) || /跳到正文/.test(html));
+check('', '搜索框有 aria-label', /<input\b[^>]*aria-label=/i.test(html) || /<input\b[^>]*id="search" /i.test(html));
+check('', '分页有 nav 语义', /<nav\b[^>]*aria-label=["'][^"']*分页/i.test(html) || /aria-label=["'][^"']*分页/.test(html));
+check('', '当前页有 aria-current', /aria-current=["']page/i.test(html));
 
 // 6) 首屏不引入外部阻塞请求。
 //    只算真正会发起 GET 的 link/script；canonical / alternate / prev / next / amphtml
@@ -66,7 +66,7 @@ const ext = [
   ...[...html.matchAll(/<link\b[^>]*\brel=["'][^"']*(?:stylesheet|preload|modulepreload|icon|manifest)[^"']*["'][^>]*\bhref=["']https?:\/\/([^"']+)/gi)].map((m) => m[1]),
   ...[...html.matchAll(/<script\b[^>]*\bsrc=["']https?:\/\/([^"']+)/gi)].map((m) => m[1]),
 ];
-check('无外部阻塞资源', ext.length === 0, ext.length ? ext.slice(0, 3).join(', ') : '全站自托管');
+check('P-017', '无外部阻塞资源', ext.length === 0, ext.length ? ext.slice(0, 3).join(', ') : '全站自托管');
 
 console.log(bad ? `\n✗ ${bad} 项 DOM 断言失败` : '\n✓ DOM 断言全部通过');
 process.exit(bad ? 1 : 0);

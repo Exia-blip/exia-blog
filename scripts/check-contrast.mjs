@@ -134,7 +134,7 @@ export function checkContrast({ dirs = ['public', 'public/theme'], verbose = fal
     if (bad.length) { fail++; log(`  FAIL ${name.padEnd(22)} ${bad.join('  ')}`); }
     else { pass++; if (!verbose) log(`  ok   ${name}`); }
   }
-  log(`\n${pass} 组通过 / ${fail} 组踩线`);
+  log(`\n[P-015] ${pass} 组通过 / ${fail} 组踩线`);
   log(fail ? '✗ 对比度不达标' : '✓ 对比度全部达标');
   return { pass, fail, total: combos.length };
 }

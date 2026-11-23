@@ -12,6 +12,7 @@
 // 用法：node scripts/check-toc-sticky.mjs [url]
 import puppeteer from 'puppeteer-core';
 import { resolveChrome } from './chrome.mjs';
+import { report } from './pitfall-check.mjs';
 
 const url = process.argv[2] || 'http://127.0.0.1:8788/p/ci-fixture';
 const browser = await puppeteer.launch({
@@ -57,20 +58,20 @@ const measure = () =>
   });
 
 let bad = 0;
-const check = (name, cond, extra = '') => {
-  if (!cond) bad++;
-  console.log(`  ${cond ? 'ok  ' : 'FAIL'} ${name}${extra ? '  ' + extra : ''}`);
+const check = (id, name, cond, extra = '') => {
+  if (!report(id, name, cond, extra)) bad++;
 };
 
 const before = await measure();
-check('侧栏目录 position 是 sticky', before.pos === 'sticky', before.pos);
+check('P-001', '侧栏目录 position 是 sticky', before.pos === 'sticky', before.pos);
 /* sticky 要生效，父容器必须比视口高出一截 —— 这正是 align-items:start 破坏的地方 */
 check(
+  'P-001',
   '目录父容器高过视口（有滚动余量）',
   before.tocH > before.vh * 1.2,
   `tocH=${before.tocH} vh=${before.vh}`
 );
-check('文章容器不是 align-items:start', before.align !== 'start', before.align);
+check('P-001', '文章容器不是 align-items:start', before.align !== 'start', before.align);
 
 /* 先滚一小段让 sticky 真正吸住，再取基准。
    页面在 scrollY=0 时目录还没贴到 top:86（它跟着文档流在 100 的位置），
@@ -78,7 +79,7 @@ check('文章容器不是 align-items:start', before.align !== 'start', before.a
 await page.evaluate(() => window.scrollTo(0, 500));
 await new Promise((r) => setTimeout(r, 450));
 const base = await measure();
-check('吸顶位置等于 CSS 的 top', Math.abs(base.innerTop - base.top) <= 2, `top=${base.innerTop} 期望=${base.top}`);
+check('P-001', '吸顶位置等于 CSS 的 top', Math.abs(base.innerTop - base.top) <= 2, `top=${base.innerTop} 期望=${base.top}`);
 
 await page.evaluate(() => window.scrollTo(0, 1700));
 await new Promise((r) => setTimeout(r, 450));
@@ -86,13 +87,13 @@ const after = await measure();
 
 const drift = Math.abs(after.innerTop - base.innerTop);
 /* 能滚的前提下，再滚 1200 后目录顶边应该几乎没动；跟走的话 drift 会接近 1200 */
-check('再滚 1200px 目录仍在原位', drift <= 5, `drift=${drift}px top=${after.innerTop}`);
+check('P-001', '再滚 1200px 目录仍在原位', drift <= 5, `drift=${drift}px top=${after.innerTop}`);
 
 /* 再往下滚一屏，确认不是「刚好这一屏对」，而是持续吸住 */
 await page.evaluate(() => window.scrollTo(0, 2900));
 await new Promise((r) => setTimeout(r, 450));
 const far = await measure();
-check('再滚 1200px 仍然吸住', Math.abs(far.innerTop - base.top) <= 2, `top=${far.innerTop}`);
+check('P-001', '再滚 1200px 仍然吸住', Math.abs(far.innerTop - base.top) <= 2, `top=${far.innerTop}`);
 
 console.log(`${bad ? 'FAIL' : 'PASS'}  目录吸顶 ${bad ? bad + ' 条失败' : '全部通过'}`);
 await browser.close();

@@ -34,6 +34,9 @@ jobs:
       - name: CSS 体积预算（绝对值 + 基线不许涨超 10%）
         run: npm run check:size
 
+      - name: PITFALLS 双向对账（脚本编号 ↔ 文档条目 ↔ 五字段）
+        run: npm run check:pitfalls
+
       - name: 单元测试
         run: npm test
 

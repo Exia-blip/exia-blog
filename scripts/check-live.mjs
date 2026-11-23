@@ -508,5 +508,5 @@ if (failed.length) {
   console.log('\n失败项：');
   for (const name of failed) console.log(`  - ${name}`);
 }
-console.log(`\n${fail ? 'FAIL' : 'PASS'}  ${pass} 通过，${fail} 失败\n`);
+console.log(`\n[P-010] ${fail ? 'FAIL' : 'PASS'}  ${pass} 通过，${fail} 失败\n`);
 process.exit(fail ? 1 : 0);
