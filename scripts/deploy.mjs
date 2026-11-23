@@ -56,5 +56,13 @@ try {
   execSync('npm run check:live', { stdio: 'inherit', shell: true });
 } catch {
   console.log('\n[deploy] ⚠️ 线上体检失败。代码已部署，请查看上面的失败项决定是否需要修复重发。');
+  /* 部署刚完成时边缘还留着上一版的副本（HTML 是 s-maxage=300）：
+     GET 撞上旧副本 → 拿到旧 body 的 ETag；HEAD 落到新代码 → 拿到新 ETag。
+     于是「HEAD 与 GET 的 ETag 一致」「带 If-None-Match 回 304」「304 没有 body」
+     「304 不带新 nonce 的 CSP」必然成组假红 —— v1.2.4 实测过一次，5 分钟后
+     重跑全绿，代码一行没错。这组红不要当回归修，等缓存过期复跑即可。 */
+  console.log('[deploy] 若失败项只有 ETag / 304 这一组（HEAD 与 GET 的 ETag 一致、带 If-None-Match 回 304、');
+  console.log('[deploy] 304 没有 body、304 不带新 nonce 的 CSP），那是部署后 s-maxage=300 的缓存窗口：');
+  console.log('[deploy] 等 5 分钟重跑 npm run check:live 即可，不必重发。');
   process.exit(1);
 }
