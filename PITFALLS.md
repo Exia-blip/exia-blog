@@ -163,6 +163,9 @@
 - **根因**：断言只比对「输出等于昨天的输出」，快照本身由被测代码生成——函数坏了，快照跟着坏，两边一起错就永远看不出来。
 - **复现**：`node scripts/test-md-guard.mjs`，它自己就是复现：复制 `md.js` 做单点变异再跑同一批探针。
 - **断言**：原版 0 违反；`esc` 失效至少红 5 条（实测 7）；`safeUrl` 白名单失效至少红 3 条（实测 3）；`s = esc(s);` 必须早于 `IMG_RE` / `LINK_RE` 替换——这一条是全文唯一的顺序断言。
+- **第二例（2026-11-23，同一天）**：`test-headers.mjs` 的 `t()` 写成同步函数，而 `[P-028]` 那六条用例是 `async`——`await harden(...)` 抛的错变成 rejected promise，同步 `try/catch` 抓不到。于是那六条**永远是绿的**，包括它们该红的时候。靠四处注入才发现：注入 1/2/4 全部 0 FAIL，只有第 3 条（同步用例）红了。修法是把 `t()` 改成 `async` 并在调用处 `await`，改完四处注入全部变红。
+  **这一例比第一例更值得记**：第一例是「快照跟着被测代码一起坏」，人还能通过读代码起疑；这一例是**断言本身在语法层面就失效了**，读代码看不出问题，dump 出来的输出全是 ok。唯一的发现途径就是注入——而这正是本条标题的意思。
+
 - **出处**：站务记录（本文件，2026-11-23）
 
 ## P-020 CSP 与 Turnstile 脱钩
@@ -231,6 +234,23 @@
 - **复现**：在 `src/index.js` 再写一处 `access-control-allow-origin`，`test-headers.mjs` 立刻红（条数必须恰好 1，且那处必须在 manifest 附近）。
 - **断言**：`test-headers.mjs` 的 `[P-027]`：源码里 ACAO 出现次数必须等于 1；全文不许出现 `allow-credentials`；唯一那处前后 400 字符内必须有 `manifest`。
 - **出处**：站务记录（本文件，2026-11-23）
+
+## P-028 nonce 与共享缓存并存，靠的是「可缓存页面零反射面」
+
+- **现象**：首页与文章页 `s-maxage=300`、404 页 `s-maxage=60`，而它们都带 nonce。也就是说同一个 nonce 在窗口期内被所有访客共用。按「nonce 过的 HTML 绝不能进共享缓存」这条通行规则，本站是**违反**的。
+- **根因**：这是有意识的取舍。全站 `no-store` 会让首屏回到每次回源，而本站的立身之本之一就是「首屏不回源」。既然要缓存，nonce 就必然被共享。
+- **真正的安全性来自另一条**：**可缓存页面零反射面**。凡是回显用户输入的地方必须 `no-store` —— 搜索词与分页走 `harden()` 的 `search` 分支、后台走 `isAdminPath` 分支，都是双层（`cache-control` + `cdn-cache-control`）。当路径参数也参与回显时（`/tag/` `/p/` `/cat/`），线上实测是不存在的标签返回 404 且**不回显注入串**：`/tag/%3Cscript%3Ealert(1)%3C%2Fscript%3E` 的响应体里没有 `alert(1)`。
+- **复现**：把 `harden()` 里 `else if (search)` 分支的两行 `no-store` 换回 `s-maxage=300` → `[P-028]` 第一条红；把 `applyNonce(...)` 的第二个参数换成 `makeNonce()`（另一个随机值）→ 第二条红，这正是「头里 `'nonce-A'`、HTML 里 `nonce="B"`」的典型错法，会导致页面所有脚本被 CSP 挡掉且只在浏览器控制台报错。
+- **断言**：`npm test` → `test-headers.mjs` 的 `[P-028]` 六条：带 query（`?q=` `?page=` `?utm_source=` 三种）必须双层 `no-store`；后台 `/admin` `/editor` 必须 `private, no-store` + `cdn-cache-control`；CSP 里的 nonce 与 HTML 里每个 `nonce=` 属性逐字节相同且至少一个；nonce 是 32 位 hex 且两次响应不同；`cacheable` 源码里必须还有 `!url.search`；**可缓存的 HTML 仍然带 nonce**（反方向守，改动需同步本条与文章措辞）。
+- **出处**：站务记录（本文件，2026-11-23）；`content/48-*.md`
+
+## P-029 异步用例配同步 catch，断言永远绿
+
+- **现象**：`test-headers.mjs` 的六条 `[P-028]` 用例全部 `async`（要 `await harden()`），而注册它们的 `t(name, fn)` 是同步函数：`try { fn(); } catch {}`。`fn()` 返回一个 rejected promise，异常根本进不了 `catch`。**六条断言从未真正执行过判断**，输出全是 `ok`。
+- **根因**：`try/catch` 只捕同步异常。写成 `await fn()` 才有意义，`t` 也必须是 `async`，调用处必须 `await t(...)`。
+- **复现**：四处注入 —— ①搜索页换回 `s-maxage=300`、②`applyNonce` 传另一个 nonce、④后台去掉 `private`，**全部 0 FAIL**（绿）；只有 ③（同步用例，删 `!url.search`）红了。修 `t()` 之后同样四处注入全部变红。
+- **断言**：`test-headers.mjs` 的 `[P-029]` 读自身源码，要求 `t()` 是 `async` 且 `await t(...)` 出现 ≥ 20 次。把 `t` 改回同步后，脚本**直接崩**（未处理的 promise rejection 在 Node 15+ 是抛错退出），而不是变成静默绿——这仍然比一条红字更明显，但要清楚它守的是「不要退回旧写法」，守不住「新写的用例忘了 await」。后者仍然只能靠注入：**新写一条断言，先把它该抓的东西改坏一次，看着它红，再改回来**。
+- **出处**：站务记录（本文件，2026-11-23）；同族见 P-019
 
 ---
 
