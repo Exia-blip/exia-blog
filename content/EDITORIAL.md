@@ -132,6 +132,23 @@
 
 **材料口径**：材料称「本站没有 JWT / 没有权限表 / CSP 两边都没强调」，三条均与代码不符，正文已逐条用代码与线上头反证。Rin 侧细节（`setup.ts`、`permission` 0/1、`.env.example` 明文）未独立复核，按材料引用。
 
+**同日第二轮（按收益/成本清单对账后追加）**：
+
+1. `src/api.js` 新增 `readonlyMode()` + 入口前置 503（写方法挡、读放行、判定早于鉴权）。
+   `scripts/test-readonly.mjs` RO-01~06，已进 `npm test`，输出 `[P-018]`。
+2. `scripts/test-md-guard.mjs`：把 `md.js` 复制出来做单点变异（`esc` 换恒等 → 红 7 条；
+   `safeUrl` 拆白名单 → 红 3 条），外加 `s = esc(s);` 早于 `IMG_RE`/`LINK_RE` 的位置断言
+   （删掉该行 → 对照组红 6 条）。输出 `[P-019]`，已进 `npm test`。
+3. `test-security.mjs` 补 `[P-020]`：Turnstile 开启时 `script-src`/`connect-src`/`frame-src`
+   三处必须放行、关闭时零放行、`script-src` 不许 `unsafe-*`（`style-src` 内联是已知债务，单独断言）。
+4. `PITFALLS.md` 新增 P-018/P-019/P-020（**P-009/P-010 已被 CRLF/SRI 与 103 preload 占用**，
+   清单里要求的那两个编号只能顺延）。对账 20 条全绿。
+5. `DEPLOY.md` 新增「应急只读开关（READONLY_MODE）」一节。
+
+**清单里按取舍不做的三条**：蜜罐改 200 假成功（与 11 号文立场冲突）；去掉
+`style-src 'unsafe-inline'`（Markdown `style` 属性依赖，`clean.js` 已用白名单收窄到 `text-align`）；
+`Content-Type` 校验（客户端 fetch 未必设该头，要先统一全部调用方）。
+
 **待办（本篇识别、未修）**：普通用户（任何 GitHub 账号登录即成）可无限制调 `/upload` 写 R2、调 `/posts/:id/summary` 烧 AI。修之前先定「普通用户该不该有上传权」——该收权限，不是加计数。
 
 ### 收尾两篇（已写完入库，12-19 / 12-21）

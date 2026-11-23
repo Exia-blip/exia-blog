@@ -48,6 +48,23 @@ npm run ttfb               # TTFB 分缓存态 P50/P95（HIT/MISS/DYNAMIC）
   - 缓存规则 → `CF-Cache-Status` / `Cache-Control`
   - Early Hints → CDP 抓 `Network.responseReceivedEarlyHints`（缓存命中时不发 103，用 `?cb=` 绕）
 
+## 应急只读开关（READONLY_MODE）
+
+出事时先把写接口关掉，比翻代码快，也比后台开关可靠（后台开关本身要写库）。
+
+```bash
+# 开：所有 /api/* 的写方法立即 503，静态页与文章照常读
+npx wrangler secret put READONLY_MODE      # 输入 1
+# 关：删掉这个变量（不是设成 0，删干净更省心）
+npx wrangler secret delete READONLY_MODE
+```
+
+- 只挡 `POST/PUT/PATCH/DELETE`；`GET/HEAD/OPTIONS` 放行，所以站点看起来还是活的。
+- 响应带 `retry-after: 600` 与 `cache-control: no-store`，不会被边缘缓存住。
+- 判定在鉴权之前，降级时连 `users` 那次查询都省掉。
+- 取值 `1 / true / on / yes` 都认（大小写与前后空格无关）；写错值等于没开，别指望它提醒你。
+- 断言：`node scripts/test-readonly.mjs`（RO-01~06，已进 `npm test`）。
+
 ## 运维兜底
 - **D1 备份**：`node node_modules/wrangler/bin/wrangler.js d1 export blog-db --remote --output backups/d1-$(date +%Y%m%d).sql --skip-confirmation`
   （`backups/*.sql` 已 gitignore，含全文不进仓库）
