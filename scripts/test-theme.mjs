@@ -76,6 +76,15 @@ t('长表 sticky 表头有纵向滚动容器，打印时回退', () => {
   assert.match(cssText, /nth-child\(even\)\s+td/);
 });
 
+t('强调色只落在当前项与交互态，静态标签保持中性', () => {
+  const nav = cssText.match(/^nav\.top \.active[^}]*\}/m);
+  assert.ok(nav, '找不到导航当前项规则');
+  assert.match(nav[0], /color:\s*var\(--accent\)/, '当前导航项没吃强调色');
+  // 另外两处是刻意留给强调色的：标签 hover、目录高亮条
+  assert.match(cssText, /\.tag:hover\s*\{[^}]*var\(--accent\)/);
+  assert.match(cssText, /\.post-toc a\.on\s*\{[^}]*var\(--accent\)/);
+});
+
 let pass = 0;
 for (const [name, fn] of cases) {
   try {

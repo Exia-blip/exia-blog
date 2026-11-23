@@ -188,7 +188,7 @@ nav.top a, nav.top button, nav.top .active {
   cursor: pointer;
 }
 nav.top a:hover, nav.top button:hover { color: var(--fg); background: var(--bg-soft); }
-nav.top .active, nav.top [aria-current="page"] { color: var(--fg); background: var(--bg-soft); }
+nav.top .active, nav.top [aria-current="page"] { color: var(--accent); background: var(--bg-soft); }
 
 /* 窄屏汉堡：桌面不出现，640 以下顶掉整条导航（见文件末尾的移动端规则） */
 .nav-toggle {
