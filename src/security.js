@@ -94,7 +94,10 @@ function csp(n, { turnstile = false, analytics = null } = {}) {
     "media-src 'self' https:",
     `frame-src 'self' https://www.youtube.com https://player.bilibili.com${ts}`,
     "object-src 'none'",
-    "base-uri 'self'",
+    /* 'none' 而不是 'self'：全站没有任何 <base> 标签（源码与 47 篇文章都不含），
+       base 的合法用途为零，剩下的只有「被注入一个 <base href> 改掉所有相对链接」。
+       CSP 是最后一道，就该按「前面全失守」写 —— 收紧到 none 零成本。 */
+    "base-uri 'none'",
     "form-action 'self'",
     // 本站没有任何需要被嵌 iframe 的场景，直接禁止被嵌；与 X-Frame-Options: DENY 保持同一语义
     "frame-ancestors 'none'",
