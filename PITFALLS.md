@@ -584,9 +584,9 @@
 - **根因**：CSS 选择器打不中元素**没有任何反馈** —— 不报错、不告警、HTTP 200、页面也照样打开，只是那一段样式没生效。所以「按一类博客的常见命名写主题」可以连续失败三次而不自知。这与 P-056（5.6 KB 里六成规则打不中）同源，但那条讲单个文件，这条讲**同一类错误能被反复提出**。
 - **复现**：`node --input-type=module -e "import('./public/md.js').then(m=>console.log(m.renderMarkdown('\`\`\`js\nconst a=1;\n\`\`\`')))"` —— 一次渲染就能看到真实标签：`<div class="code-wrap" data-lang data-lines><div class="code-head"><span class="code-lang">js</span><button class="copy-btn" data-copy>复制</button></div><pre class="code-block"><code class="language-js"><span class="tok-k">const</span>…`。摘要则是 `<aside class="post-lead"><span class="lead-tag">AI 摘要</span><p>…`（`index.js:1182`），不是 `.ai-summary`。
 - **修法**：`THEME-CONTRACT.md` 新增第四节「结构层 DOM 事实」，把 8 类元素的真实结构、被猜成过的名字、以及两条硬结论写在表里（容器是 `.code-wrap`；友链三态圆点**不存在**）。写在文档里而不是只在对话里，是因为下次来的是另一份材料，它不会读对话记录。
-- **断言**：`[TC-35]` 把文档与产出源钉在一起 —— 表格里列的 6 个容器，必须在其产出源（`md.js` / `index.js` / `style.css`）里真的出现，**且**必须出现在文档里。双向都验过：`md.js` 的 `code-wrap` 全改成 `codewrap` → 红「文档有 / md.js 缺」；文档里 `post-lead` 改成 `postlead` → 红「文档缺 / index.js 有」。
-- **边界**：TC-35 只守文档点名的 6 个容器，不守全站 class。它防的是「改了渲染器忘记改文档」，防不住「主题作者又猜了一个新名字」—— 后者只能靠第四节那张表被人读到。
-- **出处**：`THEME-CONTRACT.md` 第四节；`scripts/test-theme-contract.mjs` TC-35；`public/md.js:396-400`；`src/index.js:1182`；站务记录 2026-11-24
+- **断言**：`[TC-35]` **真渲染一次**（`renderMarkdown('```js…```')`）验产物，不 grep 模板字符串 —— grep 漏得掉「事后包装」和变量拼接。四个结构事实：以 `.code-wrap` 开头、`<pre class="code-block">`、`<code class="language-js">`、`<span class="tok-*">`；`.post-lead` 由 `index.js` 的 SSR 模板产出，单独查。`[TC-36]` 验反面：产物里不许出现 `class="token"`，**且必须有 `tok-*` 作正面锚点** —— 否则「没有 token」对「代码块根本没高亮」同样成立（P-059 那条教训的同一个形态）。注入验证：`tok-*` 全改 `token x` → TC-35 报「语法钩子是 .tok-*」、TC-36 报「出现 class="token"」；`pre` 去掉 `code-block` → TC-35 报「`<pre>` 自己带 .code-block」。**否定断言不能和正向断言写在一个 `t()` 里** —— 正向那条先抛，否定永远走不到，等于验了但验不到。
+- **边界**：TC-35 / TC-36 守的是 SSR 产物。客户端若在 `app.js` 里再包一层，断言看不到 —— 但代码块工具栏（`.code-head` / 复制按钮 / 行号）本来就是 `md.js` 产出的，客户端只接管事件。另：材料建议的 `data-ai-summary` 属性契约没采纳 —— 摘要已有 `.post-lead` + `.lead-tag`（`post.summary_src === 'ai'` 已区分来源），加属性要改 Worker，破坏「加主题只动两处」；且它说「属性选择器优先级低于 class」是错的，两者都是 (0,1,0)，同优先级、只看出现顺序。
+- **出处**：`THEME-CONTRACT.md` 第四节；`scripts/test-theme-contract.mjs` TC-35 / TC-36；`public/md.js:386-402`（`renderMarkdown` 里的围栏替换，函数名不叫 `fence`）；`src/index.js:1182`；站务记录 2026-11-24
 
 ---
 

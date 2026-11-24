@@ -143,7 +143,8 @@ public/theme/<id>.css     只覆盖变量；edge 另有 4 条部件覆盖
 - **友链三态圆点 `dot-ok` / `dot-warn` / `dot-err` 不存在**。材料里「三态正好用辅色」建立在一个
   没有的元素上 —— 现在友链状态只存在于 `http_status` / `latency_ms` 两个字段，页面上没有圆点。
 
-这张表由 [TC-35] 守着：文档里写到的容器名，必须在产出它的源文件里真的出现。
+这张表由 [TC-35] 与 [TC-36] 守着：`renderMarkdown` 真渲染一次，验产物里的容器与语法钩子；
+文档里写到的容器名也必须在表里被点名。grep 模板字符串是不够的 —— 变量拼接与「事后包装」都漏得掉。
 
 ---
 
@@ -200,6 +201,12 @@ npm run build:sri
 | `edge` 的 `--on-brand` 改成 `#ffffff`（白字搁橙底） | TC-22（报 2.58:1） |
 | `THEME_IDS` 改回字面量数组 | TC-07 / TC-23 |
 | `deriveThemeIds` 不扫文件 | TC-07 |
+| `md.js` 的 `tok-*` 全改 `token x`（Prism 写法） | TC-35（报「语法钩子是 .tok-*」）+ TC-36（报「出现 class=“token”」） |
+| `md.js` 的 `<pre class="code-block">` 去掉 class | TC-35（报「`<pre>` 自己带 .code-block」） |
+| `md.js` 的 `code-wrap` 全改 `codewrap` | TC-35（报「外层是 .code-wrap」） |
+| `srgbToLinear` 阈值 0.03928 → 0.5 | TC-32（报 `#e6edf3 实算 16.15 ≠ 官方 16.02`） |
+| `definedVars` 字符类去掉 `_` | TC-34（报「一个都没解析出来」） |
+| 主表 `style.css` 加 `var(--_cd-bg)` | TC-24（报「内部 token 泄漏到结构层」） |
 
 TC-27 第一版写的是 `block.includes('--muted:')`，注入 `--xx-muted:` 时**没红** ——
 子串匹配被前缀骗过了。改成带边界的正则才抓住。这是这批唯一一个假阴性。

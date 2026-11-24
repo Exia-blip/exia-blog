@@ -22,6 +22,9 @@ import { THEME_IDS } from '../src/settings.js';
 import { ASSET_HASH, THEME_BG } from '../src/assets.gen.js';
 import { CONTRACT_CORE, CONTRACT_VARS, CONTRACT_DECLS, INLINE_THEMES, INTERNAL_PREFIX, deriveThemeIds } from '../src/theme-contract.js';
 import { THEME_BOOT, THEME_ASSETS, themeBootTag } from '../src/themeboot.js';
+/* 真渲染一次，验的是产物不是模板字符串（TC-35）。md.js 零依赖、纯字符串处理，
+   node 里 import 没有 DOM 问题 —— 这条 import 本身就是「它可以被单测」的证明。 */
+import { renderMarkdown } from '../public/md.js';
 
 const ROOT = new URL('..', import.meta.url);
 const read = (p) => readFileSync(new URL(p, ROOT), 'utf8');
@@ -728,38 +731,59 @@ t('TC-34 [P-059] 变异：`--_` 前缀放行且必须看得见，var() 是「用
   );
 });
 
-t('TC-35 [P-060] 结构层 DOM 事实：文档里的容器名必须真的由渲染器产出', () => {
+t('TC-35 [P-060] 结构层 DOM 事实：真渲染一次，不查模板字符串', () => {
   /* 2026-11-24 一天之内三份主题材料按「常见博客长什么样」猜类名：
      .prose / .ai-summary / [data-ai-summary] / .comment / .friend-item /
      .dot-ok / .token.keyword —— 全部零命中，而 CSS 选择器不匹配**不报错**，
      打开页面 HTTP 200，只有盯着那个组件看才可能发现。
-     这条把「THEME-CONTRACT.md 第四节写的事实」和「渲染器真的产出」钉在一起：
-     谁改了模板却没改文档（或者反过来），就红。
-     注意检查的是「产出源」而不是 class 是否在全站某处出现 —— .post-card 这种
-     既在 HTML 模板里也在 style.css 里，查全站等于没查。 */
-  const FACTS = [
-    ['.md post-body', 'src/index.js'],
-    ['.post-lead', 'src/index.js'],
-    ['.lead-tag', 'src/index.js'],
-    ['.code-wrap', 'public/md.js'],
-    ['.code-block', 'public/md.js'],
-    ['.tok-k', 'public/style.css'],
-  ];
-  const doc = read('THEME-CONTRACT.md');
-  const bad = [];
-  for (const [sel, src] of FACTS) {
-    const name = sel.split(' ')[0].replace(/^\./, '');
-    const inDoc = doc.includes(name);
-    const inCode = read(src).includes(name);
-    if (!inDoc || !inCode) {
-      bad.push(`${sel}：文档${inDoc ? '有' : '缺'} / ${src}${inCode ? '有' : '缺'}`);
-    }
-  }
-  assert.deepEqual(bad, [], `结构层 DOM 事实漂了（改完渲染器要回来改第四节那张表）：\n      ${bad.join('\n      ')}`);
 
-  /* 反向锚点：断言里列的每一项都必须出现在文档里，否则「守文档」变成了守断言自己。
-     上面那条已经含 inDoc 检查，这里单独再要一次是因为 FACTS 增项时最容易漏写文档。 */
-  assert.ok(doc.includes('结构层 DOM 事实'), 'THEME-CONTRACT.md 缺第四节');
+     为什么不 grep 源码：模板字符串里写 `<pre`，产物可能被另一层包住；
+     变量拼接（`<div class="${cls}">`）也 grep 不出来。渲染一次看产物才是硬的。
+     md.js 是零依赖纯字符串处理，node 里直接 import 就能跑。 */
+  const out = renderMarkdown('```js\nconst a = 1;\n```');
+  const must = [
+    ['代码块外层是 .code-wrap', /^<div class="code-wrap"/],
+    ['<pre> 自己带 .code-block', /<pre class="code-block(?:\s[^"]*)?"/],
+    ['<code> 带 language-*', /<code class="language-js"/],
+    ['语法钩子是 .tok-*', /<span class="tok-[a-z]"/],
+  ];
+  const miss = must.filter(([, re]) => !re.test(out)).map(([n]) => n);
+  /* 摘要由 index.js 的 SSR 模板产出，不在 renderMarkdown 里 —— 单独从源码验。 */
+  const postLead = read('src/index.js').includes('class="post-lead"');
+  if (!postLead) miss.push('src/index.js 里找不到 .post-lead');
+
+  assert.deepEqual(
+    miss,
+    [],
+    `渲染产物的结构与 THEME-CONTRACT.md 第四节不符（改完渲染器要回来改那张表）：\n      ${miss.join('\n      ')}`
+  );
+
+  /* 否定断言挪到 TC-36：写在这里会被上面的 miss 抢先抛掉，永远走不到，
+     等于「验了但验不到」—— 这正是 P-059 那类假绿。 */
+
+  /* 文档侧：第四节那张表必须点名这些容器，否则「守事实」变成了守断言自己。 */
+  const doc = read('THEME-CONTRACT.md');
+  const undocumented = ['code-wrap', 'code-block', 'post-lead', 'tok-k'].filter((n) => !doc.includes(n));
+  assert.deepEqual(undocumented, [], `THEME-CONTRACT.md 第四节没写这些容器：${undocumented.join(', ')}`);
+});
+
+t('TC-36 [P-060] 语法钩子只有一个名字：`.tok-*`，不存在 `.token.*`', () => {
+  /* 三份主题材料里两份按 Prism 的 `.token.comment` / `.token.keyword` 写了几十行，
+     零命中。这条只验反面，所以不会被 TC-35 的「结构缺失」抢先抛掉。
+     它和 TC-35 是一对：那边验「该有的在」，这边验「不该有的不在」。 */
+  const out = renderMarkdown('```js\nconst a = 1;\n```');
+  assert.doesNotMatch(
+    out,
+    /class="token\b/,
+    '渲染产物里出现 class="token" —— 语法高亮钩子换名了，主题里的 .token.* 要重新对'
+  );
+  /* 正面锚点：必须先有 tok-*，否则「没有 token」是空的（代码块根本没高亮，
+     doesNotMatch 对空高亮同样成立）。这是 TC-34 那条教训的同一个形态。 */
+  assert.match(
+    out,
+    /<span class="tok-[a-z]"/,
+    '代码块没产出任何 tok-* 钩子 —— 上一条的「没有 token」是空的，先修高亮'
+  );
 });
 
 /* 自检：同步 runner 必须拒收 async 函数（P-029 那个坑，第二次踩过） */
