@@ -700,7 +700,7 @@
 - **根因**：断言能守「数据里有没有重复」，守不住「判据自己的输入被改」。这和 P-068 是同一个病的上一层：P-068 是判据的输入被提前转换（在写断言时），P-071 是判据的输入被后来的人转换（在维护时）。文档也挡不住：`THEME-CONTRACT.md` 讲的是「主题怎么写」，源清单是测试脚本的实现细节，写进去没人会在改这一行时去翻。这类只能靠**元断言**——本项目已有先例（`test-timing.mjs` 读自身源码检查 `fn.constructor.name === 'AsyncFunction'`）。
 - **复现**：两处替换（`CLASS_SOURCES_RAW = [...new Set([` + 尾部 `])]`、`CLASS_SOURCES = CLASS_SOURCES_RAW`）→ **TC-43 pass、TC-45 FAIL**，报「RAW 里出现了 new Set」与「CLASS_SOURCES 没有去重」；只把 `CLASS_SOURCES` 改成直接引用 `CLASS_SOURCES_RAW` → TC-45 单独报第二条，TC-43 仍绿（它判的是重复，不判去重那步在不在）。
 - **断言**：`TC-45` 读自身源码，切出两段定义：`CLASS_SOURCES_RAW` 的片段里不许出现 `new Set`，`CLASS_SOURCES` 的片段里必须有 `new Set(`。两段各配长度锚点（>40 / >20 字符），因为 `indexOf` 返回 `-1` 时切出空串，两个否定判断对空串同样成立 —— 这是 P-059 那个形态的第四次出现。
-- **边界**：只认这两处定义的**文本形态**。把清单改成 helper 函数生成（`const CLASS_SOURCES_RAW = collect()`）会让元断言先报「找不到定义」并判红，不会静默变绿 —— 但那时要手工把元断言指到新落点，否则它只能一直红着。不判语义，也无法判「这份清单该包含哪些文件」（那是 TC-43 的长度锚点在做的事）。
+- **边界**：只认这两处定义的**文本形态**。把清单改成 helper 函数生成（`const CLASS_SOURCES_RAW = collect()`）会让元断言先报「找不到定义」并判红，不会静默变绿 —— 但那时要手工把元断言指到新落点，否则它只能一直红着。不判语义，也无法判「这份清单该包含哪些文件」（那是 TC-43 的长度锚点在做的事）。**这条「找不到就红」的性质后来被证伪了一半**：定位用的是 `indexOf(字面量)`，而字面量在别处也出现过，见 P-073。
 - **出处**：`scripts/test-theme-contract.mjs` TC-43 / TC-45；站务记录 2026-11-24
 
 ## P-072 CSS 的三层结构用正则解析，同一个根因踩了两次
@@ -711,6 +711,27 @@
 - **断言**：`TC-42` 与 `TC-44` 共用两个模块级函数 —— `scanCssRules(text)` 返回 `[{ at, selector, body }]`（逐字符配对大括号，at 栈只负责记录上下文，不解析媒体条件），`cssDecls(body)` 按 `;` 切声明、首个 `:` 之前为属性名。TC-42 的打印豁免改成判 `rule.at` 里有没有 `print`，不再自己扫 `@media`；TC-44 的分布遍历 `cssDecls`，`actual` 的口径随之明确为「含该变量的**声明条数**」（同一声明写两次算一点，今天 0 处）。锚点：`rules.length > 800`（实测 1119 条），解析器退化到几十条时立刻红。注入验证三条：给 `.md pre.code-block` 加 `background: var(--bg-soft)` → TC-42 报「双层结构回退了」；加一处 muted → TC-44 报 154 且分布 `color 144`；`SITES_CAP` 调成 100 → 报「已超过扩面上限 100」。
 - **边界**：`cssDecls` 按 `;` 切，**引号内的分号会切错** —— 今天全站 `content:` 的值里没有分号（实测），哪天有就得在扫描器里加引号状态机。CSS nesting（规则里嵌规则）在 `cssDecls` 里整段跳过，今天没用它；真用了要改成递归。`at` 栈只记字符串，不求值媒体条件（`@media (min-width: 900px)` 里的规则在窄屏不生效，这条断言不管那层）。
 - **出处**：`scripts/test-theme-contract.mjs` 的 `scanCssRules` / `cssDecls` / TC-42 / TC-44；第九份材料「解析 CSS 一律走括号配对扫描器」；站务记录 2026-11-24
+
+---
+
+## P-073 读自身源码的断言，`indexOf(字面量)` 会搜到自己 —— 报绿时报的是注释，报红时报的原因是假的
+
+- **现象**：TC-45 用 `self.indexOf('const CLASS_SOURCES = ')` 定位定义。两个方向的实测：
+  - 把真定义改成 `let CLASS_SOURCES = [...new Set(CLASS_SOURCES_RAW)];`（语义完全不变）→ `indexOf` 命中的是 **TC-43 注释里那句散文**「我是 `const CLASS_SOURCES = [...new Set([...])]`」，从那里切出 345 字符的正文，恰好跨过一个 `new Set(`，`!has` 判据成立 → **45 通过，0 失败**，而元断言该管的定义已经不在它读的那段里。
+  - 把 RAW 定义写成 `const CLASS_SOURCES_RAW =\n  [` 时，`indexOf` 命中的是 **TC-45 自己那行** `self.indexOf('const CLASS_SOURCES_RAW = [')` 里的字符串字面量，切出 429 字符（含下一行判据自己的 `new Set`），报出「`CLASS_SOURCES_RAW` 里出现了 `new Set`」—— 红了，但理由与事实无关。
+- **根因**：`indexOf(needle)` 的搜索域包含 needle 自身的书写处。读自身源码的断言里，要找的文本同时出现在两处非定义位置：①解释性注释（PITFALLS 和代码注释里为了讲清问题，会把错误写法原样抄一遍）、②断言自己的字符串字面量。更关键的是**长度锚点证明不了这件事** —— 它只证明「切到了东西」，不证明「切到了对的东西」；上面两次分别切到 345 / 429 字符，两个长度检查都轻松通过。
+- **复现**：上面两条注入各一行 `node -e`，不需要别的准备。判定「搜索域污染」的最快手法是先打一行 `self.slice(0, at).split('\n').length` 看命中的是第几行，再对照那一行的上下文。
+- **断言**：TC-45 的定位改成行首锚定 + 唯一性计数：
+  ```js
+  const at = (re, label) => { const all = [...self.matchAll(re)];
+    assert.equal(all.length, 1, `「const ${label}」在行首出现 ${all.length} 次（应为 1）…`);
+    return all[0].index; };
+  at(/^const CLASS_SOURCES_RAW\s*=\s*\[/gm, 'CLASS_SOURCES_RAW')
+  at(/^const CLASS_SOURCES\s*=/gm, 'CLASS_SOURCES')
+  ```
+  行首锚定排掉缩进里的散文与引号里的字面量（这两类都顶不到列 0），`matchAll` 计数排掉**顶格写的块注释伪定义**（第三种注入：把同样的定义抄进一段 `/* … */` 且顶格，实测报「在行首出现 2 次」）。三条注入 + 原始威胁（RAW 提前去重）全部按预期红，基线 45 通过。
+- **边界**：`\s*=\s*` 允许空格与换行差异，所以 `const CLASS_SOURCES=[...]`、`=\n  [...]` 这类纯排版变化**不红** —— 有意为之：该红的是语义变化，不是格式。反过来说，它仍然只认模块级顶格 `const`：定义搬进 `scripts/lib/*.mjs`、或改成 helper 生成，会先红（报「出现 0 次」）等人手工重指，不会静默变绿 —— 这一点和 P-071 的边界一致。不判「切出来的这段到底是不是那段语义」，那需要 JS 词法分析，超出这个文件的成本。
+- **出处**：`scripts/test-theme-contract.mjs` TC-45 的 `at()`；TC-43 注释里那句被误中的伪定义；第十份材料「找不到就红而不是找不到就绿」；站务记录 2026-11-24
 
 ---
 

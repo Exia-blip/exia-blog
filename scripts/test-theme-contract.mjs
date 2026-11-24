@@ -1035,18 +1035,35 @@ t('TC-45 [P-071] 元断言：判重用的那份清单必须真的未去重', () 
      断言不会过时，文档会 —— 所以读自身源码，判 RAW 的定义里有没有 new Set。 */
   const self = read('scripts/test-theme-contract.mjs');
 
-  const rawAt = self.indexOf('const CLASS_SOURCES_RAW = [');
-  assert.ok(rawAt > -1, '找不到 CLASS_SOURCES_RAW 的定义 —— 元断言失效，先修这里');
+  /* 按 `^` 行首锚定找定义，不用 indexOf(字面量)。原因实测过两种误抓，
+     都是「搜的人搜到了自己」：
+       ① `indexOf('const CLASS_SOURCES = ')` 会命中 TC-43 注释里那句
+          「我是 `const CLASS_SOURCES = [...new Set([...])]`」，
+          切出来 345 字符的散文，恰好含 `new Set(` → 断言绿，而真定义已经变成别的写法；
+       ② 命中 TC-45 自己那行 `self.indexOf('const CLASS_SOURCES = ')` 的字符串字面量。
+     行首锚定把这两类都排掉：散文在缩进里、字面量在引号里，都不可能顶到列 0。
+     这个形态单独记在 P-073：读自身源码的断言，indexOf(字面量) 会搜到自己。 */
+  const at = (re, label) => {
+    const all = [...self.matchAll(re)];
+    assert.equal(
+      all.length, 1,
+      `「const ${label}」在行首出现 ${all.length} 次（应为 1）—— 定义被改名/复制/移走了，`
+      + '元断言只认模块级那一处，先手工把落点指回来'
+    );
+    return all[0].index;
+  };
+
+  const rawAt = at(/^const CLASS_SOURCES_RAW\s*=\s*\[/gm, 'CLASS_SOURCES_RAW');
   const rawEnd = self.indexOf('];', rawAt);
   assert.ok(rawEnd > rawAt, 'CLASS_SOURCES_RAW 找不到结尾的 `];` —— 定义结构变了，元断言要跟着改');
   const rawSrc = self.slice(rawAt, rawEnd);
 
-  const setAt = self.indexOf('const CLASS_SOURCES = ');
-  assert.ok(setAt > -1, '找不到 CLASS_SOURCES 的定义');
+  const setAt = at(/^const CLASS_SOURCES\s*=/gm, 'CLASS_SOURCES');
   const setEnd = self.indexOf(';', setAt);
+  assert.ok(setEnd > setAt, 'CLASS_SOURCES 的定义没有以 `;` 结束 —— 切片会一路吃到下一个分号');
   const setSrc = self.slice(setAt, setEnd);
 
-  /* 锚点：两段都要真的抓到内容，否则两个 indexOf(-1) 的空串也能让下面的否定判断成立。 */
+  /* 锚点：两段都要真的抓到内容，否则空串也能让下面的否定判断成立。 */
   assert.ok(
     rawSrc.length > 40 && setSrc.length > 20,
     `只抓到 ${rawSrc.length} / ${setSrc.length} 字符 —— 两处定义都变了，这条在空转`
