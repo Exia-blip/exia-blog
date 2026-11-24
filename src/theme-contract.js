@@ -87,8 +87,21 @@ export const INTERNAL_PREFIX = '--_';
  *   ② 值必须是契约变量（不许指向不存在的东西）
  *   ③ `style.css` 里该类的 `color` 必须**正是**这个变量（表与代码不许各说一套）
  * 新增第 6 类时要么加 `--tok-x` 槽位，要么在这里登记一行 —— 登记这个动作就是一次 review。
+ *
+ * `sites` 是第四件事，由 TC-44 守：借用的变量在 `style.css` 里有多少个消费点。
+ * 为什么只记数字不记选择器清单 —— `--muted` 今天有 153 处（158 个选择器，color 143 /
+ * border-color 5 / background 4 / scrollbar 1）。登记 158 个名字等于每写一行业务 CSS
+ * 都要动这份契约，清单没人读、也没人 review；而数字一变就必须来改这里，成本一行，
+ * 且报错里会带上按属性的分布，能一眼看出「又在拿辅助文字色当背景」。
  */
-export const TOK_EXCEPTION = Object.freeze({ c: '--muted' });
+export const TOK_EXCEPTION = Object.freeze({
+  c: {
+    var: '--muted',
+    /* style.css 里 `var(--muted)` 的出现次数。加一处就改成 154 —— 那一下就是签字：
+       「我确认把注释色的影响面又扩大了一格」。 */
+    sites: 153,
+  },
+});
 
 /** 没有独立 CSS 文件的主题：变量与骨架都编在主样式表里。 */
 export const INLINE_THEMES = ['paper', 'anzhiyu'];

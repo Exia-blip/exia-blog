@@ -685,6 +685,15 @@
 - **边界**：3/39 是**今天**的快照（2026-11-24）。有人把导航或目录改成 SSR 直出，这个数会上升，断言不存在也就不会提示更新 —— 这是主动接受的漂移。另：`classList` 78 处 / `.className =` 15 处是**原始出现次数**，同一个类名在多处 toggle 很常见，不能拿 93 当「动态类个数」。
 - **出处**：`scripts/test-theme-contract.mjs` 的 `scanDynamicClasses` / `CLASS_SOURCES`；`src/admin-ui.js` / `src/index.js` / `src/dashboard.js` 的 `class=` 字面量；`public/app.js` 的 `read-bar` / `back-top`；第八份材料「TC-42 动态类 SSR 可见率」；站务记录 2026-11-24
 
+## P-070 例外表只登记「借谁」，不登记「还有谁在用」—— 借的变量影响面 153 处，没人知道
+
+- **现象**：`TOK_EXCEPTION` 写的是 `{ c: '--muted' }`。TC-41 的四方闭环守住了「来源合规」：借用被登记、登记不许乱填、键值不许开空头。但它没回答「这个来源还被谁用着」。实测 `public/style.css` 里 `var(--muted)` 出现 **153 次、158 个选择器**（`color` 143 / `border-color` 5 / `background` 4 / `scrollbar-color` 1）—— 注释色只是这 153 个用户里的一个。有人嫌「辅助文字太淡」去调 `--muted`，注释色跟着变，四道闸全绿。
+- **根因**：「值从哪来」和「值被谁依赖」是两个方向。TC-41 只朝上游看（来源是否登记、是否合规），下游（影响面）没有断言。材料提的 `alsoUsedBy: ['.note', '.post-time', '.lead-tag']` 双向对账方向是对的，但清单法在这个变量上不成立：`.post-time` 全站 **0 处**（又是按惯例猜的名字），真实共用方是 158 个选择器 —— 登记 158 行等于每写一行业务 CSS 都要动这份契约文件，而清单长到没人读的时候，「签字」就退化成噪声，和它想防的白名单是同一个终点。
+- **复现**：`printf '\n.tc44-probe { color: var(--muted); }\n' >> public/style.css` → TC-44 报「登记 153 处，实际 154 处（+1）」并列出 `color 144 / border-color 5 / background 4 / scrollbar-color 1`。把 `sites` 改成 `200` → 报「-47」；改成 `1` → 报「sites 必须是 ≥2 的整数」（只被借它的那条规则用着，那不叫影响面，叫专属槽位）。
+- **断言**：`TC-44` 登记**数字**而不是名单 —— `TOK_EXCEPTION[c] = { var, sites }`，`sites` 必须等于 `style.css` 里 `var(--var)` 的出现次数。数字是算出来的、不是填出来的名字，所以「往清单里塞名字就放行」那条反向洞不存在；报错带按属性的分布，因为「拿 muted 当底色」和「当文字色」是两种性质不同的扩面，前者该改回专属变量。属性名的正则必须要求前面是 `{` 或 `;` —— 第一版漏了这个，`.btn:hover { border-color: var(--muted) }` 里的 `btn` 被当成属性名（`:hover` 提供了冒号），分布里冒出 `btn` / `span` / `md-input`。
+- **边界**：只统计 `public/style.css`，**不统计主题文件** —— 主题里用 `--muted` 是本职（那是它该覆盖的槽位），统计进去等于拦正常用法。按字面 `var(--muted)` 计，`color-mix(in srgb, var(--muted) 62%, transparent)` 也算消费点（它确实吃这个值）。不含 `app.js` 运行时写进内联样式的变量。数字会随业务 CSS 增长而频繁变动 —— 这是刻意的摩擦，改一行数字的成本低于「调完 muted 才发现注释色也变了」。
+- **出处**：`scripts/test-theme-contract.mjs` TC-44；`src/theme-contract.js` 的 `TOK_EXCEPTION.sites`；`public/style.css` 153 处 `var(--muted)`；第九份材料「四方闭环缺第五方 / alsoUsedBy」；站务记录 2026-11-24
+
 ---
 
 ---

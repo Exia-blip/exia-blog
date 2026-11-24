@@ -1060,7 +1060,7 @@ t('TC-41 [P-066] token 类别的配色来源必须是契约槽位或登记的例
   const bad = [];
 
   for (const c of produced) {
-    const want = slots.includes(c) ? `--tok-${c}` : TOK_EXCEPTION[c];
+    const want = slots.includes(c) ? `--tok-${c}` : TOK_EXCEPTION[c].var;
     if (!want) {
       bad.push(`tok-${c}：既没有 --tok-${c} 槽位，也没进 TOK_EXCEPTION —— 结构层会就近找个变量凑`);
       continue;
@@ -1072,7 +1072,7 @@ t('TC-41 [P-066] token 类别的配色来源必须是契约槽位或登记的例
   /* ③ 例外表不许开空头 */
   for (const c of Object.keys(TOK_EXCEPTION)) {
     if (!produced.has(c)) bad.push(`TOK_EXCEPTION.${c}：渲染器不产出这一类，登记是空头`);
-    if (!CONTRACT_VARS.has(TOK_EXCEPTION[c])) bad.push(`TOK_EXCEPTION.${c} → ${TOK_EXCEPTION[c]} 不是契约变量`);
+    if (!CONTRACT_VARS.has(TOK_EXCEPTION[c].var)) bad.push(`TOK_EXCEPTION.${c} → ${TOK_EXCEPTION[c].var} 不是契约变量`);
   }
   /* ④ 契约槽位不许是死的 */
   for (const c of slots) {
@@ -1080,6 +1080,62 @@ t('TC-41 [P-066] token 类别的配色来源必须是契约槽位或登记的例
   }
 
   assert.deepEqual(bad, [], `token 配色来源与契约不符：\n      ${bad.join('\n      ')}`);
+});
+
+t('TC-44 [P-070] 例外表借用的变量要登记影响面：消费点一变就得签字', () => {
+  /* TC-41 的四方闭环守「来源合规」：借 --muted 这件事被登记了，登记也不许乱填。
+     它没问的是「这个来源还被谁用着」—— 注释色只是 --muted 的第 154 个用户。
+     有人嫌「辅助文字太淡」去调 --muted，注释色跟着变，而没有任何断言会红。
+
+     材料提的补法是 alsoUsedBy: ['.note', '.post-time', '.lead-tag'] 双向对账。
+     实测：`.post-time` 全站 0 处，另外两个成立，但真实共用方是 **158 个选择器 /
+     153 处出现**（color 143 / border-color 5 / background 4 / scrollbar-color 1）。
+     登记 158 个名字，等于每写一行业务 CSS 都要动这份契约；而清单长到没人读的时候，
+     「签字」就退化成噪声 —— 和它想防的那个洞是同一个终点。
+
+     所以这里登记**数字**而不是名字：sites 必须等于实际出现次数。数字是算出来的，
+     不是名单，顺手塞名字那条路不存在；报错时带上按属性的分布，因为「拿 muted 当底色」
+     与「当文字色」是两种性质不同的扩面，前者该改回专属变量。 */
+  const css = read('public/style.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const entries = Object.entries(TOK_EXCEPTION);
+  assert.ok(entries.length >= 1, '例外表空了 —— TC-41 会先红，这条跟着空转');
+  assert.ok(css.length > 10000, `style.css 只读到 ${css.length} B —— 读错了文件，下面的计数全是 0`);
+
+  const bad = [];
+  for (const [c, e] of entries) {
+    if (!e || typeof e.var !== 'string' || !e.var.startsWith('--')) {
+      bad.push(`TOK_EXCEPTION.${c}：缺 var 字段（结构应是 { var, sites }）`);
+      continue;
+    }
+    /* sites < 2 时「影响面」这个说法不成立：只被借它的那一条规则用着，那是专属槽位。 */
+    if (!Number.isInteger(e.sites) || e.sites < 2) {
+      bad.push(`TOK_EXCEPTION.${c}：sites 必须是 ≥2 的整数，今天是 ${e.sites}`);
+      continue;
+    }
+    const re = new RegExp(`var\\(\\s*${e.var.replace(/-/g, '\\-')}\\s*\\)`, 'g');
+    const actual = (css.match(re) || []).length;
+    if (actual === e.sites) continue;
+
+    const byProp = {};
+    /* 属性名必须紧跟 `{` 或 `;` —— 否则 `.btn:hover { border-color: var(--muted) }` 里
+       的 `btn` 会被当成属性名（`:hover` 提供了那个冒号）。第一版就是这么错的，
+       分布里冒出了 `btn` / `span` / `md-input`。 */
+    for (const m of css.matchAll(
+      new RegExp(`(?:^|[;{])\\s*([a-z-]+)\\s*:\\s*[^;}]*var\\(\\s*${e.var.replace(/-/g, '\\-')}\\s*\\)`, 'g')
+    )) {
+      byProp[m[1]] = (byProp[m[1]] || 0) + 1;
+    }
+    const dist = Object.entries(byProp).map(([k, v]) => `${k} ${v}`).join(' / ');
+    const delta = actual - e.sites;
+    bad.push(
+      `TOK_EXCEPTION.${c} 借 ${e.var}：登记 ${e.sites} 处，实际 ${actual} 处（${delta > 0 ? '+' : ''}${delta}）`
+        + `\n        当前分布：${dist}`
+        + `\n        新加的用法确认要扩大影响面 → 把 sites 改成 ${actual}；`
+        + '拿辅助文字色当底色/边框 → 那是另一种语义，该用专属变量'
+    );
+  }
+
+  assert.deepEqual(bad, [], `借用变量的影响面与登记不符：\n      ${bad.join('\n      ')}`);
 });
 
 t('TC-42 [P-067] 代码块底色与边框只归 .code-wrap，pre 自己不许画（打印除外）', () => {
