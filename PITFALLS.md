@@ -624,6 +624,15 @@
 - **边界**：只查 `style.css`，不查 `public/app.js` 里 JS 写进去的内联变量（`--toc-p` 就是运行时由 JS 赋值的，靠 fallback 兜底）。也不判断「槽位是否**该**被消费」——`--brand` 只给主题自己用是设计，不是缺陷，所以判据是「至少一处引用」而不是「主表必须引用」。
 - **出处**：`scripts/test-theme-contract.mjs` TC-39；`src/theme-contract.js`；`public/style.css:26 / 1881`（删除的两行）；`THEME-CONTRACT.md` 第二节；站务记录 2026-11-24
 
+## P-065 动态类名是拼出来的，采集器看不见 —— 活选择器被判成死规则
+
+- **现象**：`public/editor.html:731` 写的是 `stateEl.className = 'save-state ' + kind`，`kind` 只取 `'saving'` / `'error'` 两个值。这两个类名在 HTML 与 JS 里都不以字面量出现，于是全站类名表里没有它们：主题为保存中/出错状态写 `.save-state.saving` 时，`TC-38` 会把它判成**死规则**并拦下；反过来主题不写，这两个状态就是没人能覆盖的孤儿。同一形态的还有模板字符串 `classList.add(\`is-${state}\`)`。
+- **根因**：类名采集器只能读**字面量**。它在读不到名字时不会红，只会让「全站类名表」安静地少一项 —— 这正是 `P-059` 那个空集恒真在采集侧的翻版。材料给的解法是 `DYNAMIC_PATTERNS = [/^is-/, /^state-/, /^has-/]` 前缀白名单，那等于把「哪些是动态类」变成一条**没人执行的命名纪律**：写成 `is-` 就算，写成 `open-state` 就漏 —— 与它自己反对的名字白名单是同一个病，只是换了维度。
+- **复现**：把 `editor.html` 的 `classList.toggle('saving', …)` 改回 `className = 'save-state ' + kind` → `TC-40` 报「动态类名是拼出来的」；把 `app.js` 的 `classList.add('clipped')` 改成 `` classList.add(`clipped-${1}`) `` → 同样报，且括号里带上原文方便定位。
+- **断言**：`TC-40` 判**写法**不判名字 —— 三种形态（`classList.*` / `.className =` / `setAttribute('class', …)`）的首个类名参数必须是纯字面量，出现拼接或模板字符串就红，并提示二选一（改成字面量 / 扩展 `scanDynamicClasses`）。配正面锚点：全仓抽到的动态类名总数 ≥10，否则「零处拼接」对「采集器死了」同样成立。另外 `TC-38` 自带**分形态失明锚点**：用一条互不依赖的 `RAW_FORM` 正则数「源码里这种形态出现几次」，与采集器的认领次数比，出现却一次都没认领就红（把 `classList\.` 手滑成 `classLst\.` → 报「源码里 18 处 classList，采集器一处都没认出来」）。
+- **边界**：只覆盖上述三种写法。`el.classList.value = tpl`、`el.setAttribute('class', a + b)` 之外的 `outerHTML` 拼接、框架 diff 出来的类名都不在射程内 —— 它们的共同点是「CSS 选择器本来就该写在模板里」，不在主题契约的范围。也不判「这个动态类该不该存在」，只判「它的名字能不能被静态读到」。
+- **出处**：`scripts/test-theme-contract.mjs` TC-38 / TC-40；`public/editor.html:568 / 730`；`public/app.js` 的 15 个动态类；站务记录 2026-11-24
+
 ---
 
 ---

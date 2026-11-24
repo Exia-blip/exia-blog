@@ -830,6 +830,61 @@ t('TC-37 [P-061] 代码块 token 类别：渲染产物与结构层样式的集�
   );
 });
 
+/* ---------- 动态类采集（TC-38 / TC-40 共用） ----------
+   从 JS 源码里抽「运行时才会出现的类名」。三种形态分开计数：
+     classList.add/remove/toggle/replace('a')  ·  el.className = 'a b'  ·  setAttribute('class','a b')
+
+   返回的 three 字段各自交代「源码里有没有出现 / 抽出几个名字」：
+   一种形态在源码里出现了却一个名字都没抽到 = 采集器对这种写法是瞎的，
+   必须当场判红，否则 TC-38 会在「漏掉一个类名」时照样绿 —— 这是 P-059 那个
+   空集恒真的同一个形态，只是发生在采集侧。
+
+   blind：源码里存在、但名字是拼出来的（模板字符串 / 变量 / 字符串相加）。
+   这类写法采集器**读不出**，只能报出来让人改成字面量（TC-40）。 */
+function scanDynamicClasses(text) {
+  const names = new Set();
+  const blind = [];
+  const forms = { classList: { seen: 0, got: 0 }, className: { seen: 0, got: 0 }, setAttribute: { seen: 0, got: 0 } };
+
+  const take = (raw, form, where) => {
+    forms[form].seen++;
+    const head = raw.split(',')[0];
+    const m = head.match(/^\s*['"]([^'"]*)['"]\s*$/);
+    if (m) {
+      for (const c of m[1].split(/\s+/)) if (c) { names.add(c); forms[form].got++; }
+      return true;
+    }
+    if (/^\s*$/.test(raw)) return false;              // 无参：没有类名，不算瞎
+    blind.push(`${where} → ${raw.trim().slice(0, 44)}`);
+    return false;
+  };
+
+  /* classList.add/remove/toggle('a','b')；replace 收两个类名，toggle 第二个参数是 force 布尔 */
+  for (const m of text.matchAll(/classList\.(add|remove|toggle|replace)\s*\(([^)]*)\)/g)) {
+    const parts = m[2].split(',');
+    const want = m[1] === 'replace' ? 2 : 1;
+    take(parts.slice(0, want).join(','), 'classList', `classList.${m[1]}`);
+  }
+  /* el.className = 'a b'  /  el.className += ' c' */
+  for (const m of text.matchAll(/\.className\s*\+?=\s*([^\n;]+)/g)) {
+    take(m[1], 'className', '.className=');
+  }
+  /* setAttribute('class', 'a b') */
+  for (const m of text.matchAll(/setAttribute\s*\(\s*['"]class['"]\s*,\s*([^)]+)/g)) {
+    take(m[1], 'setAttribute', "setAttribute('class')");
+  }
+  return { names, blind, forms };
+}
+
+/* 产出侧采集：JS 源码 + HTML + SSR 模板。Set 去重 —— md.js / app.js 既是显式项
+   也在 public/*.js 的通配里，不去重会让失明报告同一条报两遍。 */
+const CLASS_SOURCES = [...new Set([
+  'public/md.js',
+  'public/app.js',
+  ...readdirSync(new URL('src', ROOT)).filter((f) => f.endsWith('.js')).map((f) => `src/${f}`),
+  ...readdirSync(new URL('public', ROOT)).filter((f) => /\.(html|js)$/.test(f)).map((f) => `public/${f}`),
+])];
+
 t('TC-38 [P-062] 主题文件里的类名选择器必须在全站类名表里出现', () => {
   /* 第四份材料的第三个缺口，且是我这边真没有的：主题 CSS 那一侧没有任何反向校验。
      在 edge.css 写一条 `.tok-z { color: #f00 }`，TC-35/36/37 全绿（产物侧没变）、
@@ -838,13 +893,18 @@ t('TC-38 [P-062] 主题文件里的类名选择器必须在全站类名表里出
      判据是「这个类名全站有没有人产出」，不是「style.css 里有没有」：
      后者是循环论证（两边可以一起烂）。所以类名表取的是产出侧 ——
      src/*.js 的 SSR 模板、public/md.js 的渲染器、public/*.html、public/*.js。 */
-  const sources = [
-    'public/md.js',
-    'public/app.js',
-    ...readdirSync(new URL('src', ROOT)).filter((f) => f.endsWith('.js')).map((f) => `src/${f}`),
-    ...readdirSync(new URL('public', ROOT)).filter((f) => /\.(html|js)$/.test(f)).map((f) => `public/${f}`),
-  ];
+  const sources = CLASS_SOURCES;
   const known = new Set();
+  /* 每种形态的「原始出现次数」用一条**互不依赖的**正则数，再和采集器的认领次数比。
+     采集器的正则一旦写坏（比如 add 漏进字符类、手滑成 classlst），它会安静地
+     少抽名字，TC-38 照样绿 —— 这是 P-059 那个空集恒真在采集侧的翻版。
+     所以：源码里出现过这种形态，采集器就必须至少认出一次。 */
+  const RAW_FORM = {
+    classList: /classList\./g,
+    className: /\.className\s*\+?=/g,
+    setAttribute: /setAttribute\s*\(\s*['"]class['"]/g,
+  };
+  const deaf = [];
   for (const f of sources) {
     const text = read(f);
     for (const m of text.matchAll(/class="([^"]*)"/g)) {
@@ -855,16 +915,24 @@ t('TC-38 [P-062] 主题文件里的类名选择器必须在全站类名表里出
       for (const c of m[1].split(/\s+/)) if (c) known.add(c);
     }
     /* 动态添加的类不算死规则：app.js 有 `btn.className = 'back-top'`，
-       它一辈子不出现在 class="…" 字面量里。除 className / classList 赋值外，
-       材料建议的硬编码白名单会把「新增动态类要手动加」变成维护负担 ——
-       采集侧多两条正则就够，且不会漏。 */
-    for (const m of text.matchAll(/\.(?:className|classList\.(?:add|remove|toggle))\s*[=(]\s*['"]([^'"]+)['"]/g)) {
-      for (const c of m[1].split(/\s+/)) if (c) known.add(c);
+       它一辈子不出现在 class="…" 字面量里。用采集器抽，不维护名字白名单 ——
+       白名单每加一个动态类就要改一次断言，改的人顺手就能把死规则塞进去。 */
+    const got = scanDynamicClasses(text);
+    for (const c of got.names) known.add(c);
+    for (const [form, re] of Object.entries(RAW_FORM)) {
+      const raw = (text.match(re) || []).length;
+      if (raw > 0 && got.forms[form].seen === 0) {
+        deaf.push(`${f}：源码里 ${raw} 处 ${form}，采集器一处都没认出来`);
+      }
     }
   }
 
   /* 先要「看得见」：类名表空了，下面的子集判断对空集恒成立 */
   assert.ok(known.size > 200, `类名表只收集到 ${known.size} 个 —— 采集坏了，先修这里`);
+
+  /* 分形态的「看得见」：一种写法在源码里存在却一次都没被认领，
+     说明采集正则对这种写法是瞎的 —— 这时 TC-38 的绿是假的。 */
+  assert.deepEqual(deaf, [], `动态类采集器对这些写法失明：\n      ${deaf.join('\n      ')}`);
 
   const used = new Map();
   for (const id of themeIds) {
@@ -877,6 +945,44 @@ t('TC-38 [P-062] 主题文件里的类名选择器必须在全站类名表里出
     [...used.entries()].map(([id, d]) => `theme/${id}.css: ${d.map((c) => '.' + c).join(' ')}`),
     [],
     '主题文件里引用了全站没有任何元素产出的类名 —— 死选择器，改它的人会以为自己改到了颜色'
+  );
+});
+
+t('TC-40 [P-065] 动态类必须写成字面量：采集器读不出名字就等于断言失明', () => {
+  /* TC-38 的类名表靠三条正则从源码里抽名字。这三条正则只能读**字面量**：
+       classList.add('copied')            ✅
+       classList.add(`is-${state}`)       ❌ 抽不到
+       classList.add('is-' + state)       ❌ 抽不到
+     抽不到时 TC-38 不会红，它只会在「全站类名表」里少一个名字。等哪天主题为这个
+     状态写了 `.t-x .is-open`，TC-38 会把一条**活的选择器**判成死规则 —— 反之，
+     如果主题没写，那条动态类就成了没人能覆盖的孤儿。
+
+     材料给的解法是 DYNAMIC_PATTERNS 前缀白名单（/^is-/ /^state-/ /^has-/）。
+     那等于把「哪些是动态类」变成一条**没人执行的命名纪律**：写了 `is-` 就算，
+     写错成 `open-state` 就漏 —— 与它自己反对的名字白名单是同一个病，只是换了个维度。
+
+     这里改成判**写法**而不是判名字：只要出现非字面量写法就红，红的时候告诉人
+     二选一（改成字面量 / 扩展采集器）。今天全仓 0 处，所以这条是免费的护栏。 */
+  const blind = [];
+  for (const f of CLASS_SOURCES) {
+    const got = scanDynamicClasses(read(f));
+    for (const b of got.blind) blind.push(`${f} ${b}`);
+  }
+  assert.deepEqual(
+    blind,
+    [],
+    '动态类名是拼出来的，TC-38 的采集器看不见它 —— 改成字面量，或扩展 scanDynamicClasses：\n      '
+      + blind.join('\n      ')
+  );
+
+  /* 正面锚点：采集器必须真的在工作。若三条正则全废，blind 也会是空的（读不出 → 不报），
+     上面那条对「采集器死了」同样成立 —— P-059 的形态，配一条「必须看见」的锚点。 */
+  const totalNames = CLASS_SOURCES
+    .map((f) => scanDynamicClasses(read(f)).names.size)
+    .reduce((a, b) => a + b, 0);
+  assert.ok(
+    totalNames >= 10,
+    `全仓只抽到 ${totalNames} 个动态类名 —— 采集器没在工作，「零处拼接」这个结论是空的`
   );
 });
 

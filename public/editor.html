@@ -565,7 +565,8 @@ function capture() {
   d.rev = rev;
   d.saving = saving;
   d.postId = postId;
-  d.stateKind = String(stateEl.className || '').replace(/^save-state\s*/, '');
+  d.stateKind = stateEl.classList.contains('saving') ? 'saving'
+    : stateEl.classList.contains('error') ? 'error' : '';
   d.stateText = stateText.textContent || '';
   return d;
 }
@@ -728,7 +729,11 @@ function closeDoc(d, force = false) {
 
 /* ---------- 状态提示 ---------- */
 function setState(kind, text) {
-  stateEl.className = 'save-state ' + kind;
+  /* 类名必须是字面量：`'save-state ' + kind` 让 saving / error 只活在拼接结果里，
+     全站类名表（TC-38）抽不到它们 —— 主题想给这两个状态写样式时，会被判成死规则。
+     TC-40 守这条：动态类一律走 classList + 字面量。 */
+  stateEl.classList.toggle('saving', kind === 'saving');
+  stateEl.classList.toggle('error', kind === 'error');
   stateText.textContent = text;
 }
 
