@@ -164,11 +164,15 @@ public/theme/<id>.css     只覆盖变量；edge 另有 4 条部件覆盖
 第 5 类走 `--muted` 是既定取舍：给注释单开一个槽位，等于八套主题各多一个必填值，而注释色本来
 就该跟辅助文字同一档。代价是 `--muted` 必须在 `--bg-soft` 上也过 AA —— 这是 [TC-30] 单独存在的原因。
 
+**这个借用必须登记在 `TOK_EXCEPTION`（`src/theme-contract.js`），不能靠「结构层就近找个变量」**。
+两者的区别在于：就近找是隐式的，挑对了没人记得、挑错了没人发现；登记是显式的，新增第 6 类时
+要么加 `--tok-x` 槽位，要么在表里写一行 —— 那一行本身就是一次 review。
+
 主题文件里**写 `builtin` / `type` / `tag` / `variable` 这四类没有任何意义**：Primer 表里有，渲染器
 不产出，写了就是死规则。反过来，渲染器哪天新增一类而主题没配色，那个 token 会落回继承色 ——
 看着能用，实际掉了。
 
-这张表由四条断言守着：
+这张表由五条断言守着：
 
 | 断言 | 守什么 |
 |---|---|
@@ -176,6 +180,10 @@ public/theme/<id>.css     只覆盖变量；edge 另有 4 条部件覆盖
 | [TC-36] | 反面：不存在 `.token.*`，且必须**真的**有 `tok-*`（正面锚点） |
 | [TC-37] | 产物 token 类别集合 **=** `style.css` 里定义了的类别集合（两个方向都不许有差） |
 | [TC-38] | 主题文件里的类名选择器必须在全站类名表里（动态 `className` 赋值也算来源） |
+| [TC-41] | 每一类的**颜色来源**：有槽位就用同名槽位、没槽位必须在 `TOK_EXCEPTION`，且 `style.css` 里写的正是那个变量 |
+
+`TC-37` 只看「类别在不在」，`TC-41` 才看「颜色从哪来」。缺了后者，`.tok-c { color: var(--fg-soft) }`
+能同时穿过 `TC-37`（类别在）、`P-043`（是契约变量）、`P-046`（不碰主色）三道闸。
 
 grep 模板字符串是不够的 —— 变量拼接与「事后包装」都漏得掉。
 
@@ -245,9 +253,19 @@ npm run build:sri
 | `edge.css` 加 `.code-badge { … }` | TC-38（报「全站没有任何元素产出的类名」） |
 | `style.css` 加 `.x-probe { color: var(--tok-r) }`（未定义、无 fallback） | TC-39（报「无处可寻的变量」） |
 | `--hero-weight` 加回 `CONTRACT_OPTIONAL` | TC-39（报「槽位没有任何样式引用」） |
+| `editor.html` 的 `classList.toggle('saving',…)` 改回 `className = 'save-state ' + kind` | TC-40（报「动态类名是拼出来的」） |
+| `classList.add('clipped')` 改成 `` classList.add(`clipped-${1}`) `` | TC-40（同上，并带出原文） |
+| `scanDynamicClasses` 的 `classList\.` 手滑成 `classLst\.` | TC-38（报「源码里 18 处 classList，采集器一处都没认出来」） |
+| `.tok-c` 的 `var(--muted)` 改成 `var(--fg-soft)`（仍是契约变量） | TC-41（报「表说的是 --muted，`style.css` 里写的是 --fg-soft」） |
+| `TOK_EXCEPTION` 清空 / 加一个不产出的 `r` | TC-41（报「既没槽位也没登记」/「登记是空头」） |
+| `.md pre.code-block` 的 `background: transparent` 改回 `var(--bg-soft)` | TC-42（报「设了 background」） |
+| 打印块里的 `1px solid #d6d6d6` 加粗成 `2px solid #000` | **不红** —— `@media print` 豁免成立 |
 
 TC-27 第一版写的是 `block.includes('--muted:')`，注入 `--xx-muted:` 时**没红** ——
-子串匹配被前缀骗过了。改成带边界的正则才抓住。这是这批唯一一个假阴性。
+子串匹配被前缀骗过了。改成带边界的正则才抓住。它当时被记成「这批唯一一个假阴性」，
+后来同类又出了三次（`--_` 前缀的字符类漏 `_`、`TC-37` 注入成「只产 1 类」而不是「只增不减」、
+`TC-42` 第一版锚点绑死某条声明），共同形态见 `P-059`：**凡期望空集的判断，都要配一条
+「必须看见」的锚点**。
 
 ### 元断言：验断言自己会不会红
 

@@ -20,7 +20,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { THEME_IDS } from '../src/settings.js';
 import { ASSET_HASH, THEME_BG } from '../src/assets.gen.js';
-import { CONTRACT_CORE, CONTRACT_VARS, CONTRACT_DECLS, INLINE_THEMES, INTERNAL_PREFIX, deriveThemeIds } from '../src/theme-contract.js';
+import { CONTRACT_CORE, CONTRACT_VARS, CONTRACT_DECLS, INLINE_THEMES, INTERNAL_PREFIX, TOK_EXCEPTION, deriveThemeIds } from '../src/theme-contract.js';
 import { THEME_BOOT, THEME_ASSETS, themeBootTag } from '../src/themeboot.js';
 /* 真渲染一次，验的是产物不是模板字符串（TC-35）。md.js 零依赖、纯字符串处理，
    node 里 import 没有 DOM 问题 —— 这条 import 本身就是「它可以被单测」的证明。 */
@@ -984,6 +984,127 @@ t('TC-40 [P-065] 动态类必须写成字面量：采集器读不出名字就等
     totalNames >= 10,
     `全仓只抽到 ${totalNames} 个动态类名 —— 采集器没在工作，「零处拼接」这个结论是空的`
   );
+});
+
+t('TC-41 [P-066] token 类别的配色来源必须是契约槽位或登记的例外', () => {
+  /* 材料这轮唯一说对的新缺口：TC-37 只比「类别集合」，不看每一类的颜色**从哪来**。
+     于是 `.tok-c { color: var(--muted) }` 能同时穿过三道闸 ——
+       TC-37 绿（c 在产物里、也有样式规则）
+       P-043 绿（--muted 是契约变量）
+       P-046 绿（不碰 --brand）
+     它违规的地方是「注释色本该有个名分」，而没有断言管「该有槽位却没有」。
+
+     更要紧的是这条缝的方向：槽位数少于产出类别数时，差额由结构层**就近找**一个变量填上。
+     这次找到 --muted 恰好对，下次新增第 6 类同样就近找，没人审 —— 正是「看起来能用」。
+
+     判据是四方闭环，任一方向断了都红：
+       ① 产出的每一类：有 --tok-x 槽位 → style.css 该类的 color 必须正是 var(--tok-x)
+       ② 产出的每一类：没槽位 → 必须在 TOK_EXCEPTION 里，且 color 与表里的值一致
+       ③ TOK_EXCEPTION 的键必须是真实产出的类别（不开空头）
+       ④ TOK_EXCEPTION 的值必须是契约变量，且契约里每个 --tok-* 都被某一类真的用上 */
+  const out = renderMarkdown(
+    '```js\n// 注释\nconst a = 1;\nfunction f(s) { return "x" + s; }\n```'
+  );
+  const produced = new Set([...out.matchAll(/class="tok-([a-z]+)"/g)].map((m) => m[1]));
+  assert.ok(produced.size >= 4, `只产出 ${produced.size} 类 token —— 高亮没跑起来，下面全是空转`);
+
+  /* 每条 .tok-x 规则实际用的变量 */
+  const css = read('public/style.css');
+  const colorOf = new Map();
+  for (const m of css.matchAll(/\.tok-([a-z]+)\s*\{([^}]*)\}/g)) {
+    const v = m[2].match(/color:\s*var\((--[a-z0-9-]+)\)/);
+    if (v) colorOf.set(m[1], v[1]);
+  }
+  assert.ok(colorOf.size >= 4, `只解析到 ${colorOf.size} 条 .tok-* 的 color —— 正则或样式表变了`);
+
+  const slots = [...CONTRACT_VARS].filter((v) => v.startsWith('--tok-')).map((v) => v.slice(6));
+  const bad = [];
+
+  for (const c of produced) {
+    const want = slots.includes(c) ? `--tok-${c}` : TOK_EXCEPTION[c];
+    if (!want) {
+      bad.push(`tok-${c}：既没有 --tok-${c} 槽位，也没进 TOK_EXCEPTION —— 结构层会就近找个变量凑`);
+      continue;
+    }
+    if (colorOf.get(c) !== want) {
+      bad.push(`tok-${c}：TOK_EXCEPTION / 槽位说的是 ${want}，style.css 里写的是 ${colorOf.get(c) || '（没解析到）'}`);
+    }
+  }
+  /* ③ 例外表不许开空头 */
+  for (const c of Object.keys(TOK_EXCEPTION)) {
+    if (!produced.has(c)) bad.push(`TOK_EXCEPTION.${c}：渲染器不产出这一类，登记是空头`);
+    if (!CONTRACT_VARS.has(TOK_EXCEPTION[c])) bad.push(`TOK_EXCEPTION.${c} → ${TOK_EXCEPTION[c]} 不是契约变量`);
+  }
+  /* ④ 契约槽位不许是死的 */
+  for (const c of slots) {
+    if (!produced.has(c)) bad.push(`契约有 --tok-${c} 槽位，但渲染器不产出这一类 —— 死槽位`);
+  }
+
+  assert.deepEqual(bad, [], `token 配色来源与契约不符：\n      ${bad.join('\n      ')}`);
+});
+
+t('TC-42 [P-067] 代码块底色与边框只归 .code-wrap，pre 自己不许画（打印除外）', () => {
+  /* `style.css:586` 已经把 background/border 上提到 `.md .code-wrap`（573 行），
+     pre.code-block 自己 `background: transparent`。这个结构一旦回退成「pre 也画一层」，
+     横向滚动时 pre 的底色会盖住 wrap 的左框 —— 双层结构里最常见的视觉 bug，
+     而且它只在长代码块横向滚动时才看得见。
+
+     材料给的判据会**误报**：它没排除 `@media print`。打印块里
+     `.md pre.code-block { border: 1px solid #d6d6d6; background: #fafafa }` 是有意写的 ——
+     打印纸没有滚动容器，不存在「滚动时盖住左框」，而白色纸面上需要边界。 */
+  const isPrint = (at) => at.some((a) => /@media[^{]*\bprint\b/.test(a));
+  const offenders = [];
+  let parsedCodeBlock = 0;
+
+  /* 只认「最后一个复合选择器是 pre.code-block」，要求带 .code-block：
+     `.friend-apply pre`（表单里的预览块）不是代码块，不该被这条管。 */
+  const LAST_IS_CODE_BLOCK = /(^|[\s>+~])pre\.code-block$/;
+  const files = ['public/style.css', ...themeIds.map((id) => `public/theme/${id}.css`)];
+
+  for (const f of files) {
+    const text = read(f).replace(/\/\*[\s\S]*?\*\//g, '');
+    let ctx = [];
+    let buf = '';
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '{') {
+        const head = buf.trim().replace(/\s+/g, ' ');
+        buf = '';
+        if (head.startsWith('@')) { ctx.push(head); continue; }
+        /* 读到配对的 } 作为 body */
+        let depth = 1;
+        let j = i + 1;
+        let body = '';
+        for (; j < text.length; j++) {
+          if (text[j] === '{') depth++;
+          else if (text[j] === '}') { if (--depth === 0) break; }
+          body += text[j];
+        }
+        i = j;
+        if (!LAST_IS_CODE_BLOCK.test(head)) continue;
+        parsedCodeBlock++;
+        if (isPrint(ctx)) continue;
+        const bg = body.match(/background(?:-color)?:\s*([^;}]+)/);
+        const bd = body.match(/(?:^|[;{\s])border:\s*([^;}]+)/);
+        if (bg && !/^(transparent|none|inherit|unset|initial)\b/.test(bg[1].trim())) {
+          offenders.push(`${f} 「${head}」设了 background: ${bg[1].trim()}`);
+        }
+        if (bd && !/^(0|none|inherit|unset|initial)\b/.test(bd[1].trim())) {
+          offenders.push(`${f} 「${head}」设了 border: ${bd[1].trim()}`);
+        }
+      } else if (ch === '}') { ctx.pop(); buf = ''; } else buf += ch;
+    }
+  }
+
+  /* 正面锚点用「解析到几条」而不是「某条声明还在」：
+     后者会把「有人给 pre 加回了背景」误报成「解析器坏了」，指向错的根因。
+     解析到 0 条 = 选择器或解析器变了，「一条都没违规」对「一条都没看见」同样成立。 */
+  assert.ok(
+    parsedCodeBlock >= 2,
+    `只解析到 ${parsedCodeBlock} 条 pre.code-block 规则 —— 解析器或选择器变了，这条在空转`
+  );
+
+  assert.deepEqual(offenders, [], `代码块双层结构回退了：\n      ${offenders.join('\n      ')}`);
 });
 
 t('TC-39 [P-064] 契约 ↔ 消费侧双向对账：引用的变量要有来源，槽位要被真的消费', () => {
