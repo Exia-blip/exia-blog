@@ -631,7 +631,7 @@
 - **复现**：把 `editor.html` 的 `classList.toggle('saving', …)` 改回 `className = 'save-state ' + kind` → `TC-40` 报「动态类名是拼出来的」；把 `app.js` 的 `classList.add('clipped')` 改成 `` classList.add(`clipped-${1}`) `` → 同样报，且括号里带上原文方便定位。
 - **断言**：`TC-40` 判**写法**不判名字 —— 三种形态（`classList.*` / `.className =` / `setAttribute('class', …)`）的首个类名参数必须是纯字面量，出现拼接或模板字符串就红，并提示二选一（改成字面量 / 扩展 `scanDynamicClasses`）。配正面锚点：全仓抽到的动态类名总数 ≥10，否则「零处拼接」对「采集器死了」同样成立。另外 `TC-38` 自带**分形态失明锚点**：用一条互不依赖的 `RAW_FORM` 正则数「源码里这种形态出现几次」，与采集器的认领次数比，出现却一次都没认领就红（把 `classList\.` 手滑成 `classLst\.` → 报「源码里 18 处 classList，采集器一处都没认出来」）。
 - **边界**：只覆盖上述三种写法。`el.classList.value = tpl`、`el.setAttribute('class', a + b)` 之外的 `outerHTML` 拼接、框架 diff 出来的类名都不在射程内 —— 它们的共同点是「CSS 选择器本来就该写在模板里」，不在主题契约的范围。也不判「这个动态类该不该存在」，只判「它的名字能不能被静态读到」。
-- **出处**：`scripts/test-theme-contract.mjs` TC-38 / TC-40；`public/editor.html:568 / 730`；`public/app.js` 的 15 个动态类；站务记录 2026-11-24
+- **出处**：`scripts/test-theme-contract.mjs` TC-38 / TC-40；`public/editor.html:568 / 730`；全仓 39 个动态类名（`classList` 78 处 / `.className =` 15 处 / `setAttribute('class')` 0 处，去重后 39 个，全部来自 `public/**` 的客户端脚本与静态页内联脚本，`src/**` 的 SSR 模板里只有 3 个）；站务记录 2026-11-24
 
 ## P-066 语法高亮的第 5 类没有槽位，结构层「就近找个变量」凑 —— 三道闸一起放过
 
@@ -650,6 +650,40 @@
 - **断言**：`TC-42` 自带一个能识别 `@media` 上下文的极简 CSS 扫描器（逐字符配对大括号，维护 at-rule 栈），只看「最后一个复合选择器是 `pre.code-block`」的规则，要求 `background` ∈ {transparent, none, inherit, unset, initial} 且 `border` 缺省或为 `0`/`none`。必须带 `.code-block` 类：`.friend-apply pre`（表单预览块）不是代码块，不该被这条管。正面锚点是**解析到的规则条数 ≥2**，不是「某条声明还在」—— 后者会把「有人给 pre 加回背景」误报成「解析器坏了」，指向错的根因（这个错误我第一版真的犯了）。
 - **边界**：只查 `public/style.css` 与 `public/theme/*.css` 的静态规则，不查 JS 写进去的内联样式。也不管 `>.gutter` 自己的底色（那是行号列，独立背景是有意的，打印块里同样给了 `#fafafa`）。
 - **出处**：`scripts/test-theme-contract.mjs` TC-42；`public/style.css:573 / 586 / 2630`（打印块）；站务记录 2026-11-24
+
+## P-068 「源清单无重复」的判据写在已去重的值上，恒真 —— 重复一直真实存在
+
+- **现象**：类名采集的源清单是 `[...new Set(['public/md.js', 'public/app.js', ...src/*.js, ...public/*.{html,js}])]`。`md.js` / `app.js` 既被显式列出、又被 `public/*.js` 通配命中，重复是**结构性**的。要防它，材料给的是 `sourceList.length === new Set(sourceList).size` —— 但 `sourceList` 在这个文件里已经是 Set 展开过的结果，左右两边永远相等。一条 100% 通过的断言，守着一个真实存在的重复。
+- **根因**：判据的输入是**它自己要检验的那一步转换的产物**。这和 P-059（空集恒真）、P-063（判据只等价于「每块最多一条」）是同一个病的第三种形态：不是空集、不是等价弱化，而是**同一表达式出现在等式两边**。任何「A 应该覆盖 B」的断言都需要一个与 A、B 都独立的第三计数（`TC-38` 的 `RAW_FORM` 就是），这里连 A 都被提前改写了。
+- **复现**：保留未去重的 `CLASS_SOURCES_RAW` 后直接跑 → `TC-43` 报「源清单里重复出现：public/app.js, public/md.js」（第一次跑就是红的，不是构造出来的）；修法是让通配只补漏（剔掉已显式列出的两个文件），`CLASS_SOURCES_RAW` 本身无重复，`Set` 保留作保险。
+- **断言**：`TC-43` 遍历原始清单做判重（`seen.has(f)` 而非长度比较），配两条锚点：`src/` 项 ≥20、`public/` 项 ≥8、总数 ≥40 —— 实测 48（src 33 / public 15）。锚点必须存在，否则「清单只剩硬编码两项时无重复」同样成立，而那意味着 SSR 模板整个没被扫。注入验证：显式加一行 `'public/theme.js'` → 报重复；删掉 `src/*.js` 通配 → 报「清单只展开到 15 项（src 0 / public 15）—— 通配失效了」。
+- **边界**：只判**完全相同的路径字符串**。`./public/x` 与 `public/x`、`public//x` 这种同文件不同写法不在射程内（当前清单由同一份 `readdirSync` 拼出，不会产生）；也不判「两份内容相同的副本文件」—— 那是复制粘贴的问题，路径判重抓不到。
+- **出处**：`scripts/test-theme-contract.mjs` 的 `CLASS_SOURCES_RAW` / TC-43；第七份材料「源清单 app.js 重复」；站务记录 2026-11-24
+
+## P-069 动态类的「SSR 可见率」是 3/39，但这不是缺陷 —— 阈值 30% 会把设计判成 bug
+
+- **现象**：全仓 39 个动态类名里，只有 `on` / `active` / `warn` 三个同时以 `class="…"` 字面量出现在 `src/**` 的 SSR 模板里（`admin-ui.js` / `index.js` / `dashboard.js`），其余 **36 个在任何 HTML 字面量里都不出现**：`public/*.js` 与 `public/*.html` 的内联脚本用 `classList.*` / `className =` 创建它们。静态页 `class="…"` 里能捞到的只有 `on` / `active` 两个，且都在那 3 个之内。可见率 3/39 ≈ 7.7%。
+- **根因**：这 36 个里，`read-bar` / `back-top` / `lb`（灯箱）/ `mtoc`（移动目录）/ `copy-link` / `nav-prog` 全是 **JS 建出来的交互增强件**：无 JS 时元素根本不存在，也就不需要样式，更不会产生 CLS（不存在的东西不参与布局）。把它们和「状态样式失效」归成一类，等于要求交互件必须在 HTML 里预先躺一份空壳 —— 那是另一种设计，不是这条站的缺陷。材料拍的 30% 阈值必然红，红的理由却是口径错了。
+- **复现**：不需要整页渲染，12 行就够 —— 抽动态类名字，再与「`src/**` 的 `class="…"` 字面量」「`public/**` 的 `class="…"` 字面量」各求一次交集。落盘 `probe-dyn.mjs` 后 `node probe-dyn.mjs`，输出 `动态类 39 个 | SSR 模板可见 3（on active warn） | 静态页可见 2 | 仅 JS 挂载 36`（静态页那 2 个是 `on` / `active`，仍在那 3 个之内）：
+  ```js
+  import { readdirSync, readFileSync } from 'node:fs';
+  const list = (d) => readdirSync(d).filter((f) => /\.(js|html)$/.test(f)).map((f) => `${d}/${f}`);
+  const files = [...list('src'), ...list('public')];
+  const dyn = new Set(); const add = (s) => s.split(/\s+/).filter(Boolean).forEach((c) => dyn.add(c));
+  for (const f of files) {
+    const t = readFileSync(f, 'utf8');
+    for (const m of t.matchAll(/classList\.(?:add|remove|toggle|replace)\(([^)]*)\)/g)) { const s = m[1].match(/^\s*['"]([^'"]*)['"]/); if (s) add(s[1]); }
+    for (const m of t.matchAll(/\.className\s*\+?=\s*['"]([^'"]*)['"]/g)) add(m[1]);
+  }
+  const lit = (p) => new Set(files.filter((f) => f.startsWith(p))
+    .flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/class="([^"]*)"/g)])
+    .flatMap((m) => m[1].split(/\s+/)).filter(Boolean));
+  const ssr = lit('src/'), html = lit('public/');
+  console.log(`动态类 ${dyn.size} | SSR 可见 ${[...dyn].filter((c) => ssr.has(c)).length} | 仅 JS 挂载 ${[...dyn].filter((c) => !ssr.has(c) && !html.has(c)).length}`);
+  ```
+- **断言**：**不写阈值断言**，这是本轮唯一主动拒绝的一条，理由三条：① 判据要问的是「元素该不该在 SSR 里」，机器只能回答「元素在不在」，把前者写成阈值就是把设计意图编码成拍出来的数字；② 整页渲染也拿不到更多信息 —— `servePostPage` 直出的 HTML 本来就没有 JS 建的元素，`renderPage()` 花两百行 fake 掉 `env.DB`（5 条查询）与 `assetText`（R2），产出的仍然是 3/39，而 fake 层会被任意一条 SQL 改动打断；③ 真要产物级结论，正确工具是无头 Chrome 关 JS 跑一次 `document.querySelectorAll`，那是 `check-live` 的活，不该进 `npm test`。数字钉在这里，比钉在一条永远绿的断言上更有用。
+- **边界**：3/39 是**今天**的快照（2026-11-24）。有人把导航或目录改成 SSR 直出，这个数会上升，断言不存在也就不会提示更新 —— 这是主动接受的漂移。另：`classList` 78 处 / `.className =` 15 处是**原始出现次数**，同一个类名在多处 toggle 很常见，不能拿 93 当「动态类个数」。
+- **出处**：`scripts/test-theme-contract.mjs` 的 `scanDynamicClasses` / `CLASS_SOURCES`；`src/admin-ui.js` / `src/index.js` / `src/dashboard.js` 的 `class=` 字面量；`public/app.js` 的 `read-bar` / `back-top`；第八份材料「TC-42 动态类 SSR 可见率」；站务记录 2026-11-24
 
 ---
 

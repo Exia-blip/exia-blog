@@ -876,14 +876,21 @@ function scanDynamicClasses(text) {
   return { names, blind, forms };
 }
 
-/* 产出侧采集：JS 源码 + HTML + SSR 模板。Set 去重 —— md.js / app.js 既是显式项
-   也在 public/*.js 的通配里，不去重会让失明报告同一条报两遍。 */
-const CLASS_SOURCES = [...new Set([
+/* 产出侧采集：JS 源码 + HTML + SSR 模板。md.js / app.js 既是显式项、也在 public/*.js
+   的通配里，所以原始清单天生带重复 —— 留着，让 TC-43 看得见；再用 Set 去重供扫描用。
+   不去重就会让失明报告同一条报两遍（而且分母虚高，掩盖真实数量）。 */
+const CLASS_SOURCES_RAW = [
   'public/md.js',
   'public/app.js',
   ...readdirSync(new URL('src', ROOT)).filter((f) => f.endsWith('.js')).map((f) => `src/${f}`),
-  ...readdirSync(new URL('public', ROOT)).filter((f) => /\.(html|js)$/.test(f)).map((f) => `public/${f}`),
-])];
+  ...readdirSync(new URL('public', ROOT))
+    .filter((f) => /\.(html|js)$/.test(f))
+    /* md.js / app.js 已在上面显式列出（它们是契约的主角，不该依赖通配的存在与否），
+       通配只负责补漏，所以这里把它们剔掉 —— 否则 TC-43 报重复。 */
+    .filter((f) => f !== 'md.js' && f !== 'app.js')
+    .map((f) => `public/${f}`),
+];
+const CLASS_SOURCES = [...new Set(CLASS_SOURCES_RAW)];
 
 t('TC-38 [P-062] 主题文件里的类名选择器必须在全站类名表里出现', () => {
   /* 第四份材料的第三个缺口，且是我这边真没有的：主题 CSS 那一侧没有任何反向校验。
@@ -983,6 +990,38 @@ t('TC-40 [P-065] 动态类必须写成字面量：采集器读不出名字就等
   assert.ok(
     totalNames >= 10,
     `全仓只抽到 ${totalNames} 个动态类名 —— 采集器没在工作，「零处拼接」这个结论是空的`
+  );
+});
+
+t('TC-43 [P-068] 类名源清单不得有重复项：同一文件扫两遍，失明会报两遍、分母虚高', () => {
+  /* 材料给的判据是 `sourceList.length === new Set(sourceList).size`。写成这样之前
+     我是 `const CLASS_SOURCES = [...new Set([...])]` —— 把那条判据套在**已经去重过**的
+     值上，左右两边永远相等，是一条恒真的断言。要判重复，必须先留一个未去重的原始清单，
+     而这正是「A 应该覆盖 B」类断言需要独立第三计数的同一个道理：
+     判据的输入不能是判据自己要检验的那步转换的产物。
+
+     重复从哪来：md.js / app.js 既是显式项，又被 public/*.js 通配命中。不去重的后果不是
+     「多扫一遍」这么轻 —— 失明报告里同一个文件报两遍（人工核对时以为有两个文件坏了），
+     而「抽到 N 个动态类名」的分母也跟着虚高，掩盖采集器退化。 */
+  const dup = [];
+  const seen = new Set();
+  for (const f of CLASS_SOURCES_RAW) {
+    if (seen.has(f)) dup.push(f);
+    seen.add(f);
+  }
+  assert.deepEqual(
+    dup,
+    [],
+    `源清单里重复出现：${dup.join(', ')} —— 删掉显式项或收窄通配，否则失明报告会重复计`
+  );
+
+  /* 锚点：两条通配必须真的展开过。清单只剩硬编码项时，「无重复」同样成立，
+     而那意味着 src/*.js 的 SSR 模板整个没被扫 —— 比重复严重得多。 */
+  const srcCount = CLASS_SOURCES.filter((f) => f.startsWith('src/')).length;
+  const pubCount = CLASS_SOURCES.filter((f) => f.startsWith('public/')).length;
+  assert.ok(
+    srcCount >= 20 && pubCount >= 8 && CLASS_SOURCES.length >= 40,
+    `清单只展开到 ${CLASS_SOURCES.length} 项（src ${srcCount} / public ${pubCount}）—— 通配失效了`
   );
 });
 
