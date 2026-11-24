@@ -291,6 +291,124 @@ t('TC-18 ?theme= 预览生效，且脏值不会变成一次 404 请求', () => {
   assert.equal(dirty.attrs['data-theme'], 'paper');
 });
 
+/* ---------- 皮肤纪律：禁装饰、限体积、算对比度 ----------
+   这三条不是审美意见，是「加第 8、9 套主题时不会把站弄花」的闸门：
+   [P-052] 皮肤里禁渐变与玻璃拟态；[P-053] 单个皮肤 ≤ 2000 B（与 check-size 同口径）；
+   [P-054] 对比度实算 —— 之前只有主表的体积预算，主题文件谁都能往里堆渐变，
+   而没有任何一条断言算过对比度，全靠人眼。 */
+
+t('TC-19 主题文件不引渐变与玻璃拟态（纯色分区）', () => {
+  for (const id of themeIds) {
+    const text = read(`public/theme/${id}.css`)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      /* 显式关闭不算引：`backdrop-filter: none` 是把主表继承来的模糊摘掉，
+         恰恰是这条规矩想要的。只有给了非 none 的模糊才算违规。 */
+      .replace(/backdrop-filter\s*:\s*none\s*;?/gi, '');
+    assert.doesNotMatch(
+      text,
+      /(?:linear|radial|conic)-gradient\s*\(/i,
+      `theme/${id}.css 用了渐变 —— 发丝线主题靠 --line 分区，渐变会把层级糊掉`
+    );
+    assert.doesNotMatch(
+      text,
+      /backdrop-filter|backdrop-blur/i,
+      `theme/${id}.css 用了玻璃拟态 —— 半透明模糊在低端机上掉帧，且和纯色底冲突`
+    );
+  }
+});
+
+t('TC-20 单个主题文件 ≤ 2000 B（与 check-size 同一口径）', () => {
+  for (const id of themeIds) {
+    const bytes = Buffer.byteLength(read(`public/theme/${id}.css`));
+    /* 和 scripts/check-size.mjs 的 2000 B 保持同一个数：两个阈值必然漂成两套口径。 */
+    assert.ok(bytes <= 2000, `theme/${id}.css 已有 ${bytes} 字节，超过 2000 —— 它开始长骨架了`);
+  }
+});
+
+/* 真要算。八套主题 × 浅深两态 × 四个色，任何一处掉到 4.5 以下都算不合格：
+   正文、次要、辅助、强调。--brand 这类只做填充的颜色不在其中（它上面从不放字）。 */
+const lum = (hex) => {
+  const h = hex.length === 4 ? '#' + [...hex.slice(1)].map((x) => x + x).join('') : hex;
+  const [r, g, b] = [1, 3, 5]
+    .map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+const blockOf = (id, mode) => {
+  const file = `public/theme/${id}.css`;
+  const src = existsSync(new URL(file, ROOT)) ? read(file) : css;
+  /* 两种归宿：自己的 :root[data-theme="id"] 块（安知鱼在主表、其余六套在各自文件），
+     或者主表的裸 :root（纸韵 —— 它是基准，没有自己的选择器）。
+     注意站点默认主题是安知鱼，基准主题是纸韵，两者不是同一个，别拿 SITE_THEME 推。 */
+  const own = new RegExp(`:root\\[data-theme="${id}"\\]\\s*\\{`);
+  const sel = own.test(src)
+    ? new RegExp(
+        `:root\\[data-theme="${id}"\\]${mode === 'dark' ? '\\[data-mode="dark"\\]' : ''}\\s*\\{([\\s\\S]*?)\\n\\}`
+      )
+    : mode === 'light'
+      ? /(?:^|\n):root\s*\{([\s\S]*?)\n\}/
+      : /(?:^|\n):root\[data-mode="dark"\]\s*\{([\s\S]*?)\n\}/;
+  const m = src.match(sel);
+  return m ? m[1] : null;
+};
+const varOf = (block, k) => {
+  const m = block && block.match(new RegExp(`--${k}:\\s*(#[0-9a-fA-F]{3,8})`));
+  return m ? m[1] : null;
+};
+
+t('TC-21 每套主题的浅色与深色都有自己的变量块', () => {
+  for (const id of THEME_IDS) {
+    for (const mode of ['light', 'dark']) {
+      assert.ok(blockOf(id, mode), `主题 ${id} 缺 ${mode} 变量块 —— 缺了就会继承上一套的颜色`);
+    }
+  }
+});
+
+t('TC-22 正文 / 次要 / 辅助 / 强调 对底色 ≥ 4.5:1（实算，不靠眼）', () => {
+  const bad = [];
+  for (const id of THEME_IDS) {
+    for (const mode of ['light', 'dark']) {
+      const block = blockOf(id, mode);
+      const bg = varOf(block, 'bg');
+      assert.ok(bg, `${id}/${mode} 读不到 --bg`);
+      for (const k of ['fg', 'fg-soft', 'muted', 'accent']) {
+        const c = varOf(block, k);
+        assert.ok(c, `${id}/${mode} 读不到 --${k}`);
+        const r = contrast(c, bg);
+        if (r < 4.5) bad.push(`${id}/${mode} --${k} ${c} on ${bg} = ${r.toFixed(2)}`);
+      }
+    }
+  }
+  assert.deepEqual(bad, [], `这些配色过不了 AA：\n      ${bad.join('\n      ')}`);
+});
+
+t('TC-23 每套主题都有 theme-color，且判定不再靠主题名', () => {
+  const map = read('src/index.js').match(/const THEME_COLOR = \{([\s\S]*?)\n\};/);
+  assert.ok(map, '找不到 THEME_COLOR');
+  const ids = [...map[1].matchAll(/^\s*([a-z0-9]+):\s*'#[0-9a-f]{6}'/gm)].map((m) => m[1]);
+  assert.deepEqual(
+    [...ids].sort(),
+    [...THEME_IDS].sort(),
+    `THEME_COLOR 少了主题：${THEME_IDS.filter((i) => !ids.includes(i)).join(', ') || '（无）'}`
+  );
+  /* themeCssPath 以前写死 paper/anzhiyu，加第八套时要改这里才算接对。
+     现在它问资源清单，代码里不该再出现主题名比较。 */
+  const settings = read('src/settings.js')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//'))
+    .join('\n');
+  assert.doesNotMatch(
+    settings,
+    /===\s*'(?:paper|anzhiyu)'/,
+    'settings.js 还在按主题名判断「有没有独立文件」—— 该问 ASSET_HASH'
+  );
+});
+
 /* 自检：同步 runner 必须拒收 async 函数（P-029 那个坑，第二次踩过） */
 {
   const p0 = pass;

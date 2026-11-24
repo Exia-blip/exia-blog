@@ -9,6 +9,7 @@ export const THEMES = [
   { id: 'ocean', name: '静海', desc: '冷白 · 靛蓝', sw: ['#f4f7fb', '#dce5f0', '#2a5aa8'] },
   { id: 'plum', name: '暮紫', desc: '淡紫 · 梅色', sw: ['#faf7fc', '#e9e0ef', '#7d3f91'] },
   { id: 'mono', name: '终端', desc: '灰阶 · 等宽字', sw: ['#f4f4f5', '#d9d9de', '#0a7d4b'] },
+  { id: 'edge', name: '基建', desc: '纯白 · 锚橙发丝线', sw: ['#ffffff', '#e2e6ec', '#f6821f'] },
 ];
 
 export const MODES = [

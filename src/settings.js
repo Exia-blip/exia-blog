@@ -5,7 +5,7 @@ import { ASSET_HASH } from './assets.gen.js';
 const TTL = 30_000;
 let cache = { at: 0, val: null };
 
-export const THEME_IDS = ['anzhiyu', 'paper', 'ink', 'forest', 'ocean', 'plum', 'mono'];
+export const THEME_IDS = ['anzhiyu', 'paper', 'ink', 'forest', 'ocean', 'plum', 'mono', 'edge'];
 export const MODE_IDS = ['auto', 'light', 'dark'];
 
 /* 主题样式表在 head 里直出时用的标签。
@@ -18,7 +18,10 @@ export const MODE_IDS = ['auto', 'light', 'dark'];
    404 地址」，而且只在某个主题下出现，测不到。 */
 export function themeCssPath(theme) {
   const id = normTheme(theme);
-  return id === 'paper' || id === 'anzhiyu' ? '' : `/theme/${id}.css`;
+  const href = `/theme/${id}.css`;
+  /* 有没有独立文件，问资源清单，不问主题名：以前这里写死 paper/anzhiyu，
+     加第八套时才想起来还有这么一处（P-051 修了客户端的两处，漏了这处）。 */
+  return ASSET_HASH[href.slice(1)] ? href : '';
 }
 
 export function themeCssTag(theme, version = '') {

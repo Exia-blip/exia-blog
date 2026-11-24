@@ -2485,6 +2485,8 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   .nav-prog { transition: none !important; }
   .btn:active, .tag:active, .pick:active,
   nav.top a:active, .pagination .btn:active, .back-top:active { transform: none; }
+  /* 悬停上浮也算动效。卡片与友链在 reduce 下只换边框色，不上浮。 */
+  .post-card:hover, .friend-card:hover { transform: none; }
   @view-transition { navigation: none; }
   ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
 }

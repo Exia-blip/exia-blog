@@ -1388,6 +1388,7 @@ const THEME_COLOR = {
   ocean: '#f2f7fa',
   plum: '#faf5f8',
   mono: '#ffffff',
+  edge: '#ffffff',
 };
 
 function activeKey(path) {
