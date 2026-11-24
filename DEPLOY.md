@@ -29,14 +29,39 @@ npm run deploy
 ```bash
 npm run check:live
 ```
-打 `https://exia.de5.net`，43 项：响应头 / CSP / 缓存规则 / srcset 实物 / alt / 103 预加载 /
-零外链头像 / 零注释泄漏 等。部署脚本已在部署后自动跑这一步。
+打 `https://exia.de5.net`，逐项检查响应头 / CSP / 缓存规则 / srcset 实物 / alt / 103 预加载 /
+零外链头像 / 零注释泄漏 等。项数随断言增长，以脚本输出为准（这里不写死数字）。
+部署脚本已在部署后自动跑这一步。
 
 ## 5. 按需确认项
 ```bash
 npm run backfill:check     # 正文渲染缓存有无空行（退出码 0=无需 / 1=需回填）
 npm run ttfb               # TTFB 分缓存态 P50/P95（HIT/MISS/DYNAMIC）
 ```
+
+### 审核态匿名可见性（有 pending 样本时做）
+
+四项状态，两项已实测、两项仍是读码结论 —— 不要把后两项读成「已验过」：
+
+| 状态 | 结论 | 依据 |
+|---|---|---|
+| `approved` + 预排未到 | 匿名两次 404，正文不泄漏 | 实测。该态会进实例 LRU，第二次仍 404 → 读侧闸在缓存命中后照常执行 |
+| 私有稿 | 匿名两次 404，正文不泄漏 | 实测 |
+| `pending` | 匿名应 404 | **未实测**（当时库里无 pending 样本）。读码：`src/index.js` 的 1136/1142/1147 三闸在渲染之前 |
+| `rejected` | 匿名应 404 | **未实测**（库里 0 条）。同上 |
+| 作者登录预览私有/待审稿 → 匿名再读 | 预览不污染匿名缓存 | **未实测**（需 OAuth 凭据）。该半测的是会话与缓存的交互，与 `review_status` 无关 |
+
+等真有 pending 稿时，四步闭环（不需要作者登录）：
+
+```bash
+# 1. 任意账号发一篇稿 → 进 pending，记下 slug
+# 2. 匿名取：应 404
+curl -s -o /dev/null -w '%{http_code}\n' https://exia.de5.net/p/<slug>
+# 3. 管理员在 /admin/review 通过后，匿名再取：应 200
+# 4. 驳回后，匿名再取：应 404
+```
+
+第 2/3/4 步各取两次，才能同时覆盖「写 LRU 后读侧闸仍执行」。作者预览那半只能等有真实登录态时补，不能用这四步代替。
 
 ## 观测基线
 - **CF Analytics**：Dashboard → 设 cached/uncached 的 TTFB P50/P95 与 Web Vitals（LCP/CLS/INP）。
