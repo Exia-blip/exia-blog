@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/%E4%BE%9D%E8%B5%96-0-brightgreen.svg" alt="zero dependencies">
 </p>
 
-**在线：[exia.de5.net](https://exia.de5.net)** — 这个 README 讲的就是它正在跑的那套东西，不是示例工程。
+**在线：[miu.sryze.cc](https://miu.sryze.cc) [exia.de5.net](https://exia.de5.net)** — 这个 README 讲的就是它正在跑的那套东西，不是示例工程。
 
 跑在 Cloudflare 全家桶上的博客系统。Workers + D1 + R2 + 静态资源，没有服务器，不需要备案，一个解析到 Cloudflare 的域名就能上线。
 
