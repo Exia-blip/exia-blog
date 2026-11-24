@@ -1138,6 +1138,20 @@ t('TC-44 [P-070] 例外表借用的变量要登记影响面：消费点一变就
   assert.ok(entries.length >= 1, '例外表空了 —— TC-41 会先红，这条跟着空转');
   assert.ok(css.length > 10000, `style.css 只读到 ${css.length} B —— 读错了文件，下面的计数全是 0`);
 
+  /* 走 TC-42 那个括号配对扫描器，不新写正则（P-072）：
+     第一版用 `([a-z-]+)\s*:\s*[^;}]*var\(` 数分布，`.btn:hover { … }` 的 `btn` 被认成属性名。
+     改成「属性名前面必须是 { 或 ;」能绕过去，但那是在给正则打补丁 —— 根因是正则看不见层级。 */
+  const rules = scanCssRules(css);
+  assert.ok(
+    rules.length > 800,
+    `只解析到 ${rules.length} 条规则 —— 扫描器或样式表变了，下面的消费点数会偏小`
+  );
+
+  /* 扩面上限。200 是 2026-11-24 拍的，不是测出来的 —— 含义是「给今天 153 留三成余量」。
+     撞上它说明这个借用变量正在变成事实上的通用灰，那时该去申请 --tok-c 专属槽位，
+     而不是把 sites 从 199 改到 200 继续登记。上限与登记值分开判：两条都绿才算数。 */
+  const SITES_CAP = 200;
+
   const bad = [];
   for (const [c, e] of entries) {
     if (!e || typeof e.var !== 'string' || !e.var.startsWith('--')) {
@@ -1149,31 +1163,90 @@ t('TC-44 [P-070] 例外表借用的变量要登记影响面：消费点一变就
       bad.push(`TOK_EXCEPTION.${c}：sites 必须是 ≥2 的整数，今天是 ${e.sites}`);
       continue;
     }
-    const re = new RegExp(`var\\(\\s*${e.var.replace(/-/g, '\\-')}\\s*\\)`, 'g');
-    const actual = (css.match(re) || []).length;
-    if (actual === e.sites) continue;
 
+    /* 计数口径：**按声明**。同一条声明里写了两次 `var(--muted)`（今天 0 处）算一点 ——
+       影响面的单位是「多少个地方依赖这个值」，一条声明是一个视觉决策。
+       口径写在这里而不是文档里，因为改计数方式的人一定是先改这段代码。 */
+    const re = new RegExp(`var\\(\\s*${e.var.replace(/-/g, '\\-')}\\s*\\)`);
+    let actual = 0;
     const byProp = {};
-    /* 属性名必须紧跟 `{` 或 `;` —— 否则 `.btn:hover { border-color: var(--muted) }` 里
-       的 `btn` 会被当成属性名（`:hover` 提供了那个冒号）。第一版就是这么错的，
-       分布里冒出了 `btn` / `span` / `md-input`。 */
-    for (const m of css.matchAll(
-      new RegExp(`(?:^|[;{])\\s*([a-z-]+)\\s*:\\s*[^;}]*var\\(\\s*${e.var.replace(/-/g, '\\-')}\\s*\\)`, 'g')
-    )) {
-      byProp[m[1]] = (byProp[m[1]] || 0) + 1;
+    for (const r of rules) {
+      for (const [prop, val] of cssDecls(r.body)) {
+        if (re.test(val)) {
+          actual++;
+          byProp[prop] = (byProp[prop] || 0) + 1;
+        }
+      }
     }
     const dist = Object.entries(byProp).map(([k, v]) => `${k} ${v}`).join(' / ');
-    const delta = actual - e.sites;
-    bad.push(
-      `TOK_EXCEPTION.${c} 借 ${e.var}：登记 ${e.sites} 处，实际 ${actual} 处（${delta > 0 ? '+' : ''}${delta}）`
-        + `\n        当前分布：${dist}`
-        + `\n        新加的用法确认要扩大影响面 → 把 sites 改成 ${actual}；`
-        + '拿辅助文字色当底色/边框 → 那是另一种语义，该用专属变量'
-    );
+
+    if (actual > SITES_CAP) {
+      bad.push(
+        `TOK_EXCEPTION.${c} 借 ${e.var}：${actual} 处已超过扩面上限 ${SITES_CAP}（${dist}）`
+          + `\n        它正在变成通用灰 —— 该拆 --tok-${c} 专属槽位，不是继续改登记值`
+      );
+    }
+    if (actual !== e.sites) {
+      const delta = actual - e.sites;
+      bad.push(
+        `TOK_EXCEPTION.${c} 借 ${e.var}：登记 ${e.sites} 处，实际 ${actual} 处（${delta > 0 ? '+' : ''}${delta}）`
+          + `\n        当前分布：${dist}`
+          + `\n        新加的用法确认要扩大影响面 → 把 sites 改成 ${actual}；`
+          + '拿辅助文字色当底色/边框 → 那是另一种语义，该用专属变量'
+      );
+    }
   }
 
   assert.deepEqual(bad, [], `借用变量的影响面与登记不符：\n      ${bad.join('\n      ')}`);
 });
+
+/* ---------- CSS 规则扫描（TC-42 / TC-44 共用） ----------
+   正则看不见 CSS 的三层结构（at-rule / 选择器 / 声明），同一个根因踩过两次：
+     · `([a-z-]+)\s*:` 把 `.btn:hover { border-color: … }` 的 `btn` 当属性名 —— `:hover` 提供了冒号
+     · 「取最近的上一个选择器」会漏掉嵌套规则、以及逗号分隔的选择器组
+   所以这里只做一件事：逐字符配对大括号，把文本切成 `{ at, selector, body }`。
+   at 是该规则所处的 at-rule 栈（`@media print` 这类），判断上下文用它而不是再扫一遍原文。
+   调用方一律在结构化结果上做判断，不新写正则 —— 这就是 P-072。 */
+function scanCssRules(text) {
+  const rules = [];
+  let ctx = [];
+  let buf = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '{') {
+      const head = buf.trim().replace(/\s+/g, ' ');
+      buf = '';
+      if (head.startsWith('@')) { ctx.push(head); continue; }
+      let depth = 1;
+      let j = i + 1;
+      let body = '';
+      for (; j < text.length; j++) {
+        if (text[j] === '{') depth++;
+        else if (text[j] === '}') { if (--depth === 0) break; }
+        body += text[j];
+      }
+      i = j;
+      rules.push({ at: [...ctx], selector: head, body });
+    } else if (ch === '}') { ctx.pop(); buf = ''; } else buf += ch;
+  }
+  return rules;
+}
+
+/* 规则体里的声明：按 `;` 切开，首个 `:` 之前是属性名。
+   带 `{` 的片段是嵌套块（CSS nesting），跳过 —— 当前 style.css 没有用它。
+   引号内出现 `;` 会切错，但全站 `content:` 的值里没有分号（2026-11-24 实测）。 */
+function cssDecls(body) {
+  const out = [];
+  for (const chunk of body.split(';')) {
+    if (chunk.includes('{')) continue;
+    const k = chunk.indexOf(':');
+    if (k < 0) continue;
+    const prop = chunk.slice(0, k).trim().toLowerCase();
+    if (!prop || /\s/.test(prop)) continue;
+    out.push([prop, chunk.slice(k + 1).trim()]);
+  }
+  return out;
+}
 
 t('TC-42 [P-067] 代码块底色与边框只归 .code-wrap，pre 自己不许画（打印除外）', () => {
   /* `style.css:586` 已经把 background/border 上提到 `.md .code-wrap`（573 行），
@@ -1194,37 +1267,19 @@ t('TC-42 [P-067] 代码块底色与边框只归 .code-wrap，pre 自己不许画
   const files = ['public/style.css', ...themeIds.map((id) => `public/theme/${id}.css`)];
 
   for (const f of files) {
-    const text = read(f).replace(/\/\*[\s\S]*?\*\//g, '');
-    let ctx = [];
-    let buf = '';
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (ch === '{') {
-        const head = buf.trim().replace(/\s+/g, ' ');
-        buf = '';
-        if (head.startsWith('@')) { ctx.push(head); continue; }
-        /* 读到配对的 } 作为 body */
-        let depth = 1;
-        let j = i + 1;
-        let body = '';
-        for (; j < text.length; j++) {
-          if (text[j] === '{') depth++;
-          else if (text[j] === '}') { if (--depth === 0) break; }
-          body += text[j];
+    for (const r of scanCssRules(read(f).replace(/\/\*[\s\S]*?\*\//g, ''))) {
+      if (!LAST_IS_CODE_BLOCK.test(r.selector)) continue;
+      parsedCodeBlock++;
+      if (isPrint(r.at)) continue;
+      for (const [prop, val] of cssDecls(r.body)) {
+        if ((prop === 'background' || prop === 'background-color')
+          && !/^(transparent|none|inherit|unset|initial)\b/.test(val)) {
+          offenders.push(`${f} 「${r.selector}」设了 ${prop}: ${val}`);
         }
-        i = j;
-        if (!LAST_IS_CODE_BLOCK.test(head)) continue;
-        parsedCodeBlock++;
-        if (isPrint(ctx)) continue;
-        const bg = body.match(/background(?:-color)?:\s*([^;}]+)/);
-        const bd = body.match(/(?:^|[;{\s])border:\s*([^;}]+)/);
-        if (bg && !/^(transparent|none|inherit|unset|initial)\b/.test(bg[1].trim())) {
-          offenders.push(`${f} 「${head}」设了 background: ${bg[1].trim()}`);
+        if (prop === 'border' && !/^(0|none|inherit|unset|initial)\b/.test(val)) {
+          offenders.push(`${f} 「${r.selector}」设了 border: ${val}`);
         }
-        if (bd && !/^(0|none|inherit|unset|initial)\b/.test(bd[1].trim())) {
-          offenders.push(`${f} 「${head}」设了 border: ${bd[1].trim()}`);
-        }
-      } else if (ch === '}') { ctx.pop(); buf = ''; } else buf += ch;
+      }
     }
   }
 

@@ -97,8 +97,9 @@ export const INTERNAL_PREFIX = '--_';
 export const TOK_EXCEPTION = Object.freeze({
   c: {
     var: '--muted',
-    /* style.css 里 `var(--muted)` 的出现次数。加一处就改成 154 —— 那一下就是签字：
-       「我确认把注释色的影响面又扩大了一格」。 */
+    /* style.css 里**含** `var(--muted)` 的声明条数。同一条声明写两次算一点 ——
+       影响面的单位是「多少个地方依赖这个值」，一条声明是一个视觉决策。
+       加一处就改成 154 —— 那一下就是签字：「我确认把注释色的影响面又扩大了一格」。 */
     sites: 153,
   },
 });

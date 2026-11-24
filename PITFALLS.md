@@ -703,6 +703,15 @@
 - **边界**：只认这两处定义的**文本形态**。把清单改成 helper 函数生成（`const CLASS_SOURCES_RAW = collect()`）会让元断言先报「找不到定义」并判红，不会静默变绿 —— 但那时要手工把元断言指到新落点，否则它只能一直红着。不判语义，也无法判「这份清单该包含哪些文件」（那是 TC-43 的长度锚点在做的事）。
 - **出处**：`scripts/test-theme-contract.mjs` TC-43 / TC-45；站务记录 2026-11-24
 
+## P-072 CSS 的三层结构用正则解析，同一个根因踩了两次
+
+- **现象**：TC-44 要报「`--muted` 的消费点分布在哪些属性上」，第一版用 `([a-z-]+)\s*:\s*[^;}]*var\(` 扫全文，实测输出是 `color 141 / btn 1 / border-color 2 / title-input 1 / span 1 / md-input 1 / background 2 / tp-item 1 / ava-drop 1 / scrollbar-color 1 / code-block 2` —— `btn` / `span` / `md-input` / `tp-item` 全是被认成属性名的**伪类或选择器片段**，因为 `.btn:hover { border-color: var(--muted) }` 里 `:hover` 提供了一个冒号。反方向的同类错误：想「取最近的上一个选择器」来归属声明，会漏掉嵌套规则与逗号分隔的选择器组。
+- **根因**：CSS 是 **at-rule / 选择器 / 声明** 三层嵌套结构，正则只做扁平匹配，看不见层级。把属性名的前置字符收紧到 `{`/`;` 能过这一例，但那是在给正则打补丁 —— 下一个 `.x[title="a:b"]` 或 `@supports` 里再嵌一层，又要打一次。TC-42 早就写好了逐字符配对大括号 + at-rule 栈的扫描器，正确做法是复用它，而不是另写一条更聪明的正则。
+- **复现**：退回正则版（把 TC-44 的 `scanCssRules` + `cssDecls` 换回 `matchAll(/([a-z-]+)\s*:\s*[^;}]*var\(/g)`），在 `style.css` 末尾加 `.tc44-probe { color: var(--muted); }` → 分布里立刻混进伪类碎片，总数对但分类不可读。走扫描器版本时同一注入输出 `color 144 / border-color 5 / background 4 / scrollbar-color 1`。
+- **断言**：`TC-42` 与 `TC-44` 共用两个模块级函数 —— `scanCssRules(text)` 返回 `[{ at, selector, body }]`（逐字符配对大括号，at 栈只负责记录上下文，不解析媒体条件），`cssDecls(body)` 按 `;` 切声明、首个 `:` 之前为属性名。TC-42 的打印豁免改成判 `rule.at` 里有没有 `print`，不再自己扫 `@media`；TC-44 的分布遍历 `cssDecls`，`actual` 的口径随之明确为「含该变量的**声明条数**」（同一声明写两次算一点，今天 0 处）。锚点：`rules.length > 800`（实测 1119 条），解析器退化到几十条时立刻红。注入验证三条：给 `.md pre.code-block` 加 `background: var(--bg-soft)` → TC-42 报「双层结构回退了」；加一处 muted → TC-44 报 154 且分布 `color 144`；`SITES_CAP` 调成 100 → 报「已超过扩面上限 100」。
+- **边界**：`cssDecls` 按 `;` 切，**引号内的分号会切错** —— 今天全站 `content:` 的值里没有分号（实测），哪天有就得在扫描器里加引号状态机。CSS nesting（规则里嵌规则）在 `cssDecls` 里整段跳过，今天没用它；真用了要改成递归。`at` 栈只记字符串，不求值媒体条件（`@media (min-width: 900px)` 里的规则在窄屏不生效，这条断言不管那层）。
+- **出处**：`scripts/test-theme-contract.mjs` 的 `scanCssRules` / `cssDecls` / TC-42 / TC-44；第九份材料「解析 CSS 一律走括号配对扫描器」；站务记录 2026-11-24
+
 ---
 
 ---
