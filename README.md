@@ -442,6 +442,16 @@ export function liveSql(a = 'p') {
 - 站长：后台「站点设置」里定**默认风格 / 默认外观**，给第一次来的读者用
 - 首访不闪：Worker 把默认风格注入 `<head>` 的 `window.__THEME_DEFAULT__`，CSS 加载前就定好 `data-theme` / `data-mode`
 - 深色不再依赖 `prefers-color-scheme`，改为显式 `html[data-mode]`，系统配色只在你选「跟随系统」时生效
+- 试穿：给链接加 `?theme=ink`（或任意 id）临时预览，**只影响当前这一页**，不写 `localStorage`、不写 cookie；在面板里真选一次即落盘，同时把参数摘掉
+
+### 主题契约
+
+一套主题 = 一个 `public/theme/<id>.css` + `src/settings.js` 的 `THEME_IDS` 一行。文件里的规则必须以 `:root[data-theme="<id>"]` 打头，所以换配色、换字体、换圆角、换栅格都只动这一个文件。
+
+- **要不要额外请求由文件决定**：清单（`ASSET_HASH`）里有 `/theme/<id>.css` 就发请求，没有就说明变量编在主样式表里（`paper` 是裸 `:root`，`anzhiyu` 是 `:root[data-theme="anzhiyu"]` 那一段）。代码里没有「主题名判断」这种东西，加第 8 套不用改引导脚本。
+- **主样式表只承载默认主题的骨架**：`SITE_THEME` 指向的那套可以把布局规则写进 `style.css`（默认主题的样式必须跟第一个请求一起到，单独一个请求是净亏）；其余主题的骨架必须待在自己的文件里，否则每个读者都在下载自己用不到的东西。这条由 `scripts/test-theme-contract.mjs` 的 TC-05/TC-06 守着。
+- 引导脚本只有一份（`src/themeboot.js`），静态模板用 `<!--THEMEBOOT-->` 占位，由 Worker 在出口替换 —— 手抄副本的下场见 P-051。
+- 远程主题（从别的域名拉 CSS）**不做**：会破 `integrity` 与内容哈希缓存，冷路径多一次 RTT，而且 CSS 本身能当外泄通道（属性选择器 + `background:url()`）。要真做，得先有域名白名单 + 体积上限 + `@import` / 远程 `url()` 剥离 + 边缘缓存，为一个作者维护的站不值。
 
 ## 配置项
 

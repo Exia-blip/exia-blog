@@ -741,6 +741,50 @@ console.log(`\n${ORIGIN}\n`);
   ok('[P-050] 分页 @id 也等于 canonical', p2.id === p2.canon, `@id ${p2.id} / canonical ${p2.canon}`);
 }
 
+/* ---------- 16. 主题引导与资源清单（P-051）
+
+   两件事只有线上才看得见：
+   1. `<!--THEMEBOOT-->` 是否被替换掉了 —— 静态模板靠 Worker 出口注入，
+      漏一页就是那一页没有防闪脚本（首帧白闪），本地单测抓不到。
+   2. 清单的**键**有没有被 `stampAssets` 戳上版本号。键一旦变成
+      `/theme/ink.css?v=…`，客户端按原名查空，表现为「切了主题但一个样式表都没请求」——
+      响应全是 200，控制台也不报错，只有真去查 DOM 才发现。 */
+{
+  /* 一律打 ?cb= 绕缓存：caches.default 里的旧副本既没有清单也没有新脚本，
+     部署后 300 秒内直接取会假红（这条体检就是要在部署当刻跑）。 */
+  const pages = ['/login', '/archive', '/'];
+  const rows = [];
+  for (const p of pages) {
+    const res = await fetch(`${ORIGIN}${p}?cb=${Date.now()}`, { headers: { 'cache-control': 'no-cache' } });
+    const body = await res.text();
+    rows.push({
+      p,
+      status: res.status,
+      leaked: body.includes('<!--THEMEBOOT-->'),
+      manifest: body.includes('window.__ASSET_H__={'),
+      // 键必须原样，后面紧跟冒号；带上 ?v= 就说明被改写了
+      keyClean: body.includes('"/theme/'),
+      keyDirty: /"\/theme\/[a-z]+\.css\?v=/.test(body),
+      cssStamped: /href="\/style\.css\?v=[0-9a-f]{10}" integrity="sha384-/.test(body),
+    });
+  }
+
+  const leaked = rows.filter((r) => r.leaked);
+  ok('[P-051] 静态页的 <!--THEMEBOOT--> 都被替换了', leaked.length === 0,
+    leaked.map((r) => `${r.p} 漏出占位符`).join(' | '));
+
+  const missing = rows.filter((r) => !r.manifest);
+  ok('[P-051] 每页都下发了主题资源清单', missing.length === 0,
+    missing.map((r) => r.p).join(' | '));
+
+  const dirty = rows.filter((r) => r.keyDirty);
+  ok('[P-051] 清单的键没被戳版本号', dirty.length === 0, dirty.map((r) => r.p).join(' | '));
+
+  const unstamped = rows.filter((r) => !r.cssStamped);
+  ok('[P-051] style.css 仍带内容哈希 + integrity', unstamped.length === 0,
+    unstamped.map((r) => r.p).join(' | '));
+}
+
 /* 体检有几十条，失败夹在中间的 ok 里很容易漏读。末尾把失败项单独列一遍。 */
 if (failed.length) {
   console.log('\n失败项：');

@@ -51,20 +51,38 @@ export function stampAssets(body, env) {
   const v = assetVersion(env);
   if (!v && !HASHED_FILES) return body;
 
-  let out = body.replace(STAMP, (m, q, f) => {
+  /* 内联脚本的**内容**先摘出去，只留开头那个 <script src> 标签参与替换。
+     理由：脚本里也有带引号的静态路径 —— 主题资源清单是
+     `window.__ASSET_H__={"/theme/ink.css":{...}}`，整串替换会把键改写成
+     `"/theme/ink.css?v=xxx"`，而客户端是按 `/theme/ink.css` 去查的，
+     查不到就当「这套主题没有独立样式表」，于是切了主题也不发请求（P-051）。
+     mermaid 的键同样被改坏过，只是一直没人从"为什么没挂上 SRI"这个方向查。 */
+  const bodies = [];
+  const masked = String(body).replace(
+    /(<script\b[^>]*>)([\s\S]*?)(<\/script>)/gi,
+    (m, open, inner, close) => {
+      bodies.push(inner);
+      return `${open}\u0000${bodies.length - 1}\u0000${close}`;
+    }
+  );
+
+  let out = masked.replace(STAMP, (m, q, f) => {
     const h = ASSET_HASH[f];
     const ver = h ? h.v : v;
     return ver ? `${q}/${f}?v=${ver}${q}` : m;
   });
 
-  if (!HASHED_FILES) return out;
-  return out.replace(/<(script|link)\b([^>]*)>/gi, (tag, name, attrs) => {
-    if (/\sintegrity=/i.test(attrs)) return tag;
-    const m = attrs.match(/\b(?:src|href)="\/([^"?]+)\?v=[^"]*"/i);
-    if (!m) return tag;
-    const h = ASSET_HASH[m[1]];
-    if (!h) return tag;
-    // <script ...> 与自闭合 <link ... /> 都能插，统一插在收尾尖括号之前
-    return tag.replace(/\s*(\/?)>$/, ` integrity="${h.i}"$1>`);
-  });
+  if (HASHED_FILES) {
+    out = out.replace(/<(script|link)\b([^>]*)>/gi, (tag, name, attrs) => {
+      if (/\sintegrity=/i.test(attrs)) return tag;
+      const m = attrs.match(/\b(?:src|href)="\/([^"?]+)\?v=[^"]*"/i);
+      if (!m) return tag;
+      const h = ASSET_HASH[m[1]];
+      if (!h) return tag;
+      // <script ...> 与自闭合 <link ... /> 都能插，统一插在收尾尖括号之前
+      return tag.replace(/\s*(\/?)>$/, ` integrity="${h.i}"$1>`);
+    });
+  }
+
+  return out.replace(/\u0000(\d+)\u0000/g, (m, i) => bodies[+i]);
 }

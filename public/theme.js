@@ -1,4 +1,4 @@
-// 风格（主题）系统：6 套预设 × 浅/深/跟随系统
+// 风格（主题）系统：7 套预设 × 浅/深/跟随系统
 // 偏好在 localStorage，站点默认值由服务端注入 window.__THEME_DEFAULT__
 
 export const THEMES = [
@@ -59,7 +59,19 @@ export function isValidMode(id) {
   return MODES.some((m) => m.id === id);
 }
 
-/** 当前偏好（存过用存的，否则用站点默认） */
+/* ?theme=<id> 临时预览：优先级最高，且完全不落盘 —— 刷新还在，是因为参数还在
+   URL 上，不是因为我们记住了它。白名单必须与 src/themeboot.js 里那段一致
+   （纯字母数字 2–16 位）：这个值会被拼进 /theme/<id>.css 的 href。 */
+function previewId() {
+  try {
+    const t = new URLSearchParams(location.search).get('theme') || '';
+    return /^[a-z0-9]{2,16}$/.test(t) ? t : '';
+  } catch {
+    return '';
+  }
+}
+
+/** 当前偏好（预览 > 存过 > 站点默认） */
 export function pref() {
   let theme = null;
   let mode = null;
@@ -67,8 +79,9 @@ export function pref() {
     theme = localStorage.getItem(K_THEME);
     mode = localStorage.getItem(K_MODE);
   } catch {}
+  const pv = previewId();
   return {
-    theme: isValidTheme(theme) ? theme : ROOT.dataset.theme || DEFAULT(),
+    theme: isValidTheme(pv) ? pv : isValidTheme(theme) ? theme : ROOT.dataset.theme || DEFAULT(),
     mode: isValidMode(mode) ? mode : ROOT.dataset.mpref || DEFAULT_MODE(),
   };
 }
@@ -77,12 +90,18 @@ function systemDark() {
   return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
 }
 
+/* 主题要不要额外请求，看资源清单，不看主题名：清单里没有 /theme/<id>.css，
+   就说明这套变量编在主样式表里（纸韵、安知鱼）。以前这里与 apply() 各写了一份
+   主题名判断，加主题必漏一处。 */
+function themeAsset(theme) {
+  return (window.__ASSET_H__ || {})[`/theme/${theme}.css`] || null;
+}
+
 /* 主题样式表现在是按需加载的：style.css 里只有纸韵的 :root，
-   其余六套在 /theme-<id>.css。切到没加载过的主题时先把文件拿到手再改 data-theme，
+   其余每套一个 /theme/<id>.css。切到没加载过的主题时先把文件拿到手再改 data-theme，
    反过来的话会有一两帧「变量还是上一套」的错配，比闪一下白更难看。 */
 function ensureThemeCss(theme) {
-  // 纸韵与安知鱼都直接在主样式表里，不需要额外请求
-  if (theme === 'paper' || theme === 'anzhiyu') return Promise.resolve();
+  if (!themeAsset(theme)) return Promise.resolve();
   const id = `tcss-${theme}`;
   if (document.getElementById(id)) return Promise.resolve();
   return new Promise((resolve) => {
@@ -92,7 +111,7 @@ function ensureThemeCss(theme) {
     /* integrity 必须在 href 之前设：href 一旦赋值浏览器就开始取资源，
        之后再写 integrity 不会重来一次校验。哈希表由 head 里的内联脚本下发
        （window.__ASSET_H__），没拿到就退化成不带校验的普通请求。 */
-    const a = (window.__ASSET_H__ || {})[`/theme/${theme}.css`] || {};
+    const a = themeAsset(theme) || {};
     if (a.i) l.integrity = a.i;
     l.href = `/theme/${theme}.css${a.v ? `?v=${a.v}` : ''}`;
     // 加载失败也放行：样式缺一份总比点不动强
@@ -119,6 +138,7 @@ export function apply(theme, mode, persist = true) {
         localStorage.setItem(K_THEME, theme);
         localStorage.setItem(K_MODE, mode);
       } catch {}
+      dropPreview();
     }
     // 让浏览器/手机地址栏底色跟着主题走，深色模式下不会留一条刺眼的白边
     const meta = document.querySelector('meta[name="theme-color"]');
@@ -130,10 +150,22 @@ export function apply(theme, mode, persist = true) {
     return { theme, mode, dark };
   };
 
-  if (document.getElementById(`tcss-${theme}`) || theme === 'paper' || theme === 'anzhiyu') return run();
+  if (document.getElementById(`tcss-${theme}`) || !themeAsset(theme)) return run();
   ensureThemeCss(theme).then(run);
   // 样式到位前先不动 DOM，返回值只是给调用方一个乐观值
   return { theme, mode, dark: mode === 'dark' || (mode === 'auto' && systemDark()) };
+}
+
+/* 手动选过就不再是「预览」了：把 ?theme= 摘掉。
+   预览本身不落盘，参数留着的话下次刷新又会跳回预览那套，
+   读者会以为自己的选择没生效。 */
+function dropPreview() {
+  if (!previewId()) return;
+  try {
+    const u = new URL(location.href);
+    u.searchParams.delete('theme');
+    history.replaceState(null, '', u.pathname + u.search + u.hash);
+  } catch {}
 }
 
 function syncUI() {

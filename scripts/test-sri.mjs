@@ -123,6 +123,22 @@ t('主题 CSS 也走哈希 + integrity', () => {
   assert.ok(out.includes(`integrity="${h.i}"`), out);
 });
 
+/* 内联脚本里的静态路径是**数据**，不是引用：主题资源清单长这样
+     window.__ASSET_H__={"/theme/ink.css":{"v":"…","i":"…"}}
+   整串替换会把键改成 "/theme/ink.css?v=…"，客户端按原名一路查空，
+   表现为「切了主题但一个样式表都没请求」——文本检查全绿，只有真跑才知道。
+   这条守的是「只加工标签，不加工脚本内容」这条边界（P-051）。 */
+t('内联脚本里的 JSON 键不挂版本号，标签照挂', () => {
+  const body =
+    '<script>window.__ASSET_H__={"/theme/ink.css":{"v":"x","i":"y"}};</script>' +
+    '<link rel="stylesheet" href="/style.css">';
+  const out = stampAssets(body, {});
+  assert.ok(out.includes('"/theme/ink.css"'), `键被改写了：${out}`);
+  assert.ok(!out.includes('"/theme/ink.css?v='), '键后面被戳了版本号');
+  assert.ok(out.includes(`/style.css?v=${ASSET_HASH['style.css'].v}`), '正常标签仍要挂版本号');
+  assert.ok(/integrity="sha384-/.test(out), '正常标签仍要补 integrity');
+});
+
 t('themeCssTag 的输出与 manifest 一致', () => {
   const tag = themeCssTag('ocean');
   const h = ASSET_HASH['theme/ocean.css'];

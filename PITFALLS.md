@@ -468,6 +468,25 @@
 - **断言**：`scripts/test-query-params.mjs` QP-07 从源码扫描改成**行为测试**（直接喂 URL 看 `canonicalOf` 返回值，9 条），QP-08 是元断言（`listLd` 的 url 必须走 `canonicalOf`，不许出现 `url.toString()`）；`check-live.mjs` 第 15 节 `[P-050]` 4 条守线上，打 `?cb=` 绕缓存。注入验证：`url: canonicalOf(url)` 改回 `url.toString()` → QP-08 立刻红。
 - **出处**：站务记录（本文件，2026-11-24）；`src/index.js` 的 `canonicalOf()` / `fillSeo()` / `listLd()` 调用处；`src/seo.js` 的 `listLd()`；`scripts/test-query-params.mjs`
 
+## P-051 同一段防闪脚本 10 份副本，9 份丢了 SRI 与内容哈希
+
+- **现象**：首屏（SSR 首页/文章页）直出的主题 CSS 带 `integrity` 与 `?v=<内容哈希>`；但读者在静态页（归档 / 分类 / 友链 / 登录 / 编辑器 / 404）或后台把主题切到水墨、苔原这些，网络面板里那份 `/theme/ink.css` 既没有 `integrity`，也没有 `?v=` —— 缓存头从「一年 immutable」掉回 `public, max-age=300`，每 5 分钟重取一次，且失去子资源完整性校验。查下去还发现第二层：连那份「唯一正确」的副本在运行时也查不到清单。
+- **根因**：两层。
+  1. 这段脚本手抄了 10 份（8 个静态 HTML、后台统计/健康/队列三页、404、系列页），只有 `src/index.js` 的 `themeBoot()` 那份拼了 `window.__ASSET_H__`。副本一多就必然分化：抄的人只补了自己那页。「哪几套主题有独立文件」的判断也散在两处（boot 里的主题名比较、`theme.js` 的 `ensureThemeCss`），`themeBoot()` 里还硬编码了五套主题 id 的循环 —— 加第 8 套主题要改 4 个地方。
+  2. 就算清单下发对了也没用：`stampAssets()` 拿一条正则通扫整份 HTML 里带引号的 `/xxx.css`，把内联脚本里 `window.__ASSET_H__={"/theme/ink.css":…}` 的**键**也改成了 `/theme/ink.css?v=…`；客户端按 `/theme/ink.css` 一路查空，于是「切了主题但没请求样式表」。mermaid 的键同样被改坏，只是一直没人从「为什么没挂上 SRI」这个方向查。
+  两条同因 —— 同 P-030（两处内联的资源判定）、P-044（两个 catch）、P-050（两条 canonical 出口）：**同一份规则有第二个实现，就一定会分叉**。
+- **复现**：静态页切主题，DevTools Network 过滤 `theme/`。修之前 `ink.css` 的请求 URL 没有 `?v=`，响应头 `cache-control: public, max-age=300, stale-while-revalidate=3600`；修之后带 10 位内容哈希，`max-age=31536000, immutable`。清单被改写则要直接看源码：`curl -s /login | grep -o '"/theme/ink[^,]*'` —— 修之前输出 `"/theme/ink.css?v=fa93572a62"`。
+- **修法**：
+  1. 引导脚本收进 `src/themeboot.js`（`THEME_BOOT` + `themeBootTag()`），全站唯一一份；静态模板改成 `<!--THEMEBOOT-->` 占位，由 `injectTheme()` 在出口替换（`<!--THEME-->` 排在它前面，先把 `__THEME_DEFAULT__` 落下来）。
+  2. 判定改成「**资源清单里有没有 `/theme/<id>.css`**」：有就发请求，没有就说明变量编在主样式表里（纸韵、安知鱼）。代码里不再出现主题名判断 —— 清单由 `ASSET_HASH` 派生，加主题不用改引导。
+  3. `stampAssets()` 动标签前先把内联脚本的**内容**摘出去（占位符暂存，最后还原），只加工 `<script src>` / `<link href>` 这类标签本身。这条边界必须显式写出来：脚本里的静态路径是数据，不是引用。
+  4. 顺带 `?theme=<id>` 临时预览：只影响当前页，不写 `localStorage`、不写 cookie；白名单限定纯字母数字 2–16 位（这个值会拼进 href，放行斜杠与点就是 `../` 的口子）；面板里手动选过之后用 `history.replaceState` 摘掉参数，免得刷新又跳回预览。带 query 的页面本来就 `no-store`（`harden` 的 search 分支）且不进边缘缓存（`cacheable = !url.search`），预览不会污染缓存。
+- **断言**：`scripts/test-theme-contract.mjs` TC-01~TC-18 —— 主题文件选择器必须以 `:root[data-theme="<id>"]` 开头、禁 `@import` 与远程 `url()`、主表只许默认主题骨架且规则数不超过 100、三处清单对齐（`THEME_IDS` / 面板 `THEMES` / 主题文件）、`data-mpref` 只许出现在 `themeboot.js`、静态模板必须有占位且不许留手抄副本、清单每条都带 `v` 与 `i`、预览白名单挡路径穿越、主题名序列化不闭合 script；**TC-16~TC-18 用 `node:vm` 把那段脚本真跑一遍**（选 ink 必须产出一条带 `?v=` 与 `integrity` 的 link；纸韵/安知鱼一条都不发；`?theme=` 生效且脏值不拼 href）—— 前十几条只检查文本，文本全绿而运行时查空正是这个坑的本体。`scripts/test-sri.mjs` 另加一条：内联脚本的 JSON 键不许被戳版本号，标签照戳。注入验证：往 `theme/ink.css` 加一条裸 `.md h2{}` → TC-02 红；往 `style.css` 加一条 `[data-theme="mono"]` → TC-05 红；从 `theme.js` 删掉暮紫 → TC-07 红；把清单的键改成带 `?v=` → TC-16 红；把 `stampAssets` 的遮罩去掉 → SRI 那条红。
+- **代价与边界**：引导脚本从约 700 涨到 1030 字节（每页 gzip 后约 +100 B），换一份实现与一份清单。**没有**把安知鱼的 79 条骨架规则搬进 `theme/anzhiyu.css`：实测那 11,283 字节（gzip 占主表 2,370 B / 6.1%）只有非默认主题的读者省得下，默认主题的读者反而多一个请求 —— 净负。主表承载默认主题的骨架是故意的：默认主题的样式必须跟第一个请求一起到。
+- **出处**：站务记录（本文件，2026-11-24）；`src/themeboot.js`；`src/index.js` 的 `themeBoot()` / `injectTheme()` / `notFoundPage()`；`src/admin-ui.js`；`public/theme.js`；`public/*.html` 的 `<!--THEMEBOOT-->`
+
+---
+
 ---
 
 ## 每篇长文末尾的「复现条件 + 断言代码」模板

@@ -3,6 +3,7 @@ import { loginRedirect, handleCallback, logout, authStatus, currentUser, ownerOr
 import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin, wordCount, pageParams } from './utils.js';
 import { checkFriends, checkSelfHealth } from './cron.js';
 import { themeCssTag, themeCssPath, getSite } from './settings.js';
+import { themeBootTag } from './themeboot.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
 import { coverOf, autoThumb, isAutoCover, ogCoverOf, thumbOf } from './cover.js';
 import { avatarSrc, avatarTone, safeWebsite, tagClass } from '../public/avatar.js';
@@ -652,25 +653,12 @@ async function serveFriendsPage(env, request) {
    顺带解决另一个问题——系列里的每一篇原本只能链到「同系列另一篇」，
    没有一个页面能让读者一眼看完整条线，也没有一个入口让爬虫一次抓全。 */
 
-// 主题初始化那一段在 404、系列页都要用，复制三份迟早漂移
+/* 主题引导只有一份实现（src/themeboot.js），404 / 系列页 / SSR 首页 / 静态模板
+   共用同一段脚本与同一份资源清单。以前这里手抄过一份，副本一多，9 份都不带
+   __ASSET_H__ —— 静态页切主题发出的 CSS 既没有 integrity 也没有 ?v=，
+   缓存从「一年不可变」退到「5 分钟」。见 P-051。 */
 function themeBoot(site) {
-  const cfg = JSON.stringify({ theme: site.theme, mode: site.mode }).replace(/</g, '\\u003c');
-  /* 主题 CSS 的哈希表要跟着这段脚本一起下发给浏览器：
-     head 里直出的那份 <link> 由 themeCssTag 写了 integrity，但运行时切主题是
-     脚本自己 createElement/改 href，拿不到哈希就只能发一个没有 integrity 的请求
-     —— 同一个文件，直出时有校验、切换时没校验，等于留了条后门。
-     表很小（5 套 × 约 100 字节），放进内联脚本比多一次请求划算。 */
-  const H = {};
-  for (const id of ['ink', 'forest', 'ocean', 'plum', 'mono']) {
-    const a = ASSET_HASH[`theme/${id}.css`];
-    if (a) H[`/theme/${id}.css`] = { v: a.v, i: a.i };
-  }
-  /* 自托管的 mermaid 由 boot.js 按需注入：2.7MB 的包只该在有图的页面落地，
-     但 hash 得提前给到 —— 动态拼出来的 <script> 拿不到服务端戳的版本号。 */
-  const mm = ASSET_HASH['vendor/mermaid.min.js'];
-  if (mm) H['/vendor/mermaid.min.js'] = { v: mm.v, i: mm.i };
-  const hs = JSON.stringify(H).replace(/</g, '\\u003c');
-  return `<script>window.__THEME_DEFAULT__=${cfg};window.__ASSET_H__=${hs};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);(function(){var L=document.getElementById('tcss-default'),trivial=(t==='paper'||t==='anzhiyu');if(trivial){if(L)document.head.removeChild(L);return}var H=window.__ASSET_H__||{},a=H['/theme/'+t+'.css']||{},h='/theme/'+t+'.css'+(a.v?'?v='+a.v:'');if(L){L.id='tcss-'+t;L.integrity=a.i||'';L.href=h}else{var S=document.createElement('link');S.id='tcss-'+t;S.rel='stylesheet';if(a.i)S.integrity=a.i;S.href=h;document.head.appendChild(S)}})()})();</script>`;
+  return themeBootTag({ theme: site.theme, mode: site.mode });
 }
 
 function seriesShell({ site, origin, title, kicker, desc, canonical, ld, sub, list }) {
@@ -1893,7 +1881,12 @@ async function injectTheme(env, res, url) {
   const inject =
     `<script>window.__THEME_DEFAULT__=${cfg};window.__SITE__=${siteCfg};</script>${icon}${themeCss}`;
 
-  body = fillSeo(body, s, url).replace('<!--THEME-->', inject);
+  /* 静态模板里的防闪脚本换成 <!--THEMEBOOT--> 占位，出口统一替换。
+     七个模板各抄一份的下场是：抄的人只改了自己那页，其余页切主题丢 SRI。
+     默认值（__THEME_DEFAULT__）由上面那段 inject 先落，这里只补资源清单与脚本。 */
+  body = fillSeo(body, s, url)
+    .replace('<!--THEME-->', inject)
+    .replace('<!--THEMEBOOT-->', themeBootTag());
 
   // 导航栏直接渲染进 HTML，省掉首屏空白与跳动
   body = body.replace(/<div id="site-header"[^>]*><\/div>/, renderHeader(s, url.pathname));
@@ -2109,7 +2102,6 @@ export async function harden(res, env, path = '', search = '') {
 async function notFoundPage(env, request, message = '页面走丢了') {
   const site = await getSite(env);
   const siteName = esc(site.name);
-  const cfg = JSON.stringify({ theme: site.theme, mode: site.mode }).replace(/</g, '\\u003c');
   /* 走错路的人多半是在找某篇文章。搜框之外再给几条最近的公开文章，
      按 liveSql 走同一条时间闸门 —— 排期未到的文章不能在 404 页被剧透。
      这条查询失败也不能把 404 页一起拖成 500。 */
@@ -2139,7 +2131,7 @@ async function notFoundPage(env, request, message = '页面走丢了') {
 <title>404 · ${siteName}</title>
 <meta name="robots" content="noindex,follow">
 <meta name="description" content="页面不存在">
-<script>window.__THEME_DEFAULT__=${cfg};(function(){var d=document.documentElement,t=null,m=null;try{t=localStorage.getItem('x_theme');m=localStorage.getItem('x_mode')}catch(e){}var g=window.__THEME_DEFAULT__||{};t=t||g.theme||'paper';m=m||g.mode||'auto';var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches;var dark=(m==='dark')||(m!=='light'&&sys);d.setAttribute('data-theme',t);d.setAttribute('data-mode',dark?'dark':'light');d.setAttribute('data-mpref',m);(function(){var L=document.getElementById('tcss-default'),trivial=(t==='paper'||t==='anzhiyu');if(trivial){if(L)document.head.removeChild(L);return}if(L){L.id='tcss-'+t;L.href='/theme/'+t+'.css'}else{var S=document.createElement('link');S.id='tcss-'+t;S.rel='stylesheet';S.href='/theme/'+t+'.css';document.head.appendChild(S)}})()})();</script>
+${themeBootTag({ theme: site.theme, mode: site.mode })}
 <link rel="stylesheet" href="/style.css">
 <script src="/boot.js" defer></script>
 </head>

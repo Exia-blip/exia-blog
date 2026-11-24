@@ -166,9 +166,11 @@ ok('健康检查/定时队列与 editor 视图同构，样式进 style.css 且�
 
 // 7. 主题引导：服务端三页必须和 editor 一样在首帧前读 localStorage 偏好，
 //    否则用户选的深色到这三页就回落系统浅色（表现为「别的页黑、这三页白」）。
+//    editor.html 里只留占位符，脚本由 injectTheme 从同一份 THEME_BOOT 注入 ——
+//    比对字符串的事交给 test-theme-contract（TC-09/TC-10），这里只守"占位还在"。
+assert.ok(editor.includes('<!--THEMEBOOT-->'), 'editor.html 缺 <!--THEMEBOOT--> 占位（引导脚本会整个消失）');
 const bootFeat = ["localStorage.getItem('x_theme')", "setAttribute('data-mode'", 'prefers-color-scheme'];
 for (const f of bootFeat) {
-  assert.ok(editor.includes(f), `editor.html 引导脚本缺 ${f}`);
   assert.ok(THEME_BOOT_JS.includes(f), `服务端引导脚本缺 ${f}`);
 }
 assert.ok(stats.includes('themeBoot(site)'), 'stats.js 未接入主题引导');
