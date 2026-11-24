@@ -770,7 +770,13 @@ t('TC-35 [P-060] 结构层 DOM 事实：真渲染一次，不查模板字符串'
 t('TC-36 [P-060] 语法钩子只有一个名字：`.tok-*`，不存在 `.token.*`', () => {
   /* 三份主题材料里两份按 Prism 的 `.token.comment` / `.token.keyword` 写了几十行，
      零命中。这条只验反面，所以不会被 TC-35 的「结构缺失」抢先抛掉。
-     它和 TC-35 是一对：那边验「该有的在」，这边验「不该有的不在」。 */
+     它和 TC-35 是一对：那边验「该有的在」，这边验「不该有的不在」。
+
+     为什么不把「一个 t() 只许一条 assert」做成断言（P-063）：材料给的判据
+     `firstThrow > lastAssert || countAsserts <= 1` 实测只等价于「每块最多一条」，
+     会红掉两条**正面**断言（本仓库 35 块里 25 块如此），却与它声称的
+     「否定断言不被遮蔽」不等价。真规矩只有一条：反面断言不许和它否定的
+     那条正面断言同处一个 t()，判据是「这条红了能不能看到那条的结果」，不是正则。 */
   const out = renderMarkdown('```js\nconst a = 1;\n```');
   assert.doesNotMatch(
     out,
@@ -783,6 +789,94 @@ t('TC-36 [P-060] 语法钩子只有一个名字：`.tok-*`，不存在 `.token.*
     out,
     /<span class="tok-[a-z]"/,
     '代码块没产出任何 tok-* 钩子 —— 上一条的「没有 token」是空的，先修高亮'
+  );
+});
+
+t('TC-37 [P-061] 代码块 token 类别：渲染产物与结构层样式的集合必须相等（双向）', () => {
+  /* 2026-11-24 第四份主题材料点出的真缺口：TC-36 只验「钩子叫 tok-*」，
+     不验「有几类」。highlight() 哪天多产出一类（比如给正则加 tok-r），
+     style.css 没有对应规则、主题也没有对应变量 → 那个 token 落回继承色，
+     页面正常、HTTP 200、工具不报警 —— 又是「看起来能用」。
+     反过来，样式里留着产物永远不产出的 .tok-x，是死规则：半年后有人去改它，
+     以为自己改的是颜色。
+
+     一条代码必须能产出全部类别，否则「产物 ⊆ 样式」对空集恒成立（P-059 那个形态）。 */
+  const out = renderMarkdown(
+    '```js\n// 注释\nconst a = 1;\nfunction f(s) { return "x" + s; }\n```'
+  );
+  const produced = new Set([...out.matchAll(/class="(tok-[a-z]+)"/g)].map((m) => m[1]));
+  const styled = new Set([...read('public/style.css').matchAll(/\.(tok-[a-z]+)\s*\{/g)].map((m) => m[1]));
+
+  /* 先要「看得见」：这段代码的类别数少于 4 说明高亮没跑起来，下面的空集判断是假的 */
+  assert.ok(
+    produced.size >= 4,
+    `渲染产物只有 ${produced.size} 类 token（${[...produced].join(',')}）—— 高亮没跑起来，`
+    + '下面的子集判断对空集恒成立，先修高亮再谈覆盖'
+  );
+
+  const unstyled = [...produced].filter((c) => !styled.has(c));
+  assert.deepEqual(
+    unstyled,
+    [],
+    `渲染器产出了没有样式的 token 类别：${unstyled.join(', ')} —— `
+    + '在 style.css 加 `.tok-x { color: var(--tok-x) }` 并把槽位加进契约，否则它落回继承色'
+  );
+
+  const dead = [...styled].filter((c) => !produced.has(c));
+  assert.deepEqual(
+    dead,
+    [],
+    `style.css 里的 .${dead.join(', .')} 产物里不出现 —— 死规则，删掉或补上渲染器`
+  );
+});
+
+t('TC-38 [P-062] 主题文件里的类名选择器必须在全站类名表里出现', () => {
+  /* 第四份材料的第三个缺口，且是我这边真没有的：主题 CSS 那一侧没有任何反向校验。
+     在 edge.css 写一条 `.tok-z { color: #f00 }`，TC-35/36/37 全绿（产物侧没变）、
+     P-043 绿（它查变量不查选择器）、P-046 绿（它数 --brand）—— 一条死规则静静躺着。
+
+     判据是「这个类名全站有没有人产出」，不是「style.css 里有没有」：
+     后者是循环论证（两边可以一起烂）。所以类名表取的是产出侧 ——
+     src/*.js 的 SSR 模板、public/md.js 的渲染器、public/*.html、public/*.js。 */
+  const sources = [
+    'public/md.js',
+    'public/app.js',
+    ...readdirSync(new URL('src', ROOT)).filter((f) => f.endsWith('.js')).map((f) => `src/${f}`),
+    ...readdirSync(new URL('public', ROOT)).filter((f) => /\.(html|js)$/.test(f)).map((f) => `public/${f}`),
+  ];
+  const known = new Set();
+  for (const f of sources) {
+    const text = read(f);
+    for (const m of text.matchAll(/class="([^"]*)"/g)) {
+      for (const c of m[1].split(/\s+/)) if (c) known.add(c);
+    }
+    /* JS 里模板字符串内的 class="…" 会被上面的正则命中；ES 转义的 \" 再兜一遍 */
+    for (const m of text.matchAll(/class=\\"([^"\\]*)\\"/g)) {
+      for (const c of m[1].split(/\s+/)) if (c) known.add(c);
+    }
+    /* 动态添加的类不算死规则：app.js 有 `btn.className = 'back-top'`，
+       它一辈子不出现在 class="…" 字面量里。除 className / classList 赋值外，
+       材料建议的硬编码白名单会把「新增动态类要手动加」变成维护负担 ——
+       采集侧多两条正则就够，且不会漏。 */
+    for (const m of text.matchAll(/\.(?:className|classList\.(?:add|remove|toggle))\s*[=(]\s*['"]([^'"]+)['"]/g)) {
+      for (const c of m[1].split(/\s+/)) if (c) known.add(c);
+    }
+  }
+
+  /* 先要「看得见」：类名表空了，下面的子集判断对空集恒成立 */
+  assert.ok(known.size > 200, `类名表只收集到 ${known.size} 个 —— 采集坏了，先修这里`);
+
+  const used = new Map();
+  for (const id of themeIds) {
+    const css = read(`public/theme/${id}.css`).replace(/\/\*[\s\S]*?\*\//g, '');
+    const cls = new Set([...css.matchAll(/\.([a-z][a-z0-9-]{1,30})\b/g)].map((m) => m[1]));
+    const dead = [...cls].filter((c) => !known.has(c));
+    if (dead.length) used.set(id, dead);
+  }
+  assert.deepEqual(
+    [...used.entries()].map(([id, d]) => `theme/${id}.css: ${d.map((c) => '.' + c).join(' ')}`),
+    [],
+    '主题文件里引用了全站没有任何元素产出的类名 —— 死选择器，改它的人会以为自己改到了颜色'
   );
 });
 
