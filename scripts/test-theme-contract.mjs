@@ -1079,6 +1079,44 @@ t('TC-45 [P-071] 元断言：判重用的那份清单必须真的未去重', () 
   assert.deepEqual(bad, [], `源清单的结构退化：\n      ${bad.join('\n      ')}`);
 });
 
+t('TC-46 [P-074] 扫描器产出必须等于源文本的独立计数 —— 共用层的锚点不能借用消费者', () => {
+  /* TC-42 和 TC-44 共用 scanCssRules。两个消费者各自有锚点，但**都是规模或数值锚点**：
+     TC-42 判 `rules.length > 800`，TC-44 判 `actual !== sites`。丢 31 条规则还剩 1088，
+     800 照样绿；丢掉的若不含 `--muted`，TC-44 也照样绿。规模对不代表形态对。
+
+     所以共用层需要一个**与扫描器完全无关**的计数：直接数源文本里有多少个 `{`，
+     减去 at-rule 自己那个（at-rule 整块被扫描器跳过，不产出规则）。实测 1178 - 59 = 1119。
+
+     这条顺带把「CSS nesting 被静默跳过」变成红：嵌套让源文本多一个 `{`，而扫描器只产
+     外层那一条（cssDecls 把含 `{` 的片段整段丢掉，内层声明全丢），差值立刻出现 ——
+     今天 style.css 没有嵌套，所以是 0 差；哪天有了，这里先红，而不是 TC-44 悄悄少算。 */
+  const css = read('public/style.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = scanCssRules(css);
+
+  const openAll = (css.match(/\{/g) || []).length;
+  const atOpen = (css.match(/@[^{;]*\{/g) || []).length;
+  assert.ok(
+    openAll > 500 && atOpen > 10,
+    `源文本数出 ${openAll} 个 { / ${atOpen} 个 at-rule —— 计数本身失效，下面的恒等会变成空转`
+  );
+
+  assert.equal(
+    rules.length, openAll - atOpen,
+    `扫描器产出 ${rules.length} 条，源文本独立计数 ${openAll} - ${atOpen} = ${openAll - atOpen} 条`
+    + '\n      偏少 = 有规则被吞（嵌套/换行/注释残留）；偏多 = 同一条被切两半'
+  );
+
+  /* 形态：selector 必须是一段干净的头。带 `{` 说明配对漏层，带 `;` 说明上一条规则的
+     尾巴被并进了下一段头 —— 两种都会让 TC-42 的 `pre.code-block` 判空、让 TC-44 的
+     属性名多出碎片，而两条都不报错。今天 0 处。 */
+  const dirty = rules.filter((r) => !r.selector || r.selector.includes('{') || r.selector.includes(';'));
+  assert.deepEqual(
+    dirty.slice(0, 5).map((r) => r.selector),
+    [],
+    `有 ${dirty.length} 条规则的 selector 不干净 —— 扫描器结构坏了，下游两条会一起少算`
+  );
+});
+
 t('TC-41 [P-066] token 类别的配色来源必须是契约槽位或登记的例外', () => {
   /* 材料这轮唯一说对的新缺口：TC-37 只比「类别集合」，不看每一类的颜色**从哪来**。
      于是 `.tok-c { color: var(--muted) }` 能同时穿过三道闸 ——
@@ -1250,11 +1288,31 @@ function scanCssRules(text) {
 }
 
 /* 规则体里的声明：按 `;` 切开，首个 `:` 之前是属性名。
-   带 `{` 的片段是嵌套块（CSS nesting），跳过 —— 当前 style.css 没有用它。
-   引号内出现 `;` 会切错，但全站 `content:` 的值里没有分号（2026-11-24 实测）。 */
+   带 `{` 的片段是嵌套块（CSS nesting），跳过 —— 当前 style.css 没有用它，
+   真用上时由 TC-46 的独立计数报红，不会静默少算。
+   引号内的 `;` 不切：`content: "a;b"` 曾被切成 `content: "a` 与 `b"`，后者没冒号被丢、
+   前者值被截断；若引号里恰好是 `"a;b: c"`，`b` 就会以属性名混进 TC-44 的分布 ——
+   和 P-072 那次 `btn` / `span` 同类症状，只是换了个来源。 */
 function cssDecls(body) {
   const out = [];
-  for (const chunk of body.split(';')) {
+  const chunks = [];
+  let cur = '';
+  let quote = '';
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (quote) {
+      cur += ch;
+      if (ch === '\\') { cur += body[i + 1] ?? ''; i++; continue; }  // \" 不算结束
+      if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; cur += ch; continue; }
+    if (ch === ';') { chunks.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  chunks.push(cur);
+
+  for (const chunk of chunks) {
     if (chunk.includes('{')) continue;
     const k = chunk.indexOf(':');
     if (k < 0) continue;
