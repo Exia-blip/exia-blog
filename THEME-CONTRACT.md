@@ -118,7 +118,36 @@ public/theme/<id>.css     只覆盖变量；edge 另有 4 条部件覆盖
 
 ---
 
-## 四、加第 9 套要动几处
+## 四、结构层 DOM 事实（写主题 CSS 之前先看这张表）
+
+主题文件只能改样式，**命中不了元素就是死代码，而且不报错、HTTP 200**。2026-11-24 一天之内
+收到三份按「常见博客长什么样」猜类名的主题材料，猜错的部分全是静默失效。以渲染器为准：
+
+| 元素 | 真实结构 | 被猜成过 |
+|---|---|---|
+| 文章容器 | `<div class="md post-body">`（`index.js:1253`） | `.prose` |
+| 摘要 | `<aside class="post-lead"><span class="lead-tag">AI 摘要</span><p>…</p></aside>` | `.ai-summary`、`[data-ai-summary]` |
+| 代码块 | `<div class="code-wrap" data-lang data-lines><div class="code-head">…</div><pre class="code-block"><span class="gutter">…</span><code class="language-x">…</code></pre></div>` | 以为容器叫 `.code-block` |
+| 行内代码 | `.md code` | — |
+| 评论条目 | `.cmt` | `.comment` |
+| 友链卡片 | `.friend-card` | `.friend-item` |
+| 文章卡片 | `.post-card` | `.card` |
+| 语法高亮 | `.tok-k` `.tok-s` `.tok-c` `.tok-n` `.tok-f`（没有 Prism，不存在 `.token.*`） | `.token.keyword` 一大套 |
+
+两条硬结论：
+
+- **容器是 `.code-wrap`，`.code-block` 是 `<pre>` 自己的 class**。想在代码块左侧画强调竖条，
+  落点是 `.code-wrap`；画在 `.code-block` 上会被容器的 `overflow: hidden` + 圆角裁掉，
+  长代码块还会被 `.gutter`（行号列，独立背景）从左侧盖住。写「`.pre` 与 `.code-block` 两条兜底」
+  是重复命中同一个节点，不是两层。
+- **友链三态圆点 `dot-ok` / `dot-warn` / `dot-err` 不存在**。材料里「三态正好用辅色」建立在一个
+  没有的元素上 —— 现在友链状态只存在于 `http_status` / `latency_ms` 两个字段，页面上没有圆点。
+
+这张表由 [TC-35] 守着：文档里写到的容器名，必须在产出它的源文件里真的出现。
+
+---
+
+## 五、加第 9 套要动几处
 
 **两处代码 + 一次构建**：
 
@@ -144,7 +173,7 @@ npm run build:sri
 
 ---
 
-## 五、明确没做
+## 六、明确没做
 
 | 想法 | 为什么不做 |
 |---|---|
@@ -157,7 +186,7 @@ npm run build:sri
 
 ---
 
-## 六、断言的代价与反向验证
+## 七、断言的代价与反向验证
 
 新写一条断言，先把它该抓的东西改坏一次，看着它红，再改回来。这批的注入验证：
 

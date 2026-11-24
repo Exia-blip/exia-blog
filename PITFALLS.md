@@ -578,6 +578,16 @@
 - **边界**：TC-32 的四色基线抄的是 Primer 公开主题表，**没有在浏览器里核对渲染结果**；它验的是「WCAG 公式实现对不对」，不是「GitHub 那套配色好不好看」。
 - **出处**：材料「七条断言不是七个 check()，而是三层」全文；`scripts/test-theme-contract.mjs` TC-32/33/34；`src/theme-contract.js` 的 `INTERNAL_PREFIX`；`THEME-CONTRACT.md` 规则 4；站务记录 2026-11-24
 
+## P-060 一天里三份主题材料按「常见博客」猜类名，命中率为零而 HTTP 全 200
+
+- **现象**：2026-11-24 收到的三份主题材料（ming.css 5.6 KB → 三层断言脚本 → 选择器兜底修订）累计引用了 `.prose` / `.ai-summary` / `[data-ai-summary]` / `.comment` / `.friend-item` / `.dot-ok/.dot-warn/.dot-err` / `.token.keyword` 八个名称，**真实仓库里全部零命中**。第三份还推断「代码块输出一定是 `<pre><code>`，容器可能叫 `.code-block`」——方向恰好相反：容器是 `.code-wrap`，`.code-block` 是 `<pre>` 自己的 class，所以「`.pre` 与 `.code-block` 两条兜底」是重复命中同一个节点。它估 `var(--brand)` 出现 3 处，实测 `edge.css` 是 4 处，把 `BRAND_USES` 定成 3 或 2 在本站第一跑就红。
+- **根因**：CSS 选择器打不中元素**没有任何反馈** —— 不报错、不告警、HTTP 200、页面也照样打开，只是那一段样式没生效。所以「按一类博客的常见命名写主题」可以连续失败三次而不自知。这与 P-056（5.6 KB 里六成规则打不中）同源，但那条讲单个文件，这条讲**同一类错误能被反复提出**。
+- **复现**：`node --input-type=module -e "import('./public/md.js').then(m=>console.log(m.renderMarkdown('\`\`\`js\nconst a=1;\n\`\`\`')))"` —— 一次渲染就能看到真实标签：`<div class="code-wrap" data-lang data-lines><div class="code-head"><span class="code-lang">js</span><button class="copy-btn" data-copy>复制</button></div><pre class="code-block"><code class="language-js"><span class="tok-k">const</span>…`。摘要则是 `<aside class="post-lead"><span class="lead-tag">AI 摘要</span><p>…`（`index.js:1182`），不是 `.ai-summary`。
+- **修法**：`THEME-CONTRACT.md` 新增第四节「结构层 DOM 事实」，把 8 类元素的真实结构、被猜成过的名字、以及两条硬结论写在表里（容器是 `.code-wrap`；友链三态圆点**不存在**）。写在文档里而不是只在对话里，是因为下次来的是另一份材料，它不会读对话记录。
+- **断言**：`[TC-35]` 把文档与产出源钉在一起 —— 表格里列的 6 个容器，必须在其产出源（`md.js` / `index.js` / `style.css`）里真的出现，**且**必须出现在文档里。双向都验过：`md.js` 的 `code-wrap` 全改成 `codewrap` → 红「文档有 / md.js 缺」；文档里 `post-lead` 改成 `postlead` → 红「文档缺 / index.js 有」。
+- **边界**：TC-35 只守文档点名的 6 个容器，不守全站 class。它防的是「改了渲染器忘记改文档」，防不住「主题作者又猜了一个新名字」—— 后者只能靠第四节那张表被人读到。
+- **出处**：`THEME-CONTRACT.md` 第四节；`scripts/test-theme-contract.mjs` TC-35；`public/md.js:396-400`；`src/index.js:1182`；站务记录 2026-11-24
+
 ---
 
 ---

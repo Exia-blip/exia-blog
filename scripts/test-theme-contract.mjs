@@ -728,6 +728,40 @@ t('TC-34 [P-059] 变异：`--_` 前缀放行且必须看得见，var() 是「用
   );
 });
 
+t('TC-35 [P-060] 结构层 DOM 事实：文档里的容器名必须真的由渲染器产出', () => {
+  /* 2026-11-24 一天之内三份主题材料按「常见博客长什么样」猜类名：
+     .prose / .ai-summary / [data-ai-summary] / .comment / .friend-item /
+     .dot-ok / .token.keyword —— 全部零命中，而 CSS 选择器不匹配**不报错**，
+     打开页面 HTTP 200，只有盯着那个组件看才可能发现。
+     这条把「THEME-CONTRACT.md 第四节写的事实」和「渲染器真的产出」钉在一起：
+     谁改了模板却没改文档（或者反过来），就红。
+     注意检查的是「产出源」而不是 class 是否在全站某处出现 —— .post-card 这种
+     既在 HTML 模板里也在 style.css 里，查全站等于没查。 */
+  const FACTS = [
+    ['.md post-body', 'src/index.js'],
+    ['.post-lead', 'src/index.js'],
+    ['.lead-tag', 'src/index.js'],
+    ['.code-wrap', 'public/md.js'],
+    ['.code-block', 'public/md.js'],
+    ['.tok-k', 'public/style.css'],
+  ];
+  const doc = read('THEME-CONTRACT.md');
+  const bad = [];
+  for (const [sel, src] of FACTS) {
+    const name = sel.split(' ')[0].replace(/^\./, '');
+    const inDoc = doc.includes(name);
+    const inCode = read(src).includes(name);
+    if (!inDoc || !inCode) {
+      bad.push(`${sel}：文档${inDoc ? '有' : '缺'} / ${src}${inCode ? '有' : '缺'}`);
+    }
+  }
+  assert.deepEqual(bad, [], `结构层 DOM 事实漂了（改完渲染器要回来改第四节那张表）：\n      ${bad.join('\n      ')}`);
+
+  /* 反向锚点：断言里列的每一项都必须出现在文档里，否则「守文档」变成了守断言自己。
+     上面那条已经含 inDoc 检查，这里单独再要一次是因为 FACTS 增项时最容易漏写文档。 */
+  assert.ok(doc.includes('结构层 DOM 事实'), 'THEME-CONTRACT.md 缺第四节');
+});
+
 /* 自检：同步 runner 必须拒收 async 函数（P-029 那个坑，第二次踩过） */
 {
   const p0 = pass;
