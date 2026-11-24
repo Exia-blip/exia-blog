@@ -41,7 +41,6 @@ export const CONTRACT_OPTIONAL = [
   '--tok-s',
   '--tok-n',
   '--tok-f',
-  '--hero-weight',
   '--hero-space',
   '--mono',
   '--sans',

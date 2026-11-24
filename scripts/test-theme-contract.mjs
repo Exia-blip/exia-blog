@@ -880,6 +880,61 @@ t('TC-38 [P-062] 主题文件里的类名选择器必须在全站类名表里出
   );
 });
 
+t('TC-39 [P-064] 契约 ↔ 消费侧双向对账：引用的变量要有来源，槽位要被真的消费', () => {
+  /* 第五份材料提 TC-41「产物 tok-* ⊆ 主题覆盖集合」。那个方向已经被 TC-37 + 契约覆盖
+     （.tok-* 的颜色变量全是契约槽位，槽位缺了主题就继承主表）。真缺的是它没说的两头：
+
+     ① 结构层写了 `var(--tok-r)` 但全站没有这个变量的定义 → 整条声明被丢弃，卡片少一圈边框，
+        不报错、HTTP 200。它比「选择器打不中」更难查，因为选择器看着是对的。
+     ② 契约里挂着一个谁都不读的槽位 → 文档占一行、八套主题各留一个位（`--hero-weight` 就是这样，
+        实测 0 处引用），半年后有人以为它在生效。
+
+     两个方向都要求「看得见」：不带 fallback 的引用必须够多、契约槽位必须够多，
+     否则 `差集为空` 对空集恒成立 —— P-059 那个形态。 */
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '');
+  const css = strip(read('public/style.css'));
+
+  /* 定义：CSS 里任何位置的 `--x:`（组件块里的局部默认值也算来源，比如 .tag.tw-t0 的 --tw） */
+  const defined = new Set([...css.matchAll(/(?:^|[\s;{])(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+  /* 引用：只取**不带 fallback** 的 var(--x)。带 fallback 的是有意给默认值
+     （`var(--border, #e3e5e8)` 是运行时可选项，`var(--toc-p, 0)` 由 JS 写），不算悬空。 */
+  const bare = new Set([...css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/g)].map((m) => m[1]));
+
+  assert.ok(defined.size >= 15 && bare.size >= 15,
+    `来源侧看不清：定义 ${defined.size} 个 / 无 fallback 引用 ${bare.size} 个 —— 采集坏了，先修这里`);
+
+  const dangling = [...bare].filter((v) => !defined.has(v) && !CONTRACT_VARS.has(v)).sort();
+  assert.deepEqual(
+    dangling,
+    [],
+    `结构层引用了无处可寻的变量（整条声明会被丢弃，不报错）：${dangling.join(', ')}`
+  );
+
+  /* 反向：契约槽位必须至少被一处样式引用。消费侧 = 主表 + 全部主题文件，
+     因为 --brand / --on-brand 这类只被主题用、主表一次都不碰。 */
+  const consumers = [
+    'public/style.css',
+    ...themeIds.map((id) => `public/theme/${id}.css`),
+  ];
+  const consumed = new Set();
+  for (const f of consumers) {
+    for (const m of strip(read(f)).matchAll(/var\(\s*(--[a-z0-9-]+)/g)) consumed.add(m[1]);
+  }
+  /* 锚点：--brand 与 --on-brand 只有 edge 用。它们出现，说明主题文件真的被读进来了； */
+  assert.ok(
+    consumed.has('--brand') && consumed.has('--on-brand'),
+    '消费侧看不清 --brand / --on-brand —— 主题文件没被读进来，下面的「槽位都被消费」是空判'
+  );
+
+  const orphans = [...CONTRACT_VARS].filter((v) => !consumed.has(v)).sort();
+  assert.deepEqual(
+    orphans,
+    [],
+    `契约里的槽位没有任何样式引用：${orphans.join(', ')} —— `
+    + '要么接上（写进规则），要么从 src/theme-contract.js 删掉；留着就是替一个不存在的设计意图占位'
+  );
+});
+
 /* 自检：同步 runner 必须拒收 async 函数（P-029 那个坑，第二次踩过） */
 {
   const p0 = pass;

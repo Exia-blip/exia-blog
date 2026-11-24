@@ -30,7 +30,7 @@ public/theme/<id>.css     只覆盖变量；edge 另有 4 条部件覆盖
 | 方向 | 内容 | 落点 |
 |---|---|---|
 | **进** | Worker 往 HTML 里注入什么 | `<!--THEME-->` / `<!--THEMEBOOT-->` 两个占位符，`src/index.js` 的 `injectTheme()` |
-| **出** | CSS 暴露哪些变量名 | `src/theme-contract.js` 的 `CONTRACT_CORE` + `CONTRACT_OPTIONAL`，共 24 个 |
+| **出** | CSS 暴露哪些变量名 | `src/theme-contract.js` 的 `CONTRACT_CORE` + `CONTRACT_OPTIONAL`，共 23 个 |
 
 契约明确**不管**三件事：
 
@@ -40,7 +40,7 @@ public/theme/<id>.css     只覆盖变量；edge 另有 4 条部件覆盖
 
 ---
 
-## 二、变量契约（24 个槽位）
+## 二、变量契约（23 个槽位）
 
 定义只有一份：`src/theme-contract.js`。加槽位要改那里，不能直接在主题文件里写新变量名。
 
@@ -55,12 +55,18 @@ public/theme/<id>.css     只覆盖变量；edge 另有 4 条部件覆盖
 
 缺一个不报错，会**静默继承上一套**——最难查的那种。[TC-27] 逐套验浅色块齐全。
 
-### 可选 15 个（`CONTRACT_OPTIONAL`）
+### 可选 14 个（`CONTRACT_OPTIONAL`）
 
 `--green` `--red` · `--radius` `--shadow` · `--tok-k` `--tok-s` `--tok-n` `--tok-f`（语法高亮）·
-`--hero-weight` `--hero-space` · `--mono` `--sans` `--serif` · `--brand` `--on-brand`
+`--hero-space` · `--mono` `--sans` `--serif` · `--brand` `--on-brand`
 
 给了就用，不给就继承主表。字体与语法高亮属于「主题可以有自己的口味」。
+
+> **`--hero-weight` 已删（2026-11-24）**：曾在主表定义 `600` / 深色 `700`，但 `.page-head h1` 只吃了
+> `letter-spacing: var(--hero-space)`，**没有任何规则读过它**，八套主题也一个都没定义。它一度是契约
+> 第 24 个槽位，占着文档一行、替一个不存在的设计意图留位。删掉而不是接上 `font-weight`，是因为
+> 接上会改标题字重（现有继承值不是 600），那是视觉变更，不归「清理死槽位」这轮做。
+> `[TC-39]` 的第二条就是为这个类别加的：**契约槽位必须至少被一处样式消费**。
 
 `--brand` 与 `--on-brand` 目前只有 `edge` 用：锚橙 `#f6821f` 在纯白上 **2.58:1**，
 当 `--accent`（文字色）过不了 AA，所以它只做填充，另给压深的 `#c2410c` 做文字，
@@ -237,6 +243,8 @@ npm run build:sri
 | `highlight()` 只增不减地多产出一个 `tok-r` | TC-37（报「渲染器产出了没有样式的 token 类别」） |
 | `style.css` 末尾加 `.tok-z { color: #f00 }` | TC-37（报「死规则」） |
 | `edge.css` 加 `.code-badge { … }` | TC-38（报「全站没有任何元素产出的类名」） |
+| `style.css` 加 `.x-probe { color: var(--tok-r) }`（未定义、无 fallback） | TC-39（报「无处可寻的变量」） |
+| `--hero-weight` 加回 `CONTRACT_OPTIONAL` | TC-39（报「槽位没有任何样式引用」） |
 
 TC-27 第一版写的是 `block.includes('--muted:')`，注入 `--xx-muted:` 时**没红** ——
 子串匹配被前缀骗过了。改成带边界的正则才抓住。这是这批唯一一个假阴性。

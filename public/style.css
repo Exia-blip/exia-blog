@@ -23,7 +23,6 @@
   --tok-s: #2f8a4f;
   --tok-n: #b45309;
   --tok-f: #2563a8;
-  --hero-weight: 600;
   --hero-space: -0.02em;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
@@ -1879,7 +1878,6 @@ html.theme-transition, html.theme-transition * {
   --tok-s: #0f9d70;
   --tok-n: #d97706;
   --tok-f: #2f6fe0;
-  --hero-weight: 700;
   --hero-space: -0.03em;
   --sans: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
     -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;

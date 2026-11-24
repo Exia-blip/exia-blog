@@ -520,7 +520,7 @@
 - **根因**：同一份「主题清单」在四个地方各写一遍 —— `settings.js` 的 `THEME_IDS`、`theme.js` 的面板 `THEMES`、`index.js` 的 `THEME_COLOR`、`build-sri.mjs` 的目录扫描。前三份是手抄，改主题文件时只改 CSS，常量不跟着动，于是同一套主题有「CSS 里的底色」和「常量里的底色」两个事实。加第 8 套时改了 `THEME_IDS` 与面板，漏了 `THEME_COLOR` 的逐值校对 —— 测试只验「键齐全」，不验「值对不对」，所以全绿。这与 P-030（两处内联的资源判定）、P-044（两个 catch）、P-050（两条 canonical 出口）、P-051（十份防闪脚本）是同一个病：**规则有第二个实现，就一定会分叉**。
 - **复现**：`node -e` 读 `src/assets.gen.js` 的 `THEME_BG` 与各主题 CSS 的 `--bg` 比对，`ink` 一项立刻差出 `#f6f6f4` 与 `#fdfcfa`。修之前 `THEME_BG` 还不存在，得先手工 grep 一遍 `--bg` 才发现。
 - **修法**：
-  1. 新建 `src/theme-contract.js`，把「契约管什么」写成代码：`CONTRACT_CORE`（9 个必填语义色）、`CONTRACT_OPTIONAL`（15 个可选槽位）、`deriveThemeIds(hash)`。变量清单从此只有这一份。
+  1. 新建 `src/theme-contract.js`，把「契约管什么」写成代码：`CONTRACT_CORE`（9 个必填语义色）、`CONTRACT_OPTIONAL`（14 个可选槽位）、`deriveThemeIds(hash)`。变量清单从此只有这一份。
   2. `THEME_IDS` 改成 `deriveThemeIds(ASSET_HASH)` —— 内联两套 + 资源清单里每个 `theme/<id>.css`。加主题不用改它。
   3. `THEME_BG` 由 `build-sri.mjs` 从各主题 CSS 的 `--bg` 抽出来（内联的纸韵取裸 `:root`、安知鱼取自己的 `data-theme` 块），`index.js` 用 `import { THEME_BG as THEME_COLOR }`。手写的常量整段删掉。
   4. 顺带把 `edge.css` 部件规则里写死的 `#d9721a` / `#f0b27d` 换成 `color-mix(in srgb, var(--brand) …)`，新增 `--on-brand` 槽位承接「橙底上的字」（白字在锚橙上只有 2.58:1）。
@@ -614,6 +614,15 @@
 - **断言**：无。本条是纪律不是断言，机械判据实测误报 46/459 个测试块（全仓 `test-*.mjs` 里「反面断言不在首位」的块数），误报率高于收益时断言就该删 —— 与 P-056「正则防得住 A 防不住 B」同一条取舍线。保留的可执行部分在 `TC-36`：反面断言独立成 `t()`，且配正面锚点。
 - **边界**：只能靠 review。判断方法不是正则，是问「如果这条红了，我能不能看到那条的结果」。
 - **出处**：第四份材料「TC-38 元断言」全文；`P-060` 的否定断言拆分；站务记录 2026-11-24
+
+## P-064 契约与消费侧两头都缺对账：一边引用不存在的变量，一边挂着没人读的槽位
+
+- **现象**：`public/style.css` 里写 `color: var(--tok-r)` 而全站没有这个变量 → **整条声明被丢弃**，边框少一圈、颜色退回继承值，不报错、HTTP 200。反方向同样成立：契约里挂着 `--hero-weight`（`style.css` 浅色 `600` / 深色 `700`），实测 **0 处引用** —— 八套主题一个都没定义它，`.page-head h1` 只吃了 `--hero-space`，所以它是一个替「标题字重」这个从没接上的设计意图占位的槽位，白占契约文档一行。
+- **根因**：`TC-24/25/26` 只见「主题文件能写什么」，`TC-37` 只见「产物 ↔ 样式表」，中间那条「结构层引用的变量有没有来源」「契约槽位有没有人读」两头都没人管。第五份材料的 `TC-41`（产物 `tok-*` ⊆ 主题覆盖）方向是对的，但那一层已被 `TC-37` + 契约覆盖（`.tok-*` 的颜色变量全是契约槽位），真正空着的是它没说的这两头。
+- **复现**：`printf '\n.x-probe { color: var(--tok-r); }\n' >> public/style.css` → TC-39 报「结构层引用了无处可寻的变量」；把 `'--hero-weight',` 加回 `src/theme-contract.js` 的 `CONTRACT_OPTIONAL` → TC-39 报「契约里的槽位没有任何样式引用」。
+- **断言**：`TC-39` 双向。正向取 `style.css` 里**不带 fallback** 的 `var(--x)`，要求每个都能解析到「本文件里的定义」或「契约槽位」；带 fallback 的（`var(--border, #e3e5e8)`、`var(--toc-p, 0)`）是有意给默认值，放行。反向取契约 23 个槽位，要求每一个至少被主表或任一主题文件引用过 —— `--brand` / `--on-brand` 只被 `edge` 用，正好当「主题文件真的被读进来了」的锚点。两个方向都先要求「看得见」（定义 ≥15、引用 ≥15、槽位 ≥20），否则「差集为空」对空集恒成立（P-059 那个形态）。
+- **边界**：只查 `style.css`，不查 `public/app.js` 里 JS 写进去的内联变量（`--toc-p` 就是运行时由 JS 赋值的，靠 fallback 兜底）。也不判断「槽位是否**该**被消费」——`--brand` 只给主题自己用是设计，不是缺陷，所以判据是「至少一处引用」而不是「主表必须引用」。
+- **出处**：`scripts/test-theme-contract.mjs` TC-39；`src/theme-contract.js`；`public/style.css:26 / 1881`（删除的两行）；`THEME-CONTRACT.md` 第二节；站务记录 2026-11-24
 
 ---
 
