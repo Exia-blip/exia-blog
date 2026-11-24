@@ -1025,6 +1025,43 @@ t('TC-43 [P-068] 类名源清单不得有重复项：同一文件扫两遍，失
   );
 });
 
+t('TC-45 [P-071] 元断言：判重用的那份清单必须真的未去重', () => {
+  /* TC-43 遍历 CLASS_SOURCES_RAW 判重。只要有人把它"顺手简化"成
+       const CLASS_SOURCES_RAW = [...new Set([...])];
+     TC-43 立刻回到恒真，而且**继续绿** —— 它遍历的就是那份已经去重的清单。
+
+     这条防线没有放进 THEME-CONTRACT.md：那份文档讲的是「主题怎么写」，
+     源清单是测试脚本的实现细节。写进去也没人会在改这一行时去翻它。
+     断言不会过时，文档会 —— 所以读自身源码，判 RAW 的定义里有没有 new Set。 */
+  const self = read('scripts/test-theme-contract.mjs');
+
+  const rawAt = self.indexOf('const CLASS_SOURCES_RAW = [');
+  assert.ok(rawAt > -1, '找不到 CLASS_SOURCES_RAW 的定义 —— 元断言失效，先修这里');
+  const rawEnd = self.indexOf('];', rawAt);
+  assert.ok(rawEnd > rawAt, 'CLASS_SOURCES_RAW 找不到结尾的 `];` —— 定义结构变了，元断言要跟着改');
+  const rawSrc = self.slice(rawAt, rawEnd);
+
+  const setAt = self.indexOf('const CLASS_SOURCES = ');
+  assert.ok(setAt > -1, '找不到 CLASS_SOURCES 的定义');
+  const setEnd = self.indexOf(';', setAt);
+  const setSrc = self.slice(setAt, setEnd);
+
+  /* 锚点：两段都要真的抓到内容，否则两个 indexOf(-1) 的空串也能让下面的否定判断成立。 */
+  assert.ok(
+    rawSrc.length > 40 && setSrc.length > 20,
+    `只抓到 ${rawSrc.length} / ${setSrc.length} 字符 —— 两处定义都变了，这条在空转`
+  );
+
+  const bad = [];
+  if (/new Set/.test(rawSrc)) {
+    bad.push('CLASS_SOURCES_RAW 里出现了 new Set —— 判重又变成「拿自己去重的结果验重复」');
+  }
+  if (!/new Set\(/.test(setSrc)) {
+    bad.push('CLASS_SOURCES 没有去重 —— 扫描会把同一文件算两遍，TC-43 那条就不只是判重了');
+  }
+  assert.deepEqual(bad, [], `源清单的结构退化：\n      ${bad.join('\n      ')}`);
+});
+
 t('TC-41 [P-066] token 类别的配色来源必须是契约槽位或登记的例外', () => {
   /* 材料这轮唯一说对的新缺口：TC-37 只比「类别集合」，不看每一类的颜色**从哪来**。
      于是 `.tok-c { color: var(--muted) }` 能同时穿过三道闸 ——

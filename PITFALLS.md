@@ -694,6 +694,15 @@
 - **边界**：只统计 `public/style.css`，**不统计主题文件** —— 主题里用 `--muted` 是本职（那是它该覆盖的槽位），统计进去等于拦正常用法。按字面 `var(--muted)` 计，`color-mix(in srgb, var(--muted) 62%, transparent)` 也算消费点（它确实吃这个值）。不含 `app.js` 运行时写进内联样式的变量。数字会随业务 CSS 增长而频繁变动 —— 这是刻意的摩擦，改一行数字的成本低于「调完 muted 才发现注释色也变了」。
 - **出处**：`scripts/test-theme-contract.mjs` TC-44；`src/theme-contract.js` 的 `TOK_EXCEPTION.sites`；`public/style.css` 153 处 `var(--muted)`；第九份材料「四方闭环缺第五方 / alsoUsedBy」；站务记录 2026-11-24
 
+## P-071 判重断言的上游被改坏时，断言自己不会红 —— 它只会继续绿
+
+- **现象**：TC-43 遍历 `CLASS_SOURCES_RAW` 判重复，前提是这份清单**未去重**。只要有人觉得「两个变量名多余」把定义合成 `const CLASS_SOURCES_RAW = [...new Set([...])]`，TC-43 就回到恒真 —— 而且**继续 pass**，因为它遍历的正是那份已经去重的清单。改动只有一行，注释写着「留着，让 TC-43 看得见」，但改的人不会读注释。
+- **根因**：断言能守「数据里有没有重复」，守不住「判据自己的输入被改」。这和 P-068 是同一个病的上一层：P-068 是判据的输入被提前转换（在写断言时），P-071 是判据的输入被后来的人转换（在维护时）。文档也挡不住：`THEME-CONTRACT.md` 讲的是「主题怎么写」，源清单是测试脚本的实现细节，写进去没人会在改这一行时去翻。这类只能靠**元断言**——本项目已有先例（`test-timing.mjs` 读自身源码检查 `fn.constructor.name === 'AsyncFunction'`）。
+- **复现**：两处替换（`CLASS_SOURCES_RAW = [...new Set([` + 尾部 `])]`、`CLASS_SOURCES = CLASS_SOURCES_RAW`）→ **TC-43 pass、TC-45 FAIL**，报「RAW 里出现了 new Set」与「CLASS_SOURCES 没有去重」；只把 `CLASS_SOURCES` 改成直接引用 `CLASS_SOURCES_RAW` → TC-45 单独报第二条，TC-43 仍绿（它判的是重复，不判去重那步在不在）。
+- **断言**：`TC-45` 读自身源码，切出两段定义：`CLASS_SOURCES_RAW` 的片段里不许出现 `new Set`，`CLASS_SOURCES` 的片段里必须有 `new Set(`。两段各配长度锚点（>40 / >20 字符），因为 `indexOf` 返回 `-1` 时切出空串，两个否定判断对空串同样成立 —— 这是 P-059 那个形态的第四次出现。
+- **边界**：只认这两处定义的**文本形态**。把清单改成 helper 函数生成（`const CLASS_SOURCES_RAW = collect()`）会让元断言先报「找不到定义」并判红，不会静默变绿 —— 但那时要手工把元断言指到新落点，否则它只能一直红着。不判语义，也无法判「这份清单该包含哪些文件」（那是 TC-43 的长度锚点在做的事）。
+- **出处**：`scripts/test-theme-contract.mjs` TC-43 / TC-45；站务记录 2026-11-24
+
 ---
 
 ---
