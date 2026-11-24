@@ -683,6 +683,64 @@ console.log(`\n${ORIGIN}\n`);
   ok('[P-042] 栏目页越界页码 404', cat.res.status === 404, `HTTP ${cat.res.status}`);
 }
 
+/* ---------- 14. 分段计时头（P-049）
+
+   这个头的用途是"以后排查不用再 wrangler tail"。它自己要是悄悄没了，
+   下次真慢的时候会以为"这次看起来正常"，比从来没有更糟。所以线上得有，
+   而且得是能解析的格式。
+
+   注意边缘缓存命中的响应不经过 Worker，也就没有这个头 —— 所以先绕缓存
+   打一发（`?cb=`），再核。命中缓存的那发没有头是正常的，不是失败。 */
+{
+  const raw = async (p) => {
+    const res = await fetch(ORIGIN + p, { headers: { 'cache-control': 'no-cache' } });
+    return { res, st: res.headers.get('server-timing') || '', ct: res.headers.get('content-type') || '' };
+  };
+
+  const home = await raw(`/?cb=${Date.now()}`);
+  ok('[P-049] 首页带 Server-Timing', !!home.st, home.st || '缺失（缓存命中也可能没有，绕缓存仍缺就是没打）');
+  ok(
+    '[P-049] 三段俱全且可解析（db / app / total）',
+    /db;dur=[\d.]+/.test(home.st) && /app;dur=[\d.]+/.test(home.st) && /total;dur=[\d.]+/.test(home.st),
+    home.st
+  );
+  ok('[P-049] db 带查询条数（desc="Nq"）', /desc="\d+q"/.test(home.st), home.st);
+
+  const api = await raw(`/api/posts?size=1&cb=${Date.now()}`);
+  ok('[P-049] JSON 响应也带 Server-Timing', !!api.st && /total;dur=/.test(api.st), api.st || '缺失');
+
+  const css = await raw(`/style.css?cb=${Date.now()}`);
+  ok(
+    '[P-049] 静态资源不带（每个 CSS 请求多发几十字节就是纯浪费）',
+    !css.st && /text\/css/.test(css.ct),
+    `${css.ct} ${css.st || '无头'}`
+  );
+}
+
+/* ---------- 15. JSON-LD 的 @id 与 canonical 同源（P-050）
+
+   以前 `listLd()` 直接吃 `url.toString()`，于是 /?cb=x、/?utm_source=x 各生成
+   一个 @id，而 canonical 指向同一个 / —— 同一份内容两个实体。canonical 归一的
+   那次修复只动了 <link>，结构化数据这条漏了：两条出口，改了一条。
+
+   打 ?cb= 是为了绕开 300 秒边缘缓存（部署后旧副本里还是旧 @id，会假红）。 */
+{
+  const ldId = async (p) => {
+    const res = await fetch(ORIGIN + p, { headers: { 'cache-control': 'no-cache' } });
+    const body = await res.text();
+    const m = body.match(/"@type":"CollectionPage","@id":"([^"]+)"/);
+    return { status: res.status, id: m ? m[1] : '', canon: (body.match(/<link rel="canonical" href="([^"]+)"/) || [])[1] || '' };
+  };
+
+  const home = await ldId(`/?cb=${Date.now()}`);
+  ok('[P-050] 首页 @id 不带穿透参数', home.id === `${ORIGIN}/`, home.id || '没找到 @id');
+  ok('[P-050] 首页 @id 与 canonical 一致', home.id === home.canon, `@id ${home.id} / canonical ${home.canon}`);
+
+  const p2 = await ldId(`/?page=2&cb=${Date.now()}`);
+  ok('[P-050] 真分页的 @id 保留 page', p2.id === `${ORIGIN}/?page=2`, p2.id || '没找到 @id');
+  ok('[P-050] 分页 @id 也等于 canonical', p2.id === p2.canon, `@id ${p2.id} / canonical ${p2.canon}`);
+}
+
 /* 体检有几十条，失败夹在中间的 ok 里很容易漏读。末尾把失败项单独列一遍。 */
 if (failed.length) {
   console.log('\n失败项：');

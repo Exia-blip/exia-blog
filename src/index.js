@@ -11,6 +11,7 @@ import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders, obfuscateEmail } from './security.js';
 import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
 import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.js';
+import { timedDb, withServerTiming } from './timing.js';
 import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
 import { normalizePagePath } from './routes.js';
 import { NUMBER_GROUPS, allNumbers, numberStats } from './numbers.js';
@@ -1713,6 +1714,26 @@ function renderCats(body, counts, tags) {
 
 /* ---------- 静态页 SEO：站点名进标签页标题、站点描述进 meta ----------
    文章页的 <!--SEO--> 已在 servePostPage 里换掉，这里只兜静态页（首页/归档/栏目/友链…） */
+/* 规范地址的唯一实现。
+   `<link rel="canonical">` 与列表页 JSON-LD 的 `@id` / `url` 都从这里取——
+   以前 JSON-LD 直接用 `url.toString()`，于是 /?cb=x、/?utm_source=x 各生成
+   一个不同的 @id，而 canonical 指向同一个 /。同一份内容两个实体，Search
+   Console 会当成重复页，结构化数据也可能被拆成两条。
+
+   规则：除了真分页（首页 / 标签 / 栏目）的 page > 1，其余 query 一律丢掉。
+   两个例外都是「无效页码」：
+     · page=1 —— 内容与不带参数时逐字相同，留着就是同一页的两份地址；
+     · 归档页 —— 它一次列全部，page 根本不参与查询。 */
+export function canonicalOf(url) {
+  if (!url) return '';
+  const out = new URL(url.pathname, url.origin);
+  const paged = url.pathname === '/' || url.pathname.startsWith('/tag/') || url.pathname.startsWith('/cat/');
+  /* 页码只在这里解析一次（QP-05），用 pageParams 而不是自己 parseInt */
+  const pageNo = pageParams(url).page;
+  if (paged && pageNo > 1) out.searchParams.set('page', String(pageNo));
+  return out.toString();
+}
+
 function fillSeo(body, site, url) {
   if (!body.includes('<!--SEO-->')) return body;
 
@@ -1739,21 +1760,8 @@ function fillSeo(body, site, url) {
   const desc = metaDesc(cat ? cat.desc : isTag ? `${label} 标签下的全部文章` : '', site.desc || `${site.name} · 记录思考、代码与生活`);
   /* canonical 保留页码：第 2 页的规范地址是 /?page=2 而不是首页，
      否则搜索引擎把分页当首页的重复内容。其余 query（搜索词、utm、缓存穿透参数）
-     一律丢掉，只留纯页码 —— 否则每一份 ?cb= 都成一个新的规范地址。
-
-     两个例外，都是「无效页码」：
-       · page=1 —— 内容与不带参数时逐字相同，留着就是同一页的两份地址；
-       · 归档页 —— 它一次列全部，page 根本不参与查询，?page=99 与 /archive
-         输出同一份内容，于是每个页码都是一张自指的重复页。
-     只让真分页的三种列表（首页 / 标签 / 栏目）在 page > 1 时保留页码。 */
-  const canonicalUrl = url ? new URL(url.pathname, url.origin) : null;
-  const paged = !!url && (url.pathname === '/' || url.pathname.startsWith('/tag/') || url.pathname.startsWith('/cat/'));
-  // 页码仍然只在这一处解析一次（QP-05）：用 pageParams 而不是自己 parseInt
-  const pageNo = url ? pageParams(url).page : 1;
-  if (canonicalUrl && paged && pageNo > 1) {
-    canonicalUrl.searchParams.set('page', String(pageNo));
-  }
-  const canonical = canonicalUrl ? canonicalUrl.toString() : '';
+     一律丢掉 —— 规则在 canonicalOf() 里，JSON-LD 用的是同一个函数。 */
+  const canonical = canonicalOf(url);
   const origin = url ? url.origin : '';
   // 分享图固定用本站那张 1200×630：尺寸、域名、可用性都在自己手里
   const ogImage = `${origin}/og-default.jpg`;
@@ -1913,7 +1921,9 @@ async function injectTheme(env, res, url) {
         listLd({
           site: s,
           origin: url.origin,
-          url: url.toString(),
+          /* @id 必须是规范地址：用原始 URL 的话 /?cb=x 与 / 会变成两个实体，
+             而 canonical 只有一个 —— 同一份内容两种身份。 */
+          url: canonicalOf(url),
           name: title,
           desc: s.desc,
           posts: list.posts,
@@ -2746,15 +2756,22 @@ export default {
      console 是运行时自带的 sink，observability 已开，7 天可检索。 */
   async fetch(request, env, ctx) {
     const startedAt = Date.now();
+    /* 分段计时的账本。DB 通过代理累计，其余（模板、JSON、组装）用总数减出来。
+       这样不用在每个查询点插桩 —— 本站 D1 调用点一百多处，散着改没人维护得住。 */
+    const bag = { db: 0, queries: 0 };
+    const timedEnv = { ...env, DB: timedDb(env.DB, bag) };
     let res;
     try {
-      res = await this.handleFetch(request, env, ctx);
+      res = await this.handleFetch(request, timedEnv, ctx);
     } catch (e) {
       /* 兜底的兜底：handleFetch 自己抛出来的异常（HEAD 预处理、URL 解析、
          日志上报）到不了内层那个 catch，会一路掉到这里。回法必须和内层一致，
          所以走同一个 fatalResponse —— 别在这儿再写一遍分支。 */
       res = fatalResponse(request, e);
     }
+    /* 只在这里加一次：HEAD 分支是 handleFetch 内部递归，不经过本函数，
+       不会重复打头。边缘缓存副本里已经带了头，withServerTiming 会跳过。 */
+    res = withServerTiming(res, Date.now() - startedAt, bag);
     emit(requestLog({ request, response: res, durationMs: Date.now() - startedAt }));
     return res;
   },

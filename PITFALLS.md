@@ -443,6 +443,33 @@
 
 ---
 
+## P-049 排查性能全靠 `wrangler tail`，响应上没有分段
+
+- **现象**：文章里写了一串耗时（549→96、180→84、TTFB P50 215ms），但那些数字一个都不在响应上。想知道某个页面慢在哪，必须开 `wrangler tail`、复现一次、读那行 JSON，读完就散了。生产者（`requestLog`）只在日志侧，消费侧（浏览器、curl、同行）什么都看不到。
+- **根因**：`startedAt` 从头到尾只喂给 `emit(requestLog(...))` 的 `durationMs`，没有第二个出口；D1 调用点散在 6 个文件一百多处，逐点插桩不现实，于是干脆没做。`cfWorker;dur=549` 那个头是运行时加的（第 30 篇记过），不是我们控制得了的分段，也分不出 db 与模板。
+- **复现**：`curl -s -o /dev/null -D - 'https://exia.de5.net/?cb='$(date +%s) | grep -i server-timing` —— 修之前这一行什么都不输出。修法在 `src/timing.js`：`timedDb()` 用 Proxy 包 `env.DB`，在 `fetch()` 里换成 `timedEnv` 再传给 `handleFetch`，所有查询自动计时，零调用点改动；`bind()` 必须重新包（否则 `.bind(...).all()` 漏计），`batch()` 必须解包（传代理进 D1 会类型检查失败，代理上挂 `__raw` 指回原对象）；`withServerTiming()` 只在 `fetch()` 出口加一次，只认 `text/html` 与 `application/json`。
+- **断言**：`scripts/test-timing.mjs` T-01~T-12（假 D1 真跑代理，验 batch 解包、bind 链、二次包装、304 空 body、app 钳零，外加元断言「只包一次」与 T-12 自检「同步 runner 拒收 async」）；`check-live.mjs` 第 14 节 `[P-049]` 5 条守线上。注入验证两组：摘掉 `timedDb` → T-11 红；`batch` 不解包 → T-03 红。
+- **出处**：站务记录（本文件，2026-11-24）；`src/timing.js`；`src/index.js` 的 `fetch()`；`src/cache.js` 的 `edgePut()`（存副本前删头，否则命中会显示上一次的耗时）
+
+两个反直觉的点，值得单独记：
+
+1. **`db` 可以大于 `total`**。`Promise.all` 并行查库时，七条各 20ms 的查询累加成 140ms，而总耗时只有 33ms。累加的是每次查询各自花了多久，不是这条请求在库里待了多久。实测 `/cat/log` 出现过 `db=173 / total=137`，`app` 被钳到 0。别拿 `db/total` 当数据库占比用，也别当 bug 修掉。
+2. **边缘缓存命中的响应没有这个头**，因为它不经过 Worker。所以「有头 = 回源，无头 = 缓存命中」本身就是判据，比 `cf-cache-status` 直接（那个头可能是上一跳留下的）。`check:live` 先 `?cb=` 绕缓存再核，否则会把正常的缓存命中判成失败。
+
+**教训："我量过"和"别人能量"是两件事。** 前者的数字只活在文章里，改完就过期；后者有个固定入口，谁都能复现。这条头的价值不在今天这几个数，在于下次真慢的时候不用重新搭环境。
+
+---
+
+## P-050 canonical 归一了，JSON-LD 的 `@id` 没有
+
+- **现象**：`/?cb=zz1`、`/?utm_source=x`、`/?anything` 这些地址的 `canonical` 都正确指向 `/`，但页面里 `CollectionPage` 的 `@id` 和 `url` 各写各的 —— 每个 query 一个。同一份内容在结构化数据里变成无限多个实体。
+- **根因**：canonical 的规则写在 `fillSeo()` 里（内联的一段 `paged` + `pageNo > 1`），JSON-LD 在 `listLd()` 调用处直接吃 `url.toString()`。**两条出口，只归一了一条** —— 和 P-030（`ownerOrAdmin` 两处内联判定）、P-044（500 的两个 catch）是同一个形态，第三次发作。
+- **复现**：`curl -s 'https://exia.de5.net/?cb=zz1' | grep -o '"@id":"[^"]*"'` —— 修之前输出 `https://exia.de5.net/?cb=zz1`，而同一页的 `<link rel="canonical">` 是 `https://exia.de5.net/`。修法是把规则抽成 `canonicalOf(url)`（`src/index.js`），`fillSeo()` 与 `listLd()` 调用处共用；`/?page=2` 仍然保留页码，`/archive?page=9` 仍然丢掉。
+- **断言**：`scripts/test-query-params.mjs` QP-07 从源码扫描改成**行为测试**（直接喂 URL 看 `canonicalOf` 返回值，9 条），QP-08 是元断言（`listLd` 的 url 必须走 `canonicalOf`，不许出现 `url.toString()`）；`check-live.mjs` 第 15 节 `[P-050]` 4 条守线上，打 `?cb=` 绕缓存。注入验证：`url: canonicalOf(url)` 改回 `url.toString()` → QP-08 立刻红。
+- **出处**：站务记录（本文件，2026-11-24）；`src/index.js` 的 `canonicalOf()` / `fillSeo()` / `listLd()` 调用处；`src/seo.js` 的 `listLd()`；`scripts/test-query-params.mjs`
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

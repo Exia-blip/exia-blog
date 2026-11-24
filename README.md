@@ -576,6 +576,20 @@ npx wrangler dev --port 8788 --local
 
 ## 性能与缓存
 
+**当前实测**（`node scripts/perf-vitals.mjs https://exia.de5.net/ --runs=3`，2026-11-24，桌面无节流）：
+
+| 指标 | 值 | 评级 | 备注 |
+|---|---|---|---|
+| LCP | **248 ms** | good | LCP 元素是列表首图的 `img.thumb`（`auto-4.webp`，23KB），不是字体也不是大图 |
+| CLS | **0** | good | 0 次偏移；三个空位的修法见「CLS 的最后一格」 |
+| INP | 40 ms | good | 交互打点，不是 TBT |
+| TTFB | 47 ms | good | 热连接；冷连接实测 260 ms（其中 TLS 握手 140 ms） |
+| 请求数 / 传输 | 23 reqs / 16 KB | — | 不含 `static.cloudflareinsights.com` 那一个 RUM 脚本 |
+
+移动端（`--mobile`，4G + 4× CPU）LCP **940 ms**，仍是 good，但 LCP 元素换了人：桌面是列表首图，移动端变成「先读这三篇」榜单的标题文字（`span.pick-t`）——窄屏下首图被挤出首屏，最大元素成了文字块。两个数都远好于 2.5 s 的阈值，所以没有为它改排版。
+
+没有用 Lighthouse 分数做基线：那是合成分数，同一份页面两次跑能差 10 分；也不报 TBT，本站没有长任务，40 ms 的 INP 更能说明问题。
+
 **文章页整页服务端渲染**。以前 `/p/:slug` 只在 `<title>` 和 meta 上做了手脚，正文、评论、标签全得等 `/api/posts/:slug` 回来才画出来；现在 Worker 直接把整篇文章（含 AI 摘要块、标签、评论列表与评论框）写进 HTML，`window.__POST__` 只带元信息，前端不再重复拉一份正文。
 
 | 内容 | 以前 | 现在 |
@@ -607,6 +621,23 @@ SRI 的边界在 `<head>` 直出的标签上；`/editor`、`/login` 这类直接
 `public/vendor/mermaid.min.js`（2.7MB）也走同一条路：自托管、内容哈希、`immutable`、`integrity`。只在页面上真有 mermaid 图时才注入，不拖累其它页面。
 
 **发布即失效**：新建 / 修改 / 删除文章后会主动 `caches.default.delete()` 掉首页、归档、栏目页和新旧文章地址，不用等 TTL。TTL 放宽到 300 秒就是靠这一条兜底的——内容更新是主动清的，不是等出来的。带 `sid` cookie 的请求一律绕过缓存，后台、私密文章、登录流程永远实时渲染。
+
+**分段计时（Server-Timing）**：每个 HTML 与 JSON 响应带一条
+
+```
+server-timing: db;dur=154;desc="7q", app;dur=0, total;dur=33
+```
+
+`db` 是本请求所有 D1 调用的**累计墙钟**，`desc` 里的 `7q` 是查询条数；`total` 从进入 `fetch` 算到响应对象造好；`app = total - db`，钳到 0 不取负（理由见下）。
+
+**`db` 可以大于 `total`，这不是 bug。** `Promise.all` 并行查库时，七条各 20ms 的查询累加成 140ms，而总耗时只有 33ms——累加的是"每次查询各自花了多久"，不是"这条请求在库里待了多久"。实测 `/cat/log` 出现过 `db=173 / total=137`。所以三个数不是嵌套关系，别拿 `db/total` 当"数据库占比"用。
+
+另外两个判据：
+
+- **边缘缓存命中的响应没有这个头**，因为它不经过 Worker。所以「有头 = 回源，无头 = 缓存命中」，比看 `cf-cache-status` 更直接（那个头可能是上一跳留下的）。要强制回源就加 `?cb=`。
+- **静态资源不带**。CSS / JS / 图片每个响应多几十字节纯属浪费，`withServerTiming` 只认 `text/html` 与 `application/json`。
+
+实现是单点包装：`timedDb()` 用 Proxy 包住 `env.DB` 再传给 `handleFetch`，所有查询点（`src/api.js` 78 处 `prepare`）自动计时，不用逐点插桩。`batch()` 那条路要特别处理——传代理对象进 D1 会触发类型检查失败，所以代理上挂了 `__raw` 指回原对象，`batch` 时解包（`scripts/test-timing.mjs` T-03 守着）。
 
 **ETag / 304**：HTML 的浏览器缓存是 `max-age=0`（每次回源校验），没有 ETag 的话这次"校验"就是一次完整的 200。现在每个 HTML 响应都带强 ETag（`tagOf()` 算归一化内容指纹），命中时回 304 —— 实测复访从 29102B 降到 **0B**。
 
@@ -692,6 +723,8 @@ npm run check:live             # 一次性过 53 项硬指标
 | 首页、归档、栏目、标签 | `CollectionPage` + `ItemList`（前 20 篇） |
 
 `og:image` 与列表缩略图同源（见下一节）。另外补齐了 `og:url`、`og:locale`、`og:image:alt`、`article:published_time` / `modified_time` / `section` / `tag` 和 `twitter:image`。
+
+`CollectionPage` 的 `@id` / `url` 必须是**规范地址**，与 `<link rel="canonical">` 同一个来源（`canonicalOf()`，`src/index.js`）。以前直接塞 `url.toString()`，于是 `/?cb=x`、`/?utm_source=x` 各生成一个 `@id`，而 canonical 指向同一个 `/` —— 同一份内容两个身份，Search Console 会当成重复页。规则和 canonical 完全一致：除真分页的 `page > 1` 之外，所有 query 都丢掉。
 
 `sitemap.xml` 里**每条 URL 都带 `<lastmod>`**，不只文章页：首页 / 归档 / 栏目总览取全站最新 `updated_at`，栏目页与标签页取组内 `MAX()`，友链页取最近新增的友链。没有 `lastmod` 的 URL 会被爬虫当作「从不更新」，只登记不重抓。友链表为空时 `MAX()` 是 NULL，会漏掉 lastmod，所以空表退回站点最后更新时间。
 

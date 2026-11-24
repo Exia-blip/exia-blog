@@ -37,6 +37,9 @@ export async function edgePut(url, res, ttl = EDGE_TTL, swr = EDGE_SWR) {
   const headers = new Headers(res.headers);
   headers.set('cache-control', `public, s-maxage=${ttl}, stale-while-revalidate=${swr}`);
   headers.delete('set-cookie');
+  /* 分段耗时是「这一次回源」的账，存进缓存就会被下一次命中当真。
+     withServerTiming 本身会跳过已带头的响应，这里再删一次是防老副本。 */
+  headers.delete('server-timing');
   const copy = new Response(res.body, { status: res.status, statusText: res.statusText, headers });
   try {
     await caches.default.put(cacheUrl(url), copy.clone());
