@@ -560,6 +560,11 @@ a.cat-chip:hover { filter: brightness(0.96); }
   white-space: nowrap;              /* 行内代码不折行，避免 "Ctrl/Cmd + S" 被拆断 */
 }
 .md pre code, .md .code-block code { white-space: pre; }
+/* 代码块与行内代码必须关连字。.post-body 给正文开了 "liga" 1（中文排版的 kerning 要走它），
+   而 .md 和 .post-body 是同一个 div —— pre 直接继承这个值，于是 => != -> 在等宽字体里
+   被合成单字形，中文技术文里这三个符号出现极密，合成后反而更难扫读。
+   这是继承来的，不是谁写在这儿的，所以只能显式摘（P-058）。 */
+.md code, .md pre, .md pre code { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 /* 行内代码默认不折行是刻意的（"Ctrl/Cmd + S" 不该被拆断），
    但整条报错原文这种超长标识符在窄屏会把整页撑宽，所以窄屏放开折行。 */
 @media (max-width: 640px) {

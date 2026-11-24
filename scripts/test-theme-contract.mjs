@@ -545,6 +545,78 @@ t('TC-28 加一套主题只需要建一个文件（清单会自己长出来）',
   assert.deepEqual(dirty, [...INLINE_THEMES], `脏文件名漏进清单：${dirty.join(',')}`);
 });
 
+t('TC-29 [P-056] 主色不做文字色：浅色块里不许出现 color: var(--brand)', () => {
+  /* 材料说的是「橙色必须稀缺，只做唯一主操作色」，可执行版不是数 var(--brand)
+     出现几次 —— 那个数会被一次 hover 微调弄红，而且对 edge 的
+     color-mix(in srgb, var(--brand) …) 派生全部失效（它数不到）。
+     真正的分界是「能不能当文字色」：锚橙在纯白上 2.58:1，当 color 用就是拿
+     链接色去撞 AA。深色态例外 —— #f6821f 在 #0d1117 上 7.33:1，那里它就是
+     合规文字色（edge 的深色 --accent 正是它本身）。 */
+  const bad = [];
+  for (const id of themeIds) {
+    const text = read(`public/theme/${id}.css`).replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const m of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const sel = m[1].trim();
+      if (/\[data-mode="dark"\]/.test(sel)) continue;
+      for (const d of m[2].split(';')) {
+        const [k, ...rest] = d.split(':');
+        if (k.trim() !== 'color') continue;
+        if (/var\(\s*--brand\s*\)/.test(rest.join(':'))) {
+          bad.push(`theme/${id}.css → ${sel.slice(0, 44)} { ${d.trim()} }`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(
+    bad,
+    [],
+    `主色被当文字色用了（白底 2.58:1，过不了 AA）：\n      ${bad.join('\n      ')}`
+  );
+});
+
+t('TC-30 [P-057] 代码块注释色在真实代码底上 ≥ 4.5:1', () => {
+  /* .tok-c 走 var(--muted)，而代码块的底色是 .code-wrap 的 var(--bg-soft) —— 不是 --bg。
+     TC-22 只验了 --muted on --bg，差这一层。选 One Dark Pro 时栽的正是这里：
+     它的注释 #7F848E 在 #282C34 上 3.72:1，满屏长文里注释一糊主题就废了。
+     实测 8 套 × 2 态全过，最低 anzhiyu/light 4.61 —— 余量只有 0.11，
+     任何一次 muted 调浅或 bg-soft 调深都会碰到这条。 */
+  const bad = [];
+  for (const id of THEME_IDS) {
+    for (const mode of ['light', 'dark']) {
+      const block = blockOf(id, mode);
+      const soft = varOf(block, 'bg-soft');
+      const muted = varOf(block, 'muted');
+      assert.ok(soft && muted, `${id}/${mode} 读不到 --bg-soft 或 --muted`);
+      const r = contrast(muted, soft);
+      if (r < 4.5) bad.push(`${id}/${mode} --muted ${muted} on --bg-soft ${soft} = ${r.toFixed(2)}`);
+    }
+  }
+  assert.deepEqual(
+    bad,
+    [],
+    `代码块注释读不清（.tok-c 用 --muted，底色是 --bg-soft）：\n      ${bad.join('\n      ')}`
+  );
+});
+
+t('TC-31 [P-058] 代码块关连字（正文的 liga 会顺着 .md/.post-body 同一个 div 漏进来）', () => {
+  /* .md 和 .post-body 是同一个元素的 class（index.js 的 <div class="md post-body">），
+     所以 .post-body 上的 font-feature-settings: "liga" 1 会被 pre 直接继承 ——
+     => != -> 在等宽字体里合成单字形。中文技术文里这三个符号出现极密，合成后更难扫读。
+     没有任何人「写」过这条规则，它是继承来的，所以只能显式用 none 摘掉。 */
+  const s = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(
+    s,
+    /\.md code[^{]*\{[^}]*font-variant-ligatures:\s*none/,
+    'style.css 没有给 .md code/pre 关连字 —— 正文的 "liga" 1 会漏进代码块'
+  );
+  /* 前提核查：正文确实开了连字。哪天正文关了，这条覆盖就多余，断言该一起删。 */
+  assert.match(
+    s,
+    /\.post-body\s*\{[^}]*font-feature-settings:[^;]*"liga"\s*1/,
+    '.post-body 不再开 liga 1 —— TC-31 的前提消失，连带覆盖规则一起删'
+  );
+});
+
 /* 自检：同步 runner 必须拒收 async 函数（P-029 那个坑，第二次踩过） */
 {
   const p0 = pass;

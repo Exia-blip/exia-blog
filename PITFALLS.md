@@ -536,6 +536,33 @@
 - **代价与边界**：`THEME_IDS` 依赖 `assets.gen.js`，**忘了跑 `build:sri` 时新主题会不在清单里**，症状是后台选它提示「未知的风格」—— 比「静默回落纸韵」好查，且 `deploy` 与 `npm test` 都会先跑 `build:sri`。`--brand` / `--on-brand` 仍只有 `edge` 一套用，属可选槽位，不要求每套都给。**没有**把 `style.css` 物理拆成 `contract.css` + `structure.css`：那是多一个 RTT，而「两层」靠 TC-26 用断言表达比拆文件更硬 —— 拆开之后两边照样能互相引用变量。
 - **出处**：`src/theme-contract.js`；`src/settings.js` 的 `THEME_IDS`；`scripts/build-sri.mjs` 的 `themeBg()`；`src/index.js` 的文件头 import；`public/theme/edge.css`；站务记录 2026-11-24
 
+## P-056 一份 5.6 KB 的主题文件，六成规则打不中任何元素
+
+- **现象**：提「第 9 套主题」的材料给了完整 `ming.css`，5.6 KB，未压缩。逐条比对真实的类名与变量，**能生效的不到 600 B**：`.t-ming …` 前缀（全站没有 `.t-*` class，主题作用域一直是 `[data-theme='x']`）、`.prose`（真名 `.md post-body`）、`.comment`（`.cmt`）、`.card`（`.post-card`）、`.friend-item`（`.friend-card`）、`.dot-ok/.dot-warn/.dot-err`（**零处**，友链三态圆点根本不存在）、`.ai-summary` / `.layout` / `.quote`（零处）、`.token.comment` 等 8 段（渲染器只产 `.tok-k/.tok-s/.tok-c/.tok-n/.tok-f`，Prism 没引入）、`var(--space-4)` / `var(--measure)` / `var(--baseline)`（style.css 里没这几个变量，`padding: var(--space-4)` 整条声明被丢弃 → padding 变 0）、`--canvas/--surface/--surface-2/--ink/--ink-strong/--ink-soft/--ok/--warn/--err`（契约槽位叫 `--bg/--bg-soft/--card/--fg/--fg-soft/--muted/--line/--green/--red`，TC-24 直接红）。
+- **根因**：材料是按「一套常见博客主题的命名习惯」写的，不是按这个站的渲染产物写的。CSS 的选择器不匹配**不报错、不警告、HTTP 200**，眼睛不看那个组件就永远发现不了。这跟 P-051（十份防闪脚本）同源，只是那条查的是「同一逻辑几份实现」，这条查的是「实现体根本不存在」。
+- **复现**：`for c in prose card comment friend-item dot-ok layout; do grep -c "\.$c[^a-z-]" public/style.css; done` → 六个 0；`grep -o '\-\-space[-0-9]*' public/style.css | sort -u` → 空。
+- **修法**：不建 `ming.css`。材料的三条选型（GitHub token 表 / 锚橙只做填充 / JetBrains Mono 系统栈）**11-24 已全部落在 `edge.css` 里**（`cf222e / 0a3069 / 0550ae / 8250df` 与暗色 `ff7b72 / a5d6ff / 79c0ff / d2a8ff`、`--brand: #f6821f` + `--accent: #c2410c`、`--serif: var(--sans)`、`--mono` 带 JetBrains Mono）。新增第 9 套只会让面板出现两个几乎同色的选项。真正能落地的增量只有三条：`--mono` 补齐回退栈（`SFMono-Regular / SF Mono / Liberation Mono`，P-057 的伴生改动）、代码块关连字（P-058）、两条断言（TC-29 / TC-30）。
+- **断言**：`[TC-29]` 浅色块里不许出现 `color: var(--brand)`（材料「主色必须稀缺」的可执行版）；`[TC-24]` 与 `[TC-20]` 本来就拦住了越界槽位与超体积。注入验证：在 edge 加 `color: var(--brand)` → 红。
+- **出处**：材料「主题『基建』ming v1.0」全文；`public/theme/edge.css`；`scripts/test-theme-contract.mjs` TC-29；站务记录 2026-11-24
+
+## P-057 素材说「按 gzip 比体积」，闸门是原始字节 —— 那是拆闸门不是省流量
+
+- **现象**：材料给的主题文件 5.6 KB 原始 / 1.8 KB gzip，随后建议「P-042 那条 ≤4 KB 的断言按 gzip 比比较合理，因为线上实际传输就是 gzip」。而真实闸门是 **2000 B 原始字节**（比它估的 4 KB 还紧一半），`TC-20` 与 `scripts/check-size.mjs` 用的是同一个数 —— 刻意同口径，因为两个阈值必然漂成两套（P-047 的教训）。
+- **根因**：「线上传的是 gzip 所以按 gzip 算」在**单次请求**上成立，在这套体系里不成立：`edge.css` 1898 B 原始 / 约 700 B gzip，一年强缓存 + 一条 `Link: preload`，流量从来不是瓶颈；闸门守的是**主题别长成第二个 style.css**。按 gzip 放宽等于把上限抬到约 5.5 KB 原始 —— 那就是允许主题带骨架了，而骨架必须进主表（P-051 的取舍）。
+- **复现**：`node scripts/check-size.mjs` 的 `themeRaw: 2000`；`scripts/test-theme-contract.mjs` 的 TC-20 注释写着「和 check-size 的 2000 B 保持同一个数」。
+- **修法**：不动口径。要加内容先腾空间 —— 这次为补全 `--mono` 回退栈（+46 B）把 edge 的开头注释从两行压成一行（省 80 B），净落到 1898 B，余 102 B。
+- **断言**：`[TC-20]` 逐文件原始字节 ≤ 2000。
+- **出处**：`scripts/check-size.mjs` 的 `LIMITS.themeRaw`；`scripts/test-theme-contract.mjs` TC-20；`public/theme/edge.css`；站务记录 2026-11-24
+
+## P-058 正文的连字设置顺着同一个 div 漏进了代码块
+
+- **现象**：文章页容器是 `<div class="md post-body">`（`src/index.js:1253`）—— `.md` 和 `.post-body` 是**同一个元素**。`.post-body` 上有 `font-feature-settings: "kern" 1, "liga" 1`（中文排版要走 kerning），`<pre>` / `<code>` 是它的后代，直接继承这个值。于是代码块里的 `=>`、`!=`、`->` 在等宽字体下被合成单字形。中文技术文里这三个符号出现极密，合成后反而更难扫读。
+- **根因**：这条属性从来没人「写」在代码块上，是继承来的 —— 所以 grep `pre` 永远查不到，只有在浏览器里盯着代码块看才可能注意到。材料那条「连字默认关」的判断是对的，但它归因于「用户显式开启」，实际原因是**站内某处已经开了**。
+- **复现**：注释掉 `public/style.css` 里那条 `.md code, .md pre, .md pre code { font-variant-ligatures: none; … }`，在装了 JetBrains Mono / Fira Code 的机器上看任意带 `=>` 的文章页。
+- **修法**：`.md code, .md pre, .md pre code { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }`。`calt` 一起关 —— 上下文替代在等宽字体里同样会改字形。行内代码也要关：`Ctrl/Cmd + S` 这类连写不该被合成。
+- **断言**：`[TC-31]` 要求 style.css 里存在这条覆盖，**并且**反向核查 `.post-body` 仍开着 `"liga" 1` —— 哪天正文关了连字，这条覆盖就多余，断言该一起删（否则会留一条没人知道为什么在的规则）。
+- **出处**：`public/style.css`（`.md code, .md pre` 规则）；`src/index.js:1253`；`scripts/test-theme-contract.mjs` TC-31；站务记录 2026-11-24
+
 ---
 
 ---

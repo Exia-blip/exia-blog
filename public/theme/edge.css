@@ -1,5 +1,4 @@
-/* 基建：纯白 + 发丝线 + 锚橙。不渐变、不玻璃拟态、不靠阴影分区（P-052）。
-   --brand 只做填充（2.58:1 过不了 AA），文字用压深的 --accent（P-054）。 */
+/* 基建：纯白 + 发丝线 + 锚橙（P-052 不渐变 / P-054 主色只填充）。 */
 :root[data-theme="edge"] {
   --bg: #ffffff;
   --bg-soft: #f7f8fa;
@@ -22,7 +21,7 @@
   --tok-f: #8250df;
   --serif: var(--sans);
   --sans: 'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
   color-scheme: light;
 }
 /* 深色是变体不是反相：#f6821f 在 #0d1117 上 7.33:1，可直接当文字色 */
