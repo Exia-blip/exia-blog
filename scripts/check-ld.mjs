@@ -3,10 +3,10 @@
 //   2. BlogPosting 的 headline 与页面 <h1> 一致（改标题忘了改模板时这里会炸）
 //   3. isPartOf.url 必须真的能打开（404 比不写更糟）
 //   4. position 与该文在系列页里的实际次序一致
-// 用法：node scripts/check-ld.mjs [--origin https://exia.de5.net]
+// 用法：node scripts/check-ld.mjs [--origin https://miu.sryze.cc]
 const origin = process.argv.includes('--origin')
   ? process.argv[process.argv.indexOf('--origin') + 1]
-  : 'https://exia.de5.net';
+  : 'https://miu.sryze.cc';
 
 const t0 = Date.now();
 const sm = await (await fetch(`${origin}/sitemap.xml?cb=${Math.random()}`)).text();

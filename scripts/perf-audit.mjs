@@ -7,13 +7,13 @@
  *   - 第三方（非本站）请求
  *
  * 用法：
- *   node scripts/perf-audit.mjs https://exia.de5.net/ [--mobile] [--cold] [--json]
+ *   node scripts/perf-audit.mjs https://miu.sryze.cc/ [--mobile] [--cold] [--json]
  * 前提：已有可调试 Chrome 在 9333 端口（npm run chrome:debug 或手动起）
  */
 import { writeFileSync } from 'node:fs';
 
 const CDP_PORT = process.env.CDP_PORT || 9333;
-const target = process.argv[2] || 'https://exia.de5.net/';
+const target = process.argv[2] || 'https://miu.sryze.cc/';
 const mobile = process.argv.includes('--mobile');
 const asJson = process.argv.includes('--json');
 

@@ -4,12 +4,12 @@
  * 前后矩形、文本、父链都打出来。CLS 只告诉你「哪个 class 动了」，
  * 那通常是容器；真正动的是里面某个高度变化的子元素。
  *
- * 用法：node scripts/cls-dig.mjs https://exia.de5.net/
+ * 用法：node scripts/cls-dig.mjs https://miu.sryze.cc/
  */
 import puppeteer from 'puppeteer-core';
 import { resolveChrome } from './chrome.mjs';
 
-const URL_ARG = process.argv[2] || 'https://exia.de5.net/';
+const URL_ARG = process.argv[2] || 'https://miu.sryze.cc/';
 const browser = await puppeteer.launch({
   executablePath: resolveChrome(),
   headless: 'shell',

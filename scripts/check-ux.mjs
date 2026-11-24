@@ -4,7 +4,7 @@
  * 搜索命中没高亮、空结果只有一句话、长评论把页面拉成三屏、百分比永远 0%。
  *
  *   node scripts/check-ux.mjs http://127.0.0.1:8788
- *   node scripts/check-ux.mjs https://exia.de5.net --q 缓存
+ *   node scripts/check-ux.mjs https://miu.sryze.cc --q 缓存
  *
  * 需要本地装 Chrome。跑本地时用 --q 指定一个确实能命中的关键词。
  */

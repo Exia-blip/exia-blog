@@ -24,7 +24,7 @@ const WR = [process.execPath, ['node_modules/wrangler/bin/wrangler.js']];
 
 const BUCKET = 'blog-images';
 /* 可覆盖：换了域名不用改代码；--check 也能指向一个本地探针来验证判断逻辑 */
-const SITE = (process.env.VARIANTS_SITE || 'https://exia.de5.net').replace(/\/$/, '');
+const SITE = (process.env.VARIANTS_SITE || 'https://miu.sryze.cc').replace(/\/$/, '');
 const force = process.argv.includes('--force');
 const checkOnly = process.argv.includes('--check');
 const tmp = checkOnly ? null : mkdtempSync(join(tmpdir(), 'variants-'));

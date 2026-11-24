@@ -8,7 +8,7 @@ const out = process.argv[3] || 'shots/audit-1122';
 const CHROME = resolveChrome();
 mkdirSync(out, { recursive: true });
 
-const BASE = 'https://exia.de5.net';
+const BASE = 'https://miu.sryze.cc';
 const PAGES = [
   ['home', '/'],
   ['post', '/p/theme-transition-class'],

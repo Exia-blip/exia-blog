@@ -7,14 +7,14 @@
 // 这里一次性比对：本地配置说什么，线上就应该是那个样子。两边不一致就 exit 1。
 //
 // 用法：
-//   npm run verify:umami                # 验 https://exia.de5.net
+//   npm run verify:umami                # 验 https://miu.sryze.cc
 //   npm run verify:umami -- http://127.0.0.1:8799
 import { readFileSync } from 'node:fs';
 import { umamiOn, collectOrigins } from '../src/utils.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const argUrl = process.argv.slice(2).find((a) => /^https?:\/\//.test(a));
-const BASE = (argUrl || 'https://exia.de5.net').replace(/\/$/, '');
+const BASE = (argUrl || 'https://miu.sryze.cc').replace(/\/$/, '');
 
 /* wrangler.jsonc 是带注释的 JSON：按行删掉整行注释就能 parse。
    注意不能用「删 // 之后的部分」—— 值里全是 https://，会把 JSON 劈坏。 */

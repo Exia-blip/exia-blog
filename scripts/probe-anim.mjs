@@ -8,7 +8,7 @@
 import puppeteer from 'puppeteer-core';
 import { resolveChrome } from './chrome.mjs';
 
-const url = process.argv[2] || 'https://exia.de5.net/';
+const url = process.argv[2] || 'https://miu.sryze.cc/';
 const touch = process.argv.includes('--touch');
 const CHROME = resolveChrome();
 

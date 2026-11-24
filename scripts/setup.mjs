@@ -147,7 +147,7 @@ async function setupWebhook() {
   }
 
   console.log('\n—— 发一条测试消息 ——');
-  const text = '🔔 通知已接通\n这条来自 exia.de5.net 的配置脚本，收到即表示地址有效。';
+  const text = '🔔 通知已接通\n这条来自 miu.sryze.cc 的配置脚本，收到即表示地址有效。';
   let r;
   try {
     r = await fetch(url, {
@@ -274,7 +274,7 @@ async function setupTurnstile() {
   preflight();
 
   console.log('\n完成。部署后打开任一文章页，评论区应该出现验证框。');
-  console.log('如果验证框一直转圈或报错，先去 CF 面板确认 widget 的 Hostname 包含 exia.de5.net。');
+  console.log('如果验证框一直转圈或报错，先去 CF 面板确认 widget 的 Hostname 包含 miu.sryze.cc。');
 }
 
 /* ---------------- umami ---------------- */

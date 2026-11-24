@@ -5,7 +5,7 @@ export const ASSET_HASH = {
   'app.js': { v: 'd9d0ed022d', i: 'sha384-F4qgRbnDE85pKFAhSRRhfitUpwou0mvBEnN1vVaURdiGGMRjQn95Et7e1phO4P9p' },
   'avatar.js': { v: '6945d59a78', i: 'sha384-30Q/I2a0FinO61Vm7okClafFryh+6EhWthjZ+F8ZJYK7AVwo6w1ypU59jsI2cM0k' },
   'boot.js': { v: '01956cba31', i: 'sha384-HBkR6v0RAqcZuzTEUq/AclQFoVoal510gO9NSk+rapSaAWZ+ZlxtycWK44pU8B7v' },
-  'copy-notice.js': { v: '9244b7ce73', i: 'sha384-l5UVmwYDiWq68IRagkZJfz+I+EGGEWJR5keZkDJ0ZFqUbea2ojbOuUSLrNdgnxT3' },
+  'copy-notice.js': { v: '37005dfb02', i: 'sha384-06Z7i5AdTVLQWI4ZBpM38rD7urKygjw0ubrO4MHxvqcxw6uAe/Xy6MVyApYMrs4j' },
   'cover.js': { v: 'df82152a9d', i: 'sha384-A3lOG3f+LLp59TfT44W10oVZGE+h+s9Yl5/xBZhE80fk8zuyMXhMOcpF+aMGpe8u' },
   'md.js': { v: '092666ed13', i: 'sha384-SmrOod4zV8EQrLRzEbhQKez9axG19fmHK0uVCP7NaDbssUvRYGpYtKgEkRYxyvkv' },
   'style.css': { v: '75abb07255', i: 'sha384-glcsh5vqOpL2X76mP/jUUZ5e8yEs3T5IprYm4LgK1i6nnGXflV9BQNAwGcozW47D' },

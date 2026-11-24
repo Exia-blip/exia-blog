@@ -10,7 +10,7 @@
    真实站点上作者名和地址都从 Worker 下发，改站名/换域名不需要动这个文件。 */
 export const DEFAULTS = {
   author: 'Exia Blog',
-  site: 'https://exia.de5.net/',
+  site: 'https://miu.sryze.cc/',
   license: '署名-非商业性使用-相同方式共享 4.0 国际 (CC BY-NC-SA 4.0)',
 };
 

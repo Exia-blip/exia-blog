@@ -2,12 +2,12 @@
 // 线上核对：/numbers 页渲染成功，且每条数字在其出处文章的 SSR HTML 里出现。
 // 与 test-numbers.mjs 分工：那个离线守结构与登记，这个联网守「数字没写错」。
 // 用法：node scripts/check-numbers-live.mjs [origin]
-//   默认 https://exia.de5.net；CI 传本地 Worker 的 BASE。
+//   默认 https://miu.sryze.cc；CI 传本地 Worker 的 BASE。
 // 存稿里的数字（PENDING_SLUGS）在线上还没上线，跳过其出处核对，只验页面本身。
 import { allNumbers, PENDING_SLUGS } from '../src/numbers.js';
 import { report } from './pitfall-check.mjs';
 
-const origin = (process.argv[2] || 'https://exia.de5.net').replace(/\/$/, '');
+const origin = (process.argv[2] || 'https://miu.sryze.cc').replace(/\/$/, '');
 const UA = { 'user-agent': 'numbers-live-check/1.0' };
 
 let bad = 0;

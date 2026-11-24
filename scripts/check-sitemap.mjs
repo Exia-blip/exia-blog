@@ -6,9 +6,9 @@
  * 多一个未来日期、重复一条 <loc>，浏览器和页面全都正常，只有爬虫那边慢慢失聪：
  * 没有 lastmod 的 URL 会按「从不更新」对待，未来日期会被判成无效 feed。
  *
- *   node scripts/check-sitemap.mjs https://exia.de5.net
+ *   node scripts/check-sitemap.mjs https://miu.sryze.cc
  */
-const base = (process.argv[2] || 'https://exia.de5.net').replace(/\/$/, '');
+const base = (process.argv[2] || 'https://miu.sryze.cc').replace(/\/$/, '');
 let pass = 0;
 const fails = [];
 const t = (ok, name, extra = '') => {

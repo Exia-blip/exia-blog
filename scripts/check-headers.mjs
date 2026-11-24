@@ -7,7 +7,7 @@
  * 边缘错误页（1101 / 52x / /cdn-cgi/*）的兜底，值必须与这里一致。
  */
 
-const ORIGIN = (process.argv[2] || 'https://exia.de5.net').replace(/\/$/, '');
+const ORIGIN = (process.argv[2] || 'https://miu.sryze.cc').replace(/\/$/, '');
 
 const WANT = {
   'x-content-type-options': 'nosniff',

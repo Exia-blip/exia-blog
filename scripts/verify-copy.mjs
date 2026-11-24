@@ -12,7 +12,7 @@ const LONG = '正文第一段，长度足够触发署名声明。这里写了很
 
 // 复刻线上头部：canonical 决定声明里的站点地址，__SITE__.name 决定作者名
 const PAGE = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<link rel="canonical" href="https://exia.de5.net/p/demo">
+<link rel="canonical" href="https://miu.sryze.cc/p/demo">
 <script>window.__SITE__={name:'Exia Blog'}</script>
 </head><body>
 <nav id="nav">导航文字，不该被贴署名，长度也故意写够六十个字符以免被长度门槛挡掉而误判通过。</nav>
@@ -75,7 +75,7 @@ t('长正文：附加三行声明，并拦掉浏览器默认写入', async () =>
   const r = await fire('#p1');
   if (!r.prevented) throw new Error('没有 preventDefault，默认行为会把原文再写一遍');
   if (!r.plain.includes('作者: Exia Blog')) throw new Error('缺作者行：' + r.plain.slice(-120));
-  if (!r.plain.includes('本文来自于: https://exia.de5.net/')) throw new Error('缺来源行');
+  if (!r.plain.includes('本文来自于: https://miu.sryze.cc/')) throw new Error('缺来源行');
   if (!r.plain.includes('CC BY-NC-SA 4.0')) throw new Error('缺协议行');
   if (!r.plain.startsWith('正文第一段')) throw new Error('正文被改动：' + r.plain.slice(0, 40));
 });

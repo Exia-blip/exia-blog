@@ -79,8 +79,8 @@ t('富文本版转义尖括号，配置写进 HTML 也炸不了', () => {
 
 t('富文本版把来源做成可点链接', () => {
   const html = noticeHtml();
-  assert.ok(/<a href="https:\/\/exia\.de5\.net\/"/.test(html), html);
-  assert.ok(html.includes('>https://exia.de5.net/<'), '链接文字要是地址本身');
+  assert.ok(/<a href="https:\/\/miu\.sryze\.cc\/"/.test(html), html);
+  assert.ok(html.includes('>https://miu.sryze.cc/<'), '链接文字要是地址本身');
 });
 
 t('只有来源行变成链接，作者行保持纯文本', () => {

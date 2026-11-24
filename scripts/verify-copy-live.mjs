@@ -4,11 +4,11 @@ import puppeteer from 'puppeteer-core';
 import { resolveChrome } from './chrome.mjs';
 
 const CHROME = resolveChrome();
-const url = process.argv[2] || 'https://exia.de5.net/p/comment-anti-spam';
+const url = process.argv[2] || 'https://miu.sryze.cc/p/comment-anti-spam';
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox'] });
 const ctx = browser.defaultBrowserContext();
-await ctx.overridePermissions('https://exia.de5.net', ['clipboard-read', 'clipboard-write']);
+await ctx.overridePermissions('https://miu.sryze.cc', ['clipboard-read', 'clipboard-write']);
 
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 900 });
@@ -56,7 +56,7 @@ const body = await copyBy('.post-body p', 0);
 check(
   '正文段落复制后带署名',
   body.text.includes('作者: Exia Blog') &&
-    body.text.includes('本文来自于: https://exia.de5.net/') &&
+    body.text.includes('本文来自于: https://miu.sryze.cc/') &&
     body.text.includes('CC BY-NC-SA 4.0'),
   `选中 ${body.picked} 字，尾部：${JSON.stringify(body.text.slice(-140))}`
 );

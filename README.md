@@ -9,7 +9,7 @@
 </p>
 
 **在线：[miu.sryze.cc](https://miu.sryze.cc)** — 这个 README 讲的就是它正在跑的那套东西，不是示例工程。
-**在线：[exia.de5.net](https://exia.de5.net)** — 这个 README 讲的就是它正在跑的那套东西，不是示例工程。
+**在线：[exia.de5.net](https://exia.de5.net)** — 旧域仍绑同一个 Worker，canonical 一律归一到主域。
 
 跑在 Cloudflare 全家桶上的博客系统。Workers + D1 + R2 + 静态资源，没有服务器，不需要备案，一个解析到 Cloudflare 的域名就能上线。
 
@@ -472,7 +472,7 @@ export function liveSql(a = 'p') {
 | `AI_MODEL` | var/secret | 否 | 覆盖默认模型，如 `@cf/qwen/qwen3-30b-a3b-fp8` |
 | `AI_API_BASE` | var | 否 | 走外部 OpenAI 兼容接口时的地址，默认 `https://api.deepseek.com/v1` |
 | `AI_API_KEY` | secret | 否 | 不配 `AI` 绑定时用外部接口生成摘要 |
-| `SITE_ORIGIN` | var | 是 | 站点主域，如 `https://exia.de5.net`。回调地址由它拼成 `${SITE_ORIGIN}/auth/callback` |
+| `SITE_ORIGIN` | var | 是 | 站点主域，如 `https://miu.sryze.cc`。回调地址由它拼成 `${SITE_ORIGIN}/auth/callback` |
 | `GITHUB_CLIENT_ID` | var | 是 | |
 | `R2_PUBLIC_BASE` | var | 否 | R2 自定义公开域名；留空则用 `/img/` 代理 |
 | `SESSION_SECRET` | secret | 是 | 会话签名密钥 |
@@ -506,7 +506,7 @@ Worker 起来之前/挂掉时，边缘返回的是 Cloudflare 自己的错误页
 `Rules → Transform Rules → Modify Response Header → Create rule`
 
 - 规则名：`security-baseline`
-- 匹配：Custom filter expression → `true`（或 `http.host eq "exia.de5.net"`）
+- 匹配：Custom filter expression → `true`（或 `http.host eq "miu.sryze.cc"`）
 - 操作：Set static，三条
 
 | Header name | Value |
@@ -523,7 +523,7 @@ Worker 起来之前/挂掉时，边缘返回的是 Cloudflare 自己的错误页
 
 ```bash
 for u in / /p/about /api/posts /nonexistent; do
-  echo "== $u"; curl -sI "https://exia.de5.net$u" | grep -iE 'x-content-type|referrer-policy|x-frame'
+  echo "== $u"; curl -sI "https://miu.sryze.cc$u" | grep -iE 'x-content-type|referrer-policy|x-frame'
 done
 ```
 
@@ -540,7 +540,7 @@ node scripts/apply-edge-headers.mjs              # 预览将写入的规则集
 node scripts/apply-edge-headers.mjs --apply      # 写入（同名规则原地替换，不动其它规则）
 ```
 
-Token 权限两项：`Zone · Transform Rules · Edit` + `Zone · Zone · Read`，Zone Resources 选 `exia.de5.net`。
+Token 权限两项：`Zone · Transform Rules · Edit` + `Zone · Zone · Read`，Zone Resources 选 `miu.sryze.cc`。
 
 **`wrangler login` 的 OAuth token 一定失败（403 / code 10000）**：Cloudflare 的 OAuth 授权范围里没有 Transform Rules，只支持 API Token 或 Global API Key。2026-11-08 实测确认过，不用再试。
 
@@ -549,7 +549,7 @@ Token 权限两项：`Zone · Transform Rules · Edit` + `Zone · Zone · Read`�
 三个头分两层，用一条命令就能分清：
 
 ```bash
-curl -sD - -o /dev/null https://exia.de5.net/cdn-cgi/trace | grep -iE 'x-content-type|referrer-policy|x-frame'
+curl -sD - -o /dev/null https://miu.sryze.cc/cdn-cgi/trace | grep -iE 'x-content-type|referrer-policy|x-frame'
 ```
 
 `/cdn-cgi/trace` 由 Cloudflare 边缘直接返回，**不经过 Worker**：
@@ -592,7 +592,7 @@ npx wrangler dev --port 8788 --local
 
 ## 性能与缓存
 
-**当前实测**（`node scripts/perf-vitals.mjs https://exia.de5.net/ --runs=3`，2026-11-24，桌面无节流）：
+**当前实测**（`node scripts/perf-vitals.mjs https://miu.sryze.cc/ --runs=3`，2026-11-24，桌面无节流）：
 
 | 指标 | 值 | 评级 | 备注 |
 |---|---|---|---|
@@ -672,7 +672,7 @@ server-timing: db;dur=154;desc="7q", app;dur=0, total;dur=33
 不用 Lighthouse 跑分（分数会飘，而且分不清「网络慢」和「代码慢」），直接读浏览器里的 PerformanceObserver：
 
 ```bash
-npm run vitals                 # 桌面，默认打 https://exia.de5.net/
+npm run vitals                 # 桌面，默认打 https://miu.sryze.cc/
 npm run vitals -- <URL>        # 换地址
 npm run vitals:mobile          # 移动 4G（1.6Mbps / 150ms RTT）+ 4x CPU，跑 3 次取最好
 npm run cls -- <URL>           # 只看 CLS，并打出每个偏移的前后矩形与父链
@@ -919,7 +919,7 @@ npm run assets:check    # 比对体积预算，超了 exit 1
 
 ```bash
 npm run check:ux -- http://127.0.0.1:8788 --q 缓存   # 高亮 / 空结果 / 折叠 / 百分比 / 代码横滚 / 正文宽度
-npm run check:sitemap -- https://exia.de5.net        # 每条 URL 都有 lastmod、无未来日期、无重复
+npm run check:sitemap -- https://miu.sryze.cc        # 每条 URL 都有 lastmod、无未来日期、无重复
 npm run check:browser                                # 一条命令：灌 D1 夹具 → 起本地 Worker → 跑上面这组页面断言
 npm run seed:ci                                      # 只灌夹具（本地空库时文章页全 404，页面断言没有靶子）
 ```

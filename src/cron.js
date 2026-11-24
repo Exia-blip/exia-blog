@@ -37,8 +37,10 @@ const MAX_REDIRECTS = 5;
    旧域名留作兜底不是为了兼容，是因为它们是历史部署地址：屏蔽它们没有副作用，
    但少屏蔽一个就可能让友链里的自己把自己探测一遍（实测 522）。
    SITE_ORIGIN 缺失或配错时退回默认，不让整个友链巡检挂掉。 */
-const DEFAULT_ORIGIN = 'https://exia.de5.net';
-const LEGACY_SELF_HOSTS = ['exia.de5.net', 'www.exia.de5.net', 'exia-blog.meitu.workers.dev'];
+const DEFAULT_ORIGIN = 'https://miu.sryze.cc';
+/* 旧主域和历史部署地址留作自环屏蔽：换域后它们仍绑着同一个 Worker，
+   漏屏蔽一个就可能让友链巡检把「自己的旧地址」当成外部站探测一遍（实测 522）。 */
+const LEGACY_SELF_HOSTS = ['exia.de5.net', 'www.exia.de5.net', 'miu.sryze.cc', 'www.miu.sryze.cc', 'exia-blog.meitu.workers.dev'];
 
 function originOf(env) {
   try {

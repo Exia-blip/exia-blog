@@ -29,7 +29,7 @@ npm run deploy
 ```bash
 npm run check:live
 ```
-打 `https://exia.de5.net`，逐项检查响应头 / CSP / 缓存规则 / srcset 实物 / alt / 103 预加载 /
+打 `https://miu.sryze.cc`，逐项检查响应头 / CSP / 缓存规则 / srcset 实物 / alt / 103 预加载 /
 零外链头像 / 零注释泄漏 等。项数随断言增长，以脚本输出为准（这里不写死数字）。
 部署脚本已在部署后自动跑这一步。
 
@@ -38,6 +38,22 @@ npm run check:live
 npm run backfill:check     # 正文渲染缓存有无空行（退出码 0=无需 / 1=需回填）
 npm run ttfb               # TTFB 分缓存态 P50/P95（HIT/MISS/DYNAMIC）
 ```
+
+### 换主域时的仓库外动作（ Worker 改 SITE_ORIGIN 只解决代码侧）
+
+`wrangler.jsonc` 的 `SITE_ORIGIN` 是唯一运行时开关；canonical / JSON-LD / RSS /
+sitemap / OAuth 回调 / 友链自环 全部从它派生。但它管不到下面这些外部登记项，
+漏一项的典型症状都是「站内全对、登录或评论静默失效」：
+
+| 项 | 动作 | 漏了的症状 |
+|---|---|---|
+| **GitHub OAuth App → Authorization callback URL** | 改成 `https://miu.sryze.cc/auth/callback`（GitHub 只认登记值，而且往往只能登记一条；改之前旧域那条要换掉） | 点登录跳回 GitHub 报 `redirect_uri MUST match` |
+| **Turnstile widget → Hostname** | 若将来启用，widget 的 Hostname 白名单要加 `miu.sryze.cc`；本站在 2026-11-24 是**两项都未配**，此刻无需动作 | 配了一半时前端照常弹框，服务端 `siteverify` 永远验不过 → 评论全量拒收 |
+| **Cloudflare Zone 级规则** | 新域是独立 active zone（`miu.sryze.cc`），不是根域 `sryze.cc`。Transform Rules / WAF / 缓存规则按 zone 归属，不会跟 Worker 自动迁移；需要时跑 `node scripts/apply-edge-headers.mjs` 前先确认 `CF_ZONE=miu.sryze.cc` | Worker 侧 CSP 仍生效（每个响应都带），但 zone 级 `X-Content-Type-Options` 之类少一层 |
+| **DNS** | 已就绪：`miu.sryze.cc` 有 A 记录且路由到同一 Worker，无需动作 | — |
+
+旧域 `exia.de5.net` 保留在 `src/cron.js` 的 `LEGACY_SELF_HOSTS` 里：它仍绑着同一 Worker，
+不屏蔽就会被友链巡检当成外部站探测一次（实测 522）。这一段不是兼容层，是自环保护。
 
 ### 审核态匿名可见性（有 pending 样本时做）
 
@@ -56,7 +72,7 @@ npm run ttfb               # TTFB 分缓存态 P50/P95（HIT/MISS/DYNAMIC）
 ```bash
 # 1. 任意账号发一篇稿 → 进 pending，记下 slug
 # 2. 匿名取：应 404
-curl -s -o /dev/null -w '%{http_code}\n' https://exia.de5.net/p/<slug>
+curl -s -o /dev/null -w '%{http_code}\n' https://miu.sryze.cc/p/<slug>
 # 3. 管理员在 /admin/review 通过后，匿名再取：应 200
 # 4. 驳回后，匿名再取：应 404
 ```

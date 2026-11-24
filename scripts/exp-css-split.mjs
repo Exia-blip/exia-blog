@@ -65,7 +65,7 @@ async function measure(path, body, samples = 5) {
         } else r.continue();
       });
     }
-    await page.goto('https://exia.de5.net' + path + '?cb=' + Math.random(), { waitUntil: 'networkidle0' });
+    await page.goto('https://miu.sryze.cc' + path + '?cb=' + Math.random(), { waitUntil: 'networkidle0' });
     const fcp = await page.evaluate(() => {
       const e = performance.getEntriesByName('first-contentful-paint')[0];
       return e ? Math.round(e.startTime) : null;

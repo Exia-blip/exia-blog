@@ -7,14 +7,14 @@
  * 自己按时间戳反推永远差一点。
  *
  * 用法：
- *   node scripts/perf-vitals.mjs https://exia.de5.net/            # 桌面
- *   node scripts/perf-vitals.mjs https://exia.de5.net/ --mobile   # 移动 4G + 4x CPU
- *   node scripts/perf-vitals.mjs https://exia.de5.net/ --json
+ *   node scripts/perf-vitals.mjs https://miu.sryze.cc/            # 桌面
+ *   node scripts/perf-vitals.mjs https://miu.sryze.cc/ --mobile   # 移动 4G + 4x CPU
+ *   node scripts/perf-vitals.mjs https://miu.sryze.cc/ --json
  */
 import puppeteer from 'puppeteer-core';
 import { resolveChrome } from './chrome.mjs';
 
-const URL_ARG = process.argv[2] || 'https://exia.de5.net/';
+const URL_ARG = process.argv[2] || 'https://miu.sryze.cc/';
 const MOBILE = process.argv.includes('--mobile');
 const AS_JSON = process.argv.includes('--json');
 const RUNS = Number((process.argv.find((a) => a.startsWith('--runs=')) || '').split('=')[1]) || 1;

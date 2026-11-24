@@ -4,7 +4,7 @@
  * 这类检查只能靠真浏览器：boot.js 是普通脚本、defer 执行，DOM 查询时机错了
  * 单元测试完全看不出来 —— 它只会在控制台留一行红字，而页面看起来一切正常。
  *
- * 用法：node scripts/smoke-live.mjs [https://exia.de5.net]
+ * 用法：node scripts/smoke-live.mjs [https://miu.sryze.cc]
  * 退出码非 0 表示有控制台错误或断言不过。
  *
  * 注意：它会真的往线上 events 表写几条（read / search），因为埋点就是打线上的。
@@ -13,7 +13,7 @@
 import puppeteer from 'puppeteer-core';
 import { resolveChrome } from './chrome.mjs';
 
-const ORIGIN = (process.argv[2] || 'https://exia.de5.net').replace(/\/$/, '');
+const ORIGIN = (process.argv[2] || 'https://miu.sryze.cc').replace(/\/$/, '');
 const CHROME = resolveChrome();
 
 let pass = 0;

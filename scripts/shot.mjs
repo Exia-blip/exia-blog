@@ -4,7 +4,7 @@
 import puppeteer from 'puppeteer-core';
 import { resolveChrome } from './chrome.mjs';
 
-const url = process.argv[2] || 'https://exia.de5.net/p/comment-anti-spam';
+const url = process.argv[2] || 'https://miu.sryze.cc/p/comment-anti-spam';
 const out = process.argv[3] || 'shots';
 const CHROME = resolveChrome();
 

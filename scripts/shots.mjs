@@ -6,7 +6,7 @@ import { resolveChrome } from './chrome.mjs';
 
 const CHROME = resolveChrome();
 
-const ORIGIN = 'https://exia.de5.net';
+const ORIGIN = 'https://miu.sryze.cc';
 const OUT = 'shots';
 fs.mkdirSync(OUT, { recursive: true });
 

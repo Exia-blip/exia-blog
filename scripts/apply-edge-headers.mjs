@@ -28,7 +28,7 @@ import { dirname, join } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const ZONE_NAME = process.env.CF_ZONE || 'exia.de5.net';
+const ZONE_NAME = process.env.CF_ZONE || 'miu.sryze.cc';
 const APPLY = process.argv.includes('--apply');
 const VERIFY = process.argv.includes('--verify');
 const RULE_DESC = 'security-baseline';
@@ -66,7 +66,7 @@ Token 建法：dash.cloudflare.com → My Profile → API Tokens → Create Toke
 → Custom token，权限两项：
      Zone · Transform Rules · Edit
      Zone · Zone · Read
-Zone Resources 选 exia.de5.net 即可。
+Zone Resources 选 miu.sryze.cc 即可。
 
 （wrangler login 的 OAuth token 不行，它没有 Transform Rules 权限，只会 403。）
 `);

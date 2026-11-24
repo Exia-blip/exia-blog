@@ -1,6 +1,6 @@
 // 线上验收：系列导航、上下篇、结构化数据、暗色卡片、aria-current
 // 全部走真实 HTTP，带随机参数绕过边缘缓存（HTML 有 60s s-maxage）
-const ORIGIN = 'https://exia.de5.net';
+const ORIGIN = 'https://miu.sryze.cc';
 const cb = () => '?cb=' + Math.random().toString(36).slice(2);
 
 const get = async (p) => (await fetch(ORIGIN + p + cb(), { headers: { 'cache-control': 'no-cache' } })).text();

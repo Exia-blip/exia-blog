@@ -8,7 +8,7 @@
 //
 // 用法：
 //   node scripts/ttfb.mjs                        默认打首页 + 一篇文章，各 10 次
-//   node scripts/ttfb.mjs https://exia.de5.net/  --n=20
+//   node scripts/ttfb.mjs https://miu.sryze.cc/  --n=20
 //   node scripts/ttfb.mjs --fresh                只测 miss（每次带随机参数绕开边缘缓存）
 
 import { execFileSync } from 'node:child_process';
@@ -18,7 +18,7 @@ const args = process.argv.slice(2);
 const N = Number((args.find((a) => a.startsWith('--n=')) || '').split('=')[1] || 10);
 const FRESH = args.includes('--fresh');
 const urls = args.filter((a) => /^https?:\/\//.test(a));
-const targets = urls.length ? urls : ['https://exia.de5.net/', 'https://exia.de5.net/p/sticky-toc-grid-align-items'];
+const targets = urls.length ? urls : ['https://miu.sryze.cc/', 'https://miu.sryze.cc/p/sticky-toc-grid-align-items'];
 
 const pct = (arr, p) => {
   if (!arr.length) return 0;

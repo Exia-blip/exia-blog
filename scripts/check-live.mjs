@@ -8,12 +8,12 @@
  *   缩略图缓存策略、阻塞脚本。
  *
  * 用法：
- *   node scripts/check-live.mjs                       # 默认打 https://exia.de5.net
+ *   node scripts/check-live.mjs                       # 默认打 https://miu.sryze.cc
  *   node scripts/check-live.mjs https://shturl.cc     # 换域名
  */
 import { createHash } from 'node:crypto';
 
-const ORIGIN = (process.argv[2] || 'https://exia.de5.net').replace(/\/$/, '');
+const ORIGIN = (process.argv[2] || 'https://miu.sryze.cc').replace(/\/$/, '');
 
 let pass = 0;
 let fail = 0;
