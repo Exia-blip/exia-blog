@@ -188,7 +188,7 @@ const sqlHits = body
 check('RB-06', '分发器不含 SQL', sqlHits.length === 0,
   sqlHits.length ? `命中 ${sqlHits.length} 处：L${sqlHits.map((x) => x.line).join(',L')}` : '路由层只分发');
 
-/* ---------- RB-07 500 页与错误文本（[P-044]） ----------
+/* ---------- RB-07 500 页与错误文本（[P-044] / [P-045]） ----------
    实测过一整圈：404 与 500 都是自定义页，不是 Workers 的英文白屏。
    真正的问题在最后一行兜底 —— 不带 Accept: text/html 的请求（curl、探针）
    拿到的是 `{"error":"D1_ERROR: no such table: posts"}`，SQL 和表名一起送出去。

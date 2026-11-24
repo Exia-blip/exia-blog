@@ -3,8 +3,8 @@
  * 准入策略与资源级判定的断言（[P-021]）。
  *
  * 守的不是"输出等于昨天"，而是三条会让权限静默失控的性质：
- *   1. 不配环境变量时行为与旧版一致（开放注册 + 首个注册者即管理员）——
- *      否则一次部署就会把现有实例锁死。
+ *   1. 管理员席位不按登录顺序发放：不配 ADMIN_LOGINS 且没有引导令牌时，
+ *      连空库的第一个注册者也只能是普通账号。
  *   2. 一旦配了白名单，名单外账号在**任何**分支都拿不到 admin。
  *   3. is_admin 的唯一来源是 decideAccess()，不是散落的三元表达式。
  * 第 3 条是元断言：直接读 auth.js 源码，防止有人"顺手"把 isFirst 写回 INSERT。
@@ -53,9 +53,17 @@ t('AP-04 空 login 一律拒（GitHub 返回畸形体时不至于建出空行）
 
 /* ---------- AP-05~08 管理员归属 ---------- */
 
-t('AP-05 不配 ADMIN_LOGINS → 回落到首个注册者（旧行为保持）', () => {
-  assert.equal(decideAccess({ ALLOWED_LOGINS: 'a' }, 'a', true).admin, 1);
+t('AP-05 不配 ADMIN_LOGINS、也没有引导令牌 → 首个注册者只是普通账号', () => {
+  // 2026-11-24 起不再"先到先得"：isFirst 单独出现不再换来管理员
+  assert.equal(decideAccess({ ALLOWED_LOGINS: 'a' }, 'a', true).admin, 0);
+  assert.equal(decideAccess({ ALLOWED_LOGINS: 'a' }, 'a', true, false).admin, 0);
   assert.equal(decideAccess({ ALLOWED_LOGINS: 'a,b' }, 'b', false).admin, 0);
+});
+
+t('AP-05b 空库 + 引导令牌通过 → 首个注册者成为管理员（唯一入口）', () => {
+  assert.equal(decideAccess({ ALLOWED_LOGINS: 'a' }, 'a', true, true).admin, 1);
+  // 库里有行（isFirst=false）时令牌不再生效，这就是"用完即失效"
+  assert.equal(decideAccess({ ALLOWED_LOGINS: 'a' }, 'a', false, true).admin, 0);
 });
 
 t('AP-06 配了 ADMIN_LOGINS → 完全不看 isFirst', () => {

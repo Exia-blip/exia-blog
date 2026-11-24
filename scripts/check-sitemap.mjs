@@ -75,6 +75,39 @@ t(dup.length === 0, '没有重复的 <loc>', dup.slice(0, 3).join(','));
   t(bad.length === 0, `[P-043] 每篇的 lastmod 不早于 datePublished（抽 ${picks.length} 篇）`, bad.slice(0, 3).join('; '));
 }
 
+/* [P-048] 日期链：datePublished ≤ sitemap lastmod ≤ RSS pubDate。
+   三处各按一种口径时，搜索引擎会把同一篇当成「更新过的旧内容」或「未来内容」，
+   这是站内日期矛盾里唯一会被外部系统读到的一种。三者同源（都取
+   published_at || created_at），所以任何一处不等都说明有人换了取值口径。
+   比较统一换到北京时间再截日期：published_at 是 +08 存的，直接用 UTC
+   会让凌晨发的稿子差一天。 */
+const rssXml = await (await fetch(`${base}/rss.xml?t=${Date.now()}`)).text();
+const rssItems = [...rssXml.matchAll(/<item>([\s\S]*?)<\/item>/g)].map((m) => m[1]).slice(0, 3);
+const bjDay = (v) => {
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? '' : new Date(d.getTime() + 8 * 3600e3).toISOString().slice(0, 10);
+};
+const chainBad = [];
+for (const it of rssItems) {
+  const link = ((it.match(/<link>([\s\S]*?)<\/link>/) || [])[1] || '').trim();
+  const pd = ((it.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1] || '').trim();
+  if (!link || !pd) {
+    chainBad.push('RSS 条目缺 link 或 pubDate');
+    continue;
+  }
+  const html = await (await fetch(`${link}${link.includes('?') ? '&' : '?'}cb=${Date.now()}`)).text();
+  const dp = (html.match(/"datePublished":"([^"]+)"/) || [])[1] || '';
+  if (!dp) {
+    chainBad.push(`${link} 页面没有 datePublished`);
+    continue;
+  }
+  if (bjDay(dp) !== bjDay(pd)) chainBad.push(`${link} datePublished ${bjDay(dp)} ≠ RSS pubDate ${bjDay(pd)}`);
+  const idx = locs.indexOf(link) >= 0 ? locs.indexOf(link) : locs.indexOf(link.replace(/\/$/, ''));
+  const lm = idx >= 0 ? lasts[idx] : '';
+  if (lm && lm < bjDay(dp)) chainBad.push(`${link} lastmod ${lm} < datePublished ${bjDay(dp)}`);
+}
+t(chainBad.length === 0, `[P-048] datePublished / lastmod / RSS pubDate 三者不矛盾（抽 ${rssItems.length} 条）`, chainBad.slice(0, 3).join('; '));
+
 // 首页 / 归档 / 标签页是这次要补的那三类，单独点名，缺了能一眼看出来
 const need = ['/', '/archive', '/categories'];
 const miss = need.filter((p) => !locs.some((l) => l === base + p || l === base + p + '/'));

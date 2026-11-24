@@ -2,6 +2,21 @@ import { parseCookies, setCookie, clearCookie, signToken, verifyToken, json, now
 import { guardLogin, recordLogin, LOGIN_DAY_MAX } from './antispam.js';
 
 const COOKIE = 'sid';
+const BOOT_COOKIE = 'oauth_boot';
+
+/* 引导令牌的常量时间比较。
+   Workers 有 crypto.subtle.timingSafeEqual，Node 的 webcrypto 没有，
+   单测跑在 Node 上，所以自己异或一遍。**不要写成早退 return**：
+   `a[i] !== b[i]` 一旦 return false，比较耗时就会泄露「前几位对上了」，
+   而令牌恢复一位一位来是可行的。长度差同样累进结果，不单独判断。 */
+export function secretEq(a, b) {
+  const A = a == null ? '' : String(a);
+  const B = b == null ? '' : String(b);
+  const n = Math.max(A.length, B.length);
+  let diff = A.length ^ B.length;
+  for (let i = 0; i < n; i++) diff |= (A.charCodeAt(i) || 0) ^ (B.charCodeAt(i) || 0);
+  return diff === 0 && n > 0;
+}
 
 /* ---------------- GitHub OAuth ---------------- */
 
@@ -109,7 +124,7 @@ GitHub 对无效 client_id 返回 404 —— 你刚才看到的就是这个。</
 <code>npx wrangler secret put GITHUB_CLIENT_SECRET</code><br>
 把 Client ID 填进 <code>wrangler.jsonc</code> 的 <code>GITHUB_CLIENT_ID</code>，再 <code>npx wrangler deploy</code>。
 </div>
-<p class="sub" style="margin:0">配好后刷新本页，就会自动跳转 GitHub 授权；<b>第一个登录的账号自动成为管理员</b>。</p>
+<p class="sub" style="margin:0">配好后刷新本页，就会自动跳转 GitHub 授权。管理员席位不自动发放：<b>配一个 <code>BOOTSTRAP_TOKEN</code>，用 <code>/login?bootstrap=令牌</code> 登录一次</b>；不带令牌登录只会建普通账号。</p>
 </div></body></html>`;
   return new Response(html, {
     status: 200,
@@ -134,11 +149,22 @@ export async function loginRedirect(env, request) {
   const origin = resolveOrigin(env, request);
   const next = safeNext(url.searchParams.get('next'), origin);
 
+  /* 引导令牌：只有库还空着、且这次 URL 上带的 `?bootstrap=` 与
+     `BOOTSTRAP_TOKEN` 常量时间相等时，才允许这次登录参与"首个用户"判定。
+     令牌不落 cookie 明文，只落一个 1 位标记，600 秒后自己过期；
+     库里一旦有行，isFirst 就恒假，令牌自然永久失效 —— 不需要额外记状态。 */
+  const boot = String(url.searchParams.get('bootstrap') || '').trim();
+  const bootToken = String(env.BOOTSTRAP_TOKEN || '');
+  const bootOk = !!bootToken && secretEq(boot, bootToken);
+  if (boot && !bootOk) console.warn('[auth] 引导令牌不匹配，按普通登录处理');
+
   // 从非主域进来（旧 workers.dev、备用域名）：先回主域再走 OAuth
   // 否则会话 cookie 会落在另一个 host 上，授权回来后台仍然是"未登录"
   if (url.origin !== origin) {
     const to = new URL('/auth/github', origin);
     if (next && next !== '/') to.searchParams.set('next', next);
+    // 只转发校验通过的令牌，错的不留在 URL 里反复回显
+    if (bootOk) to.searchParams.set('bootstrap', boot);
     return new Response(null, {
       status: 302,
       headers: { location: to.toString(), 'cache-control': 'no-store' },
@@ -169,6 +195,12 @@ export async function loginRedirect(env, request) {
   const headers = new Headers({ location: gh.toString() });
   headers.append('set-cookie', `oauth_state=${state}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600; Secure`);
   headers.append('set-cookie', `oauth_next=${encodeURIComponent(next)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600; Secure`);
+  headers.append(
+    'set-cookie',
+    bootOk
+      ? `${BOOT_COOKIE}=1; Path=/; HttpOnly; SameSite=Lax; Max-Age=600; Secure`
+      : `${BOOT_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure`
+  );
   return new Response(null, { status: 302, headers });
 }
 
@@ -258,7 +290,8 @@ export async function handleCallback(env, request) {
      更不该拿到一枚 30 天有效的会话 cookie。 */
   const policy = admitPolicy(env);
   const isFirst = !user ? await db.prepare('SELECT COUNT(*) AS c FROM users').first().then((r) => !r || r.c === 0) : false;
-  const access = decideAccess(env, ghUser.login, isFirst);
+  const bootstrapped = parseCookies(request)[BOOT_COOKIE] === '1';
+  const access = decideAccess(env, ghUser.login, isFirst, bootstrapped);
   if (!access.ok) {
     console.warn('[auth] 拒绝登录：login=%s reason=%s', ghUser.login, access.reason);
     return noticePage(
@@ -295,6 +328,7 @@ export async function handleCallback(env, request) {
   headers.append('set-cookie', setCookie(COOKIE, token, { maxAge: 60 * 60 * 24 * 30 }));
   headers.append('set-cookie', 'oauth_state=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure');
   headers.append('set-cookie', 'oauth_next=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure');
+  headers.append('set-cookie', `${BOOT_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure`);
   return new Response(null, { status: 302, headers });
 }
 
@@ -317,17 +351,20 @@ export function logout() {
 }
 
 /* ---------------- 准入策略 ----------------
-   两个环境变量，都可选：
+   三个环境变量，都可选：
 
    ALLOWED_LOGINS 逗号分隔的 GitHub login。不配 = 开放注册（沿用旧行为）；
                   配了就是白名单，名单外的账号连 users 行都不建、直接拒绝登录。
    ADMIN_LOGINS   逗号分隔的 GitHub login。配了就以它为准（每次登录同步回库，
-                  改了变量即生效，不用手改库）；不配才回落到"首个注册者即管理员"。
+                  改了变量即生效，不用手改库）；不配时管理员只能靠引导令牌产生。
+   BOOTSTRAP_TOKEN 一次性引导令牌，随机串，通过 secret put 配置。
+                  空库时访问 `/login?bootstrap=<令牌>` 登录，该账号成为管理员；
+                  库里一旦有行（isFirst 恒假）令牌就永远失效，不用改配置也不用删变量。
 
-   为什么要有这两个：旧逻辑是 isFirst ? 1 : 0 —— 谁能先注册谁就是管理员，
+   为什么不用裸 isFirst：旧逻辑 isFirst ? 1 : 0 —— 谁能先注册谁就是管理员，
    而注册入口对任何 GitHub 账号开放。公开可部署的项目里这等于把管理员席位
-   交给最先到达的人（Rin 有同一处硬伤）。上线至今只有两行用户、窗口已关，
-   但机制还在，清库或开新实例就重开。 */
+   交给最先到达的人（Rin 同一处硬伤）。现在空库 + 无令牌只会建一个普通账号：
+   后台进不去，但也没人抢得到。 */
 
 function csvList(raw) {
   return String(raw || '')
@@ -345,14 +382,19 @@ export function admitPolicy(env) {
 /**
  * 判定一个 GitHub 登录是否放行、放行后是什么角色。
  * 返回 { ok:false } 表示拒绝；{ ok:true, admin:0|1 } 表示放行。
+ *
+ * 管理员两种来源，优先级固定：
+ *   1. 配了 ADMIN_LOGINS → 完全以它为准；isFirst 与引导令牌都不再看。
+ *   2. 没配 → 只有「库是空的」且「这次登录带着对的引导令牌」才给 admin。
+ * 第 2 条以前是裸 isFirst，现在多一个条件，`bootstrapped` 必须是布尔 true，
+ * 不接受字符串 '1' 之类的真值 —— 该参数来自 cookie，路径上任何一环都可能被改。
  */
-export function decideAccess(env, login, isFirst) {
+export function decideAccess(env, login, isFirst, bootstrapped) {
   const p = admitPolicy(env);
   const l = String(login || '').toLowerCase();
   if (!l) return { ok: false, reason: 'missing-login' };
   if (!p.open && !p.allow.includes(l)) return { ok: false, reason: 'not-allowed' };
-  // 配了 ADMIN_LOGINS 就完全以它为准，不再看 isFirst
-  const admin = p.admins.length ? p.admins.includes(l) : !!isFirst;
+  const admin = p.admins.length ? p.admins.includes(l) : !!isFirst && bootstrapped === true;
   return { ok: true, admin: admin ? 1 : 0 };
 }
 

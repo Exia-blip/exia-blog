@@ -410,6 +410,39 @@
 
 ---
 
+## P-046 管理员席位按登录顺序发放，谁先到谁进后台
+
+- **现象**：`decideAccess()` 不配 `ADMIN_LOGINS` 时回落到 `isFirst ? 1 : 0`。空库的第一个 GitHub 登录者就是管理员，此后所有 `pending` 投稿归他放行。线上 `users` 表只有 2 行、窗口已关，但清库、换域名重装、开新实例都会重开这个窗口。README「功能」表与部署第 8 步当时都还在承诺「第一个登录的用户自动成为管理员」，等于把这件事当成特性写。
+- **根因**：权限来源只有一个布尔，而那个布尔来自「注册顺序」——一个任何人都能通过先访问来争夺的位置。而 ACL 不该由到达时间决定：`is_admin` 的正确来源只能是配置（`ADMIN_LOGINS`）或一次显式引导（令牌），不是 `COUNT(*) = 0`。
+- **复现**：空库 + 不配任何环境变量 → `decideAccess({}, 'anyone', true).admin === 1`（旧行为）。修后同一条返回 0；只有 `decideAccess({}, 'anyone', true, true)`（带引导令牌）才是 1，且 `isFirst=false` 时令牌无效。
+- **断言**：`scripts/test-bootstrap-admin.mjs` B-01~B-13 —— 令牌常量时间比较（B-01~03、B-13 读源码禁止退化成 `===`）、四种角色组合（B-04~08）、cookie 必须 HttpOnly+Secure+600s（B-09）、回调只认 `=== '1'`（B-10）、`admin` 赋值必须同时要求 `bootstrapped === true`（B-11）、文档不许再写「自动成为管理员」（B-12）。注入验证：`!!isFirst && bootstrapped === true` 改回 `!!isFirst` → B-04/B-07/B-11 三红；`secretEq` 退化成 `A === B` → B-03/B-13 双红。
+- **教训**：**「默认行为」才是最常被执行的代码**。`ADMIN_LOGINS` 早就有了，但默认路径还是先到先得，于是「支持指定管理员」和「管理员不靠抢」是两件事。安全默认必须是关掉的：不配置就当没有管理员，而不是回落到更弱的历史行为。
+- **出处**：站务记录（本文件，2026-11-24）；`src/auth.js` 的 `secretEq()` / `decideAccess()` / `loginRedirect()` / `handleCallback()`；`scripts/test-bootstrap-admin.mjs`
+
+---
+
+## P-047 文档里的表数与篇数各说各话，而两者都能用一条 SQL 复核
+
+- **现象**：README 同一篇里躺着三个数：备份演练记录「13 表 / 40 篇」、首页「18 篇」、提交信息「第 56 篇」。实测线上是 **12 张业务表 / 15 个索引**、`posts` **42 行**、已发布 **18 篇**。三个数各自都对，但没有一处写明口径，读者只能猜。上一轮审计就把「40 篇」当成了站内总篇数。
+- **根因**：数字是手抄进文档的，抄的那一刻是对的，之后没人再核。`check:schema` 能算出表数、`/api/posts` 能给出篇数，但文档与这两者之间没有断言 —— 和 P-035「结论留在文章里、没进 CI」是同一个病，只是这次病在 README 而不是正文。
+- **复现**：`npm run check:schema` → `PASS 12 张表 / 15 个索引`；`SELECT COUNT(*) FROM posts` → 42；`/api/posts` 的 `total` → 18。再读 README 第 291 行：「13 表 / 40 篇」。`SELECT name FROM sqlite_master` 是 **15** 张表，多出来的 `d1_migrations`、`sqlite_sequence`、`_cf_KV` 全不是业务表——13 这个数大概就是从这里数出来的。
+- **断言**：`scripts/test-docs-numbers.mjs` D-01~D-06 —— README 报的表数/索引数必须等于 `migrations/*.sql` 里 `CREATE TABLE`/`CREATE INDEX` 去重后的数量（D-01、D-02）；不许出现没说口径的「N 张表」（D-03）；「## 数字口径」必须写清「已发布 / 全库 / 第 N 篇」三义（D-04、D-05）；`content/` 最新一篇必须在 `EDITORIAL.md` 登记（D-06）。注入验证：README 改回「13 张表 / 40 篇」→ D-01/D-02 双红。
+- **教训**：**文档里的数字必须有一个可执行的对账人**。写「12 张表」的时候不需要记得自己写过，只要让断言去数 `migrations/`；数不对它就红。口径本身也要写下来——「18」和「42」都不错，错的是没人说清哪个是哪个。
+- **出处**：站务记录（本文件，2026-11-24）；`README.md` 的 `## 数字口径`；`scripts/test-docs-numbers.mjs`
+
+---
+
+## P-048 datePublished / lastmod / pubDate 三处各按一种口径
+
+- **现象**：同一篇文章在三个地方各报一个日期——JSON-LD 的 `datePublished`、`sitemap` 的 `lastmod`、RSS 的 `pubDate`。上一轮修掉的是 `lastmod` 早于 `datePublished`（排期稿取 `updated_at` 导致），但「三者是否等于同一天」从来没被比较过。任一处理解不同，搜索引擎就会把同一篇判成「更新过的旧内容」或「未来内容」。
+- **根因**：三个出口分别由 `postLd()`（`src/seo.js`）、`stamp()`（`src/index.js` sitemap）、`rfc822()`（RSS）生成，各自 `published_at || created_at`。表达式相同是巧合，不是约束——谁改一处 fallback，另外两处不会红。加上 `published_at` 是 `+08` 存的，直接按 UTC 截日期，凌晨发的稿子会差一天。
+- **复现**：`node scripts/check-sitemap.mjs`。拿 RSS 前 3 条，逐条抓页面取 `datePublished`，把两个时间都换算到北京时间再截日期比较。注入验证：把比较改成恒真 → 立刻列出 3 条地址（`ld-self-reference` / `worker-render-549-to-96` / `cls-empty-slots`），说明这条断言确实在跑而不是跳过。
+- **断言**：`scripts/check-sitemap.mjs` 新增 `[P-048]`，与既有 `[P-043]`（`lastmod ≥ datePublished`）拼成完整链条：`datePublished ≤ lastmod`，且 `datePublished` 与 `pubDate` 同日。线上实测 13/13。
+- **教训**：**同一个事实有几个出口，就有几次走样的机会**。上次只修了「先后顺序」，这次补「是否同日」——但真正的约束是三者同源。哪天要改 fallback，得三处一起改，所以这条断言的价值不在「今天对不对」，在于改错一处时它会红。
+- **出处**：站务记录（本文件，2026-11-24）；`src/seo.js` 的 `postLd()`；`src/index.js` 的 `stamp()` 与 RSS 生成；`scripts/check-sitemap.mjs`
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

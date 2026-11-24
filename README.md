@@ -24,7 +24,7 @@
 
 | 能力 | 实现 |
 |---|---|
-| GitHub OAuth 登录 | 第一个登录的用户自动成为管理员，其余为普通用户 |
+| GitHub OAuth 登录 | 会话落 D1 `users` 表；管理员由 `ADMIN_LOGINS` 指定，空库引导用 `BOOTSTRAP_TOKEN`，不按登录顺序自动发放 |
 | 文章写作 / 编辑 | Monaco 编辑器（CDN 拉不到就退回原生 textarea），左右分栏实时预览，内置零依赖语法高亮；多篇同开、页签切换，正文/撤销栈/光标各篇独立 |
 | 本地实时保存 | 每次输入即写 `localStorage`，按文档分键（未落库的新稿用临时键），多篇互不覆盖 |
 | 服务端自动保存 | 停止输入 3 秒自动落库，`Ctrl/Cmd + S` 立即保存 |
@@ -248,7 +248,22 @@ npx wrangler r2 bucket cors put blog-images --file=./cors.json
 npx wrangler deploy
 ```
 
-打开 `https://你的域名/login`，用 GitHub 登录。**第一个登录的人自动成为管理员。**
+打开 `https://你的域名/login`，用 GitHub 登录。
+
+**管理员不按登录顺序发放。** 首次部署三选一：
+
+```bash
+# 方式一（推荐，长期有效）：把管理员写进环境变量，每次登录同步回库
+npx wrangler secret put ADMIN_LOGINS        # 输入 Exia 就填你的 GitHub login
+
+# 方式二（一次性引导）：随机串，登录时带在 URL 上，库有行之后自动失效
+npx wrangler secret put BOOTSTRAP_TOKEN     # 输入一个 32 位随机串
+# 然后访问 https://你的域名/login?bootstrap=<刚才那个串>
+
+# 方式三：什么都不配 —— 第一个登录的只会是普通账号，后台进不去，也没人能抢
+```
+
+只想自己写、不让别人注册，再加 `ALLOWED_LOGINS`（逗号分隔的 login，不配 = 开放注册）。
 
 ---
 
@@ -288,7 +303,9 @@ node scripts/backup-upload.mjs             # 真跑：导出 → 上传 → 滚�
 node scripts/backup-drill.mjs              # 恢复演练：空库重放导出 SQL 并校验
 ```
 
-备份写入同桶的 `backups/` 前缀，`/img/backups/*` 已被 `isPrivateImageKey()` 挡住，不会被图片代理公开读取（有断言守着）。滚动状态记在 `backups/_manifest.json`，不依赖 wrangler CLI 没有的 `r2 object list`。`backup-drill` 只读导出、在内存库重建，不碰线上数据——2026-11-23 已用真实导出演练通过（13 表 / 40 篇 / 非空正文全部有 html_content）。
+备份写入同桶的 `backups/` 前缀，`/img/backups/*` 已被 `isPrivateImageKey()` 挡住，不会被图片代理公开读取（有断言守着）。滚动状态记在 `backups/_manifest.json`，不依赖 wrangler CLI 没有的 `r2 object list`。`backup-drill` 只读导出、在内存库重建，不碰线上数据——2026-11-23 已用真实导出演练通过（非空正文全部有 `html_content`）。
+
+表数以 `npm run check:schema` 的输出为准（当前 **12 张业务表 / 15 个索引**）。库里另外三张表不是我们的：`d1_migrations`（wrangler 的迁移台账）、`sqlite_sequence`（SQLite 自增计数器）、`_cf_KV`（平台内部）。用 `sqlite_master` 数表会把它们算进去，数出来是 15，别拿这个数字对账。
 
 定时执行交给外部调度器（GitHub Actions cron 或本机 cron），本项目不含自动触发配置——备份脚本需要 wrangler 的已登录态，CI 里要先注入 `CLOUDFLARE_API_TOKEN`。
 
@@ -976,6 +993,20 @@ curl -X POST https://你的域名/api/maintenance/clean -H "cookie: sid=<你的�
 
 返回扫描篇数与改动明细。日常写作不需要手动跑，保存时已经清理过。
 
+## 数字口径
+
+这份文档里出现的「篇」有三种含义，对不上不是数据错了，是口径不同。看数字前先认口径：
+
+| 说法 | 指什么 | 来源 |
+|---|---|---|
+| **已发布** | 到点可见：`published_at <= now` + `is_private=0` + `hidden=0` + `review_status='approved'` | `/api/posts` 的 `total`、sitemap 条数、RSS `<item>` 条数、首页分页的 `pages` |
+| **全库** | `posts` 表的行数，含私密、未列出、待审、未到点的定时稿 | `SELECT COUNT(*) FROM posts` |
+| **第 N 篇** | `content/` 下的文件编号，写作顺序，与发布日期无关 | 文件名前缀、`EDITORIAL.md` |
+
+三处必须一致的是**已发布**这一口径：`/api/posts` 的 `total`、`sitemap.xml` 的 `/p/` 条数、`rss.xml` 的 `<item>` 条数。任何一处不同都说明某个查询漏了闸门（`timeGateSql()` / `review_status` / `is_private`），`check:live` 有断言守着。
+
+表数同理：`check:schema` 报的是**业务表**，`sqlite_master` 会把 `d1_migrations`、`sqlite_sequence`、`_cf_KV` 一起数进来。
+
 ## 几个实现上的取舍
 
 **Markdown 渲染器前后端同构**：`public/md.js` 同时被 Worker 和浏览器 import。编辑器右侧预览走浏览器本地渲染，零请求零延迟，且和线上输出逐字节一致。语法高亮是内置的 tokenizer，不引 CDN，国内也能秒开。
@@ -992,7 +1023,11 @@ curl -X POST https://你的域名/api/maintenance/clean -H "cookie: sid=<你的�
 
 **图片上传 403**：R2 的 CORS 没配，或 `AllowedOrigins` 里没写你的域名。
 
-**登录后还是普通用户**：管理员是「第一个登录的用户」。库里已有用户时再登录一律是普通用户。要手动提权：
+**登录后还是普通用户**：管理员席位不会按登录顺序自动发放。三种提权方式，从干净到粗暴：
+
+1. **`ADMIN_LOGINS` 环境变量**（推荐）：逗号分隔的 login，每次登录同步回库，改配置即生效，不用碰库。
+2. **`BOOTSTRAP_TOKEN` 引导令牌**：只在库为空时有效，`/login?bootstrap=<令牌>` 登录一次即成为管理员；库里有行之后令牌自动失效。
+3. 直接改库：
 
 ```bash
 npx wrangler d1 execute blog-db --remote --command "UPDATE users SET is_admin = 1 WHERE login = '你的GitHub用户名'"
