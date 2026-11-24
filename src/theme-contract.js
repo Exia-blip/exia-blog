@@ -59,6 +59,19 @@ export const CONTRACT_VARS = new Set([...CONTRACT_CORE, ...CONTRACT_OPTIONAL]);
 /** 变量在主题文件里能写什么：算式允许（--serif: var(--sans)），字面色值也行。 */
 export const CONTRACT_DECLS = new Set([...CONTRACT_VARS, 'color-scheme']);
 
+/**
+ * 内部 token 前缀：`--_xxx` 是主题自己的私有变量，**不进契约、不跨文件**。
+ *
+ * 为什么要有这个口子：代码块想给 8 类语法角色配色（注释 / 关键字 / 字符串 / 函数 /
+ * 类型 / 标签 / 数字 / 变量），契约只有 4 个 `--tok-*` 槽位。剩下的塞进契约，等于
+ * 逼八套主题各给 8 个值 —— 那就不叫可选槽位了。放行的代价必须用两条护栏换：
+ *   ① 定义与引用只在同一个主题文件里。主表 `style.css` 里出现 `var(--_x)` 就是
+ *      全站依赖某套主题的私有变量，换主题整块塌 —— 这跟禁用 --my-shadow 是同一件事。
+ *   ② 主表不许定义 `--_x`：结构层持有私有 token，等于留了个把手。
+ * 两条都由 TC-24 守着。
+ */
+export const INTERNAL_PREFIX = '--_';
+
 /** 没有独立 CSS 文件的主题：变量与骨架都编在主样式表里。 */
 export const INLINE_THEMES = ['paper', 'anzhiyu'];
 

@@ -563,6 +563,21 @@
 - **断言**：`[TC-31]` 要求 style.css 里存在这条覆盖，**并且**反向核查 `.post-body` 仍开着 `"liga" 1` —— 哪天正文关了连字，这条覆盖就多余，断言该一起删（否则会留一条没人知道为什么在的规则）。
 - **出处**：`public/style.css`（`.md code, .md pre` 规则）；`src/index.js:1253`；`scripts/test-theme-contract.mjs` TC-31；站务记录 2026-11-24
 
+## P-059 假绿不只在「没跑红」，还在「期望空集的断言分不清没看见和没问题」
+
+- **现象**：材料给了一份 240 行的 `check-theme-contract.mjs`，七条断言分三层（静态 / 计算 / 契约完整性），并明确说「P-044 和 P-045 必须写成变异测试，这是整个文件的重点」。**方法论全对**，但脚本本身跑不起来：`public/themes/`（真为 `public/theme/`）、`src/theme.js`（不存在，主题清单在 `settings.js` + `theme-contract.js`）、`const THEMES = [...]`（真为 `THEME_IDS = deriveThemeIds(ASSET_HASH)`）三处路径全空，`P-041~P-047` 七个编号也全部已被别的主题占用（尺寸断言读二进制 / 越界页码 / sitemap lastmod / 500 页分观众 / 500 双出口 / 管理员席位 / 文档数字）。
+- **根因**：材料把「断言会红」这件事交给了 `--mutate` 开关和人工命令，而**开关型断言会被跳过当成通过**；更糟的是它自己的元断言是假绿的 —— `const 放行 = [...d.public].every(v => CONTRACT_VARS.includes(v))`，`d.public` 为空时 `every` 恒 `true`。它论证「注入 `_` 前缀必须放行」，而这行代码在**根本没解析出任何变量**时同样返回 true。
+- **复现**：我按同一思路写的 TC-34 第一版里，`definedVars` 的正则是 `/(--[a-z0-9-]+)\s*:/` —— 字符类漏了 `_`，于是 `--_cd-bg` **一个都认不出来**。往 `edge.css` 注入 `--_cd-bg: #f6f8fa` 后在 `.btn.primary` 里 `var(--_cd-bg)`，TC-24 报「悬空引用」，而 TC-34 报 **pass**。它期望 `[]`，没认出来也是 `[]`。
+- **修法**：
+  1. 把探测逻辑从 `t()` 里抽成纯函数 `definedVars()` / `outsideVars()` —— 只有能对一段注入字符串单独调用，才验得了自己。
+  2. 变异测试**常开**，不做 `--mutate` 分支：纯内存字符串、不碰磁盘、零成本，所以「跳过」这个状态根本不存在。
+  3. **凡期望空集的断言，必须配一条「必须看见」的锚点**：`outsideVars(x)` 为 `[]` 之外，再加 `definedVars(x)` 必须等于预期的非空集合。这一条把「什么都没抓到」和「抓到了且合规」分开。
+  4. 材料的 P-044（数 `git status --porcelain` 的改动文件）自带「工作区脏就空转」的边界，没采用 —— 改用 TC-28 的假清单派生法：给 `deriveThemeIds()` 一个多出 `theme/probe9.css` 的假 hash，验新主题自己长出来，不写磁盘、不受工作区状态影响。
+  5. 采纳材料的 `--_` 前缀逃生口，但补两条护栏写进 `src/theme-contract.js` 的 `INTERNAL_PREFIX`：定义与引用必须同文件、主表零处 `var(--_x)` 与 `--_x:` 定义。
+- **断言**：`[TC-32]` 用 Primer 官方四色（16.02 / 7.51 / 12.31 / 6.15，容差 0.02）反查 `contrast()` 实现，堵住「算法错了但对比度断言全绿」；`[TC-33]` 注入契约外变量必须被抓到；`[TC-34]` `_` 前缀放行**且必须看得见**、`var()` 是「用」不是「定义」、部件块里的越界定义不许漏。三条全部实跑注入：正则去掉 `_` → TC-34 红；`srgbToLinear` 阈值改坏 → TC-32 报 `#e6edf3 实算 16.15 ≠ 官方 16.02`。
+- **边界**：TC-32 的四色基线抄的是 Primer 公开主题表，**没有在浏览器里核对渲染结果**；它验的是「WCAG 公式实现对不对」，不是「GitHub 那套配色好不好看」。
+- **出处**：材料「七条断言不是七个 check()，而是三层」全文；`scripts/test-theme-contract.mjs` TC-32/33/34；`src/theme-contract.js` 的 `INTERNAL_PREFIX`；`THEME-CONTRACT.md` 规则 4；站务记录 2026-11-24
+
 ---
 
 ---

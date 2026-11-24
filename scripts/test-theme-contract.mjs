@@ -20,7 +20,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { THEME_IDS } from '../src/settings.js';
 import { ASSET_HASH, THEME_BG } from '../src/assets.gen.js';
-import { CONTRACT_CORE, CONTRACT_VARS, CONTRACT_DECLS, INLINE_THEMES, deriveThemeIds } from '../src/theme-contract.js';
+import { CONTRACT_CORE, CONTRACT_VARS, CONTRACT_DECLS, INLINE_THEMES, INTERNAL_PREFIX, deriveThemeIds } from '../src/theme-contract.js';
 import { THEME_BOOT, THEME_ASSETS, themeBootTag } from '../src/themeboot.js';
 
 const ROOT = new URL('..', import.meta.url);
@@ -443,21 +443,49 @@ t('TC-23 theme-color 是构建期从 CSS 里读出来的，不是手抄的', () 
   );
 });
 
-t('TC-24 主题文件只许覆盖契约内的变量（P-043 的真身）', () => {
+/* ---------- 越界变量探测（TC-24 用它，变异测试也用它必须调得动） ----------
+   抽成纯函数不是为了好看：断言自己会不会红，只有把探测逻辑当函数单独喂一段
+   注入过的字符串才验得了（TC-33）。内联在 t() 里的写法，验不了自己。 */
+
+/* 字符类里必须有 `_`：第一版写的是 `[a-z0-9-]`，于是 `--_cd-bg` 一个都认不出来，
+   「逃生口」等于没开。而这个漏洞在 TC-34 里**不红** —— 它期望的结果是 []，
+   没认出来也是 []。所以 TC-34 有一条配套的「必须看见」断言。 */
+const definedVars = (t) =>
+  [...new Set([...t.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/(--[a-z0-9_-]+)\s*:/gi)].map((m) => m[1]))];
+const outsideVars = (t) =>
+  definedVars(t).filter((v) => !v.startsWith(INTERNAL_PREFIX) && !CONTRACT_VARS.has(v));
+
+t('TC-24 主题文件只许覆盖契约内的变量，`--_` 前缀为内部 token（P-043 的真身）', () => {
   /* 主题偷偷加一个 --my-shadow 并在组件里用，就等于在结构层开了后门：
      下次换主题时那个组件拿不到值，退化成浏览器默认。单看一套主题永远发现不了，
-     要等切到别套才现形。 */
+     要等切到别套才现形。
+     `--_` 前缀是唯一逃生口（材料提的「内部 token」）：代码块要 GitHub 的 8 类语法色，
+     契约只有 4 个 --tok-* 槽位，剩下的放哪儿都不对 —— 塞进契约等于逼八套主题各有 8 个值。
+     放行它的前提是两条护栏，缺一条就会变成真的后门：
+       ① 定义与引用必须在同一个文件里。跨文件（尤其在主表里 var(--_x)）就是全站
+          依赖某套主题的私有变量，换主题整块塌 —— 这才是 --my-shadow 的真危害。
+       ② 主表不许定义 --_*。结构层持有私有 token，等于主题在结构层留了把手。 */
+  const bad = [], dangling = [], leaked = [];
   for (const id of themeIds) {
-    const text = read(`public/theme/${id}.css`).replace(/\/\*[\s\S]*?\*\//g, '');
-    const defined = [...text.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((m) => m[1]);
-    const extra = [...new Set(defined.filter((v) => !CONTRACT_VARS.has(v)))];
-    assert.deepEqual(
-      extra,
-      [],
-      `theme/${id}.css 定义了契约外的变量：${extra.join(', ')} —— `
-      + '想在组件里用它，得先把它加进 src/theme-contract.js 并保证每套主题都有值'
-    );
+    const text = read(`public/theme/${id}.css`);
+    const outside = outsideVars(text);
+    if (outside.length) {
+      bad.push(`theme/${id}.css：${outside.join(', ')} —— 想用它就先加进 src/theme-contract.js`
+        + '并保证每套主题都有值；只在本主题内用则加 `_` 前缀');
+    }
+    const internalDef = new Set(definedVars(text).filter((v) => v.startsWith(INTERNAL_PREFIX)));
+    for (const m of text.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/var\(\s*(--_[a-z0-9-]+)\s*\)/gi)) {
+      if (!internalDef.has(m[1])) dangling.push(`theme/${id}.css 引用了未定义的 ${m[1]}`);
+    }
   }
+  /* ② 主表零处：`var(--_` 与 `--_:` 都不许出现 */
+  if (/var\(\s*--_/.test(css)) leaked.push('style.css 用了 var(--_*) —— 内部 token 不许跨出主题文件');
+  if (/(?:^|[;{\s])--_[a-z0-9-]+\s*:/i.test(css.replace(/\/\*[\s\S]*?\*\//g, ''))) {
+    leaked.push('style.css 定义了 --_* —— 结构层不许持有私有 token');
+  }
+  assert.deepEqual(bad, [], `越界变量：\n      ${bad.join('\n      ')}`);
+  assert.deepEqual(dangling, [], `悬空引用（定义了才许用，且只许在本文件用）：\n      ${dangling.join('\n      ')}`);
+  assert.deepEqual(leaked, [], `内部 token 泄漏到结构层：\n      ${leaked.join('\n      ')}`);
 });
 
 t('TC-25 变量块只许变量声明；部件块只许引用变量，不许写死色值', () => {
@@ -478,7 +506,11 @@ t('TC-25 变量块只许变量声明；部件块只许引用变量，不许写�
         if (!d) continue;
         const name = d.split(':')[0].trim();
         if (bare) {
-          if (!CONTRACT_DECLS.has(name)) bad.push(`${id} 变量块里出现 ${d.slice(0, 60)}`);
+          /* `--_` 前缀是内部 token（TC-24 的逃生口），变量块里放行；
+             它的值是死的（只服务本主题），所以不需要过 TC-25 的「色值必须经 var()」那条。 */
+          if (!CONTRACT_DECLS.has(name) && !name.startsWith(INTERNAL_PREFIX)) {
+            bad.push(`${id} 变量块里出现 ${d.slice(0, 60)}`);
+          }
           continue;
         }
         /* 部件块：把 var() 与混黑混白（调深浅的算子，不是主题色）摘掉，还剩色值就是写死的 */
@@ -614,6 +646,85 @@ t('TC-31 [P-058] 代码块关连字（正文的 liga 会顺着 .md/.post-body �
     s,
     /\.post-body\s*\{[^}]*font-feature-settings:[^;]*"liga"\s*1/,
     '.post-body 不再开 liga 1 —— TC-31 的前提消失，连带覆盖规则一起删'
+  );
+});
+
+t('TC-32 对比度函数自校：拿 Primer 官方表的四个数反查算法', () => {
+  /* 断言自己算错却没红，比没有断言更坏 —— TC-22 / TC-30 全建立在 contrast() 上。
+     Primer 的 github-dark-default 逐项标注了这四个值，先拿它们反查实现（容差 0.02，
+     官方表给到两位小数）。哪天 srgbToLinear 的分段阈值写反、或漏了幂次，第一步就红，
+     不会出现「算法错了但所有对比度断言全绿」。 */
+  const known = [
+    ['#e6edf3', '#0d1117', 16.02],
+    ['#ff7b72', '#0d1117', 7.51],
+    ['#a5d6ff', '#0d1117', 12.31],
+    ['#8b949e', '#0d1117', 6.15],
+  ];
+  const drift = known
+    .map(([fg, bg, want]) => ({ fg, bg, want, got: contrast(fg, bg) }))
+    .filter((r) => Math.abs(r.got - r.want) > 0.02)
+    .map((r) => `${r.fg} on ${r.bg}: 实算 ${r.got.toFixed(2)} ≠ 官方 ${r.want}`);
+  assert.deepEqual(drift, [], `对比度算法与官方表对不上，先修算法再看主题：\n      ${drift.join('\n      ')}`);
+});
+
+t('TC-33 [P-059] 变异：注入契约外变量，越界探测必须抓到（验断言本身）', () => {
+  /* 这条不测主题，测 outsideVars()。「只跑绿不跑红等于没写」的可执行版：
+     把该抓的东西喂进去，抓不到就说明 TC-24 是假绿 —— 而不是说明主题干净。 */
+  assert.deepEqual(
+    outsideVars(`:root[data-theme='x'] { --evil-token: 1px; }`),
+    ['--evil-token'],
+    '注入 --evil-token 后探测没抓到 → TC-24 永远绿'
+  );
+  assert.deepEqual(
+    outsideVars(`:root[data-theme='x'] { --bg: #fff; --line: #eee; }`),
+    [],
+    '契约内变量被误报成越界'
+  );
+  /* 期望空集的断言必须有配套的「看得见」锚点：探测逻辑彻底坏掉（正则写错、读空文件）时
+     上面那条同样返回 []，一样是绿的。这条把「什么都没抓到」和「抓到了且合规」分开。 */
+  assert.deepEqual(
+    definedVars(`:root[data-theme='x'] { --bg: #fff; --line: #eee; }`).sort(),
+    ['--bg', '--line'],
+    '变量解析器什么都没抓到 —— 上一条「不误报」是空的'
+  );
+  assert.deepEqual(
+    outsideVars(`/* --evil: 1px */ :root { --bg: #fff; }`),
+    [],
+    '注释里的变量被当成了定义'
+  );
+});
+
+t('TC-34 [P-059] 变异：`--_` 前缀放行且必须看得见，var() 是「用」不是「定义」', () => {
+  /* 两条都是材料明确点出的假绿路径，也是我第一版会写错的两种：
+     ① 内部 token 被当成越界 → 逃生口堵死，主题没法持有私有配色；
+     ② 全文扫 `--x:` 会命中 var() 吗？不会（var( 后面没有冒号）—— 但
+        「把用当成定义」的写法是 `parseVars(整份 CSS)` 后不区分块，那样
+        .t-x 里任何 var(--brand) 都会被记成品牌变量定义，每套主题都判越界。 */
+  const inner = `:root[data-theme='x'] { --_cd-bg: #f6f8fa; --_cd-d-string: #a5d6ff; }`;
+  /* 先要求「看得见」，再要求「放行」。只写 deepEqual(outsideVars(inner), []) 是不够的：
+     正则漏了 `_` 时它同样返回 []、断言照样绿 —— 这是真踩过的，`[a-z0-9-]` 少了 `_`，
+     `--_cd-bg` 一个都认不出来，而 TC-34 报的是「通过」。材料的 P-045b 用
+     `[...d.public].every(...)` 也是同一个病：空集恒 true。 */
+  assert.deepEqual(
+    definedVars(inner).sort(),
+    ['--_cd-bg', '--_cd-d-string'],
+    '内部 token 一个都没解析出来 —— 「放行」是假的，先修正则'
+  );
+  assert.deepEqual(
+    outsideVars(inner),
+    [],
+    '`_` 前缀内部 token 被误判成越界 —— 逃生口被堵死'
+  );
+  assert.deepEqual(
+    definedVars(`:root[data-theme='x'] .t-x pre { border-color: var(--brand); }`),
+    [],
+    '.t-x 里的 var(--brand) 被当成了定义'
+  );
+  /* 但真定义混在部件块里必须抓到 —— 这条防的是「放行 `_` 时顺手把整块放行了」 */
+  assert.deepEqual(
+    outsideVars(`:root[data-theme='x'] .t-x pre { --evil: 1px; }`),
+    ['--evil'],
+    '部件块里的越界定义漏过去了'
   );
 });
 
