@@ -21,6 +21,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { INLINE_THEMES } from '../src/theme-contract.js';
 
 const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const PUB = join(ROOT, 'public');
@@ -51,6 +52,45 @@ function collect() {
     }
   }
   return files.sort();
+}
+
+/* 主题色从 CSS 自己读，不手抄。
+   theme-color 的语义就是「地址栏该用哪个色」，而那个色的唯一事实来源是 --bg。
+   以前 index.js 手写一份 THEME_COLOR 常量：加第 8 套主题时它不在任何断言里，
+   漏了就是「后台换主题生效了，手机地址栏还是上一套的颜色」。
+   现在这份表是构建产物，主题文件改了底色，重算哈希时一起更新。
+   内联在主表里的两套（纸韵裸 :root、安知鱼 data-theme 块）也一并读，
+   保证 THEME_BG 覆盖全部主题，而不是只覆盖有独立文件的那些。 */
+function themeBg() {
+  const out = {};
+  const bgOf = (block) => (block.match(/--bg:\s*(#[0-9a-fA-F]{3,8})/) || [])[1] || '';
+  const themeDir = join(PUB, 'theme');
+  if (existsSync(themeDir)) {
+    for (const name of readdirSync(themeDir).sort()) {
+      if (!/\.css$/i.test(name)) continue;
+      const id = name.replace(/\.css$/i, '');
+      const text = readFileSync(join(themeDir, name), 'utf8');
+      const m = text.match(new RegExp(`:root\\[data-theme="${id}"\\]\\s*\\{([\\s\\S]*?)\\n\\}`));
+      const bg = m && bgOf(m[1]);
+      if (bg) out[id] = bg;
+    }
+  }
+  const main = readFileSync(join(PUB, 'style.css'), 'utf8');
+  const bare = main.match(/(?:^|\n):root\s*\{([\s\S]*?)\n\}/);
+  let bareUsed = false;
+  for (const id of INLINE_THEMES) {
+    const own = main.match(new RegExp(`:root\\[data-theme="${id}"\\]\\s*\\{([\\s\\S]*?)\\n\\}`));
+    /* 内联主题两种写法：有自己选择器的（安知鱼），或者就是裸 :root 的基准（纸韵）。
+       基准只可能有一个 —— 裸 :root 只许分配给第一个没有自己选择器的主题。 */
+    let block = own ? own[1] : '';
+    if (!block && !bareUsed && bare) {
+      block = bare[1];
+      bareUsed = true;
+    }
+    const bg = block && bgOf(block);
+    if (bg) out[id] = bg;
+  }
+  return out;
 }
 
 const files = collect();
@@ -85,7 +125,13 @@ const header = `/* 自动生成，不要手改。改完 public 里的 js/css 跑
  * 测试里有一条会校验这份表与磁盘文件是否同步，忘了跑会被发版闸门拦下。 */
 `;
 
-const body = `${header}export const ASSET_HASH = {\n${rows.join('\n')}\n};\n`;
+const bgMap = themeBg();
+const bgRows = Object.entries(bgMap).map(([k, v]) => `  '${k}': '${v}',`);
+
+const body = `${header}export const ASSET_HASH = {\n${rows.join('\n')}\n};\n\n` +
+  `/* 各主题的 --bg，给 theme-color 与 PWA manifest 用（[P-055]）。
+   构建期从 CSS 读出来，所以「改了主题底色但忘了改常量」这种漏法不存在了。 */\n` +
+  `export const THEME_BG = {\n${bgRows.join('\n')}\n};\n`;
 
 if (CHECK) {
   const old = existsSync(OUT) ? readFileSync(OUT, 'utf8') : '';

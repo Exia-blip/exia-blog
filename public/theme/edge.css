@@ -1,5 +1,5 @@
-/* 基建：纯白 + 发丝线 + 锚橙。规矩见 P-052：不渐变、不玻璃拟态、不靠阴影造层级。
-   --brand 只做填充；#f6821f 在纯白上 2.58:1，当文字色过不了 AA，故另给压深的 --accent。 */
+/* 基建：纯白 + 发丝线 + 锚橙。不渐变、不玻璃拟态、不靠阴影分区（P-052）。
+   --brand 只做填充（2.58:1 过不了 AA），文字用压深的 --accent（P-054）。 */
 :root[data-theme="edge"] {
   --bg: #ffffff;
   --bg-soft: #f7f8fa;
@@ -9,23 +9,23 @@
   --muted: #667085;
   --line: #e2e6ec;
   --brand: #f6821f;
+  --on-brand: #1f2733;
   --accent: #c2410c;
   --accent-soft: #fdf2e9;
   --green: #157347;
   --red: #b42318;
   --radius: 6px;
-  --shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow: 0 1px 2px rgba(15,23,42,.05);
   --tok-k: #cf222e;
   --tok-s: #0a3069;
   --tok-n: #0550ae;
   --tok-f: #8250df;
-  --hero-weight: 600;
   --serif: var(--sans);
-  --sans: 'Inter', -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --mono: 'JetBrains Mono', 'Fira Code', ui-monospace, Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
   color-scheme: light;
 }
-/* 深色是变体不是反相；#f6821f 在 #0d1117 上有 7.33:1，这里可以直接用原色 */
+/* 深色是变体不是反相：#f6821f 在 #0d1117 上 7.33:1，可直接当文字色 */
 :root[data-theme="edge"][data-mode="dark"] {
   --bg: #0d1117;
   --bg-soft: #161b22;
@@ -35,22 +35,27 @@
   --muted: #8b949e;
   --line: #21262d;
   --brand: #f6821f;
+  --on-brand: #1f2733;
   --accent: #f6821f;
   --accent-soft: #1d232c;
   --green: #3fb950;
   --red: #ff7b72;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow: 0 1px 2px rgba(0,0,0,.5);
   --tok-k: #ff7b72;
   --tok-s: #a5d6ff;
   --tok-n: #79c0ff;
   --tok-f: #d2a8ff;
   color-scheme: dark;
 }
-/* 橙底配墨蓝字（5.3:1），白字在锚橙上只有 2.58:1。悬停只亮边框，不上浮。 */
+/* 橙底墨蓝字 5.3:1；悬停只加深、只亮边框，不上浮 */
 :root[data-theme="edge"] .btn.primary {
-  background: var(--brand); border-color: var(--brand); color: #1f2733;
+  background: var(--brand); border-color: var(--brand); color: var(--on-brand);
 }
-:root[data-theme="edge"] .btn.primary:hover { background: #d9721a; border-color: transparent; }
+:root[data-theme="edge"] .btn.primary:hover {
+  background: color-mix(in srgb, var(--brand) 86%, #000); border-color: transparent;
+}
 :root[data-theme="edge"] .post-card:hover,
-:root[data-theme="edge"] .friend-card:hover { transform: none; border-color: #f0b27d; }
+:root[data-theme="edge"] .friend-card:hover {
+  transform: none; border-color: color-mix(in srgb, var(--brand) 45%, var(--line));
+}
 :root[data-theme="edge"] .back-top { backdrop-filter: none; background: var(--card); }

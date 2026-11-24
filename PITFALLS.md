@@ -514,6 +514,30 @@
 - **断言**：`[TC-22]` 从 CSS 里把 `--bg/--fg/--fg-soft/--muted/--accent` 读出来实算 WCAG 比值，8 套 × 2 态 × 4 色 = 64 组全过；`[TC-21]` 每套必须两态都有变量块（缺深色块会继承上一套的底色，症状是「暗色下这块地是米色的」）。只算这五个色：`--brand`、`--line`、`--tok-*` 不算 —— 前者上面从不放字，后两者是分隔线与代码高亮（高亮按语义选，强求 4.5 会把语法色压成一片灰）。比值不区分谁是字谁是底，所以按钮底与白字的关系同类覆盖。
 - **出处**：`public/theme/edge.css`；`scripts/test-theme-contract.mjs` TC-21 / TC-22；站务记录 2026-11-24
 
+## P-055 主题清单抄了四份，5 套的地址栏颜色一直是错的
+
+- **现象**：`<meta name="theme-color">` 与 PWA manifest 的 `theme_color` 取的是手写的 `THEME_COLOR` 常量。实测与各主题 `--bg` 逐值比对，**八套里五套对不上**：`ink` 写 `#f6f6f4` 实为 `#fdfcfa`、`mono` 写 `#ffffff` 实为 `#f4f4f5`、`forest`/`ocean`/`plum` 各差一档。症状是手机上地址栏与页面底色有一道细微的色差，读者不会专门去查，站长也看不见（桌面浏览器不显示这一条）。
+- **根因**：同一份「主题清单」在四个地方各写一遍 —— `settings.js` 的 `THEME_IDS`、`theme.js` 的面板 `THEMES`、`index.js` 的 `THEME_COLOR`、`build-sri.mjs` 的目录扫描。前三份是手抄，改主题文件时只改 CSS，常量不跟着动，于是同一套主题有「CSS 里的底色」和「常量里的底色」两个事实。加第 8 套时改了 `THEME_IDS` 与面板，漏了 `THEME_COLOR` 的逐值校对 —— 测试只验「键齐全」，不验「值对不对」，所以全绿。这与 P-030（两处内联的资源判定）、P-044（两个 catch）、P-050（两条 canonical 出口）、P-051（十份防闪脚本）是同一个病：**规则有第二个实现，就一定会分叉**。
+- **复现**：`node -e` 读 `src/assets.gen.js` 的 `THEME_BG` 与各主题 CSS 的 `--bg` 比对，`ink` 一项立刻差出 `#f6f6f4` 与 `#fdfcfa`。修之前 `THEME_BG` 还不存在，得先手工 grep 一遍 `--bg` 才发现。
+- **修法**：
+  1. 新建 `src/theme-contract.js`，把「契约管什么」写成代码：`CONTRACT_CORE`（9 个必填语义色）、`CONTRACT_OPTIONAL`（15 个可选槽位）、`deriveThemeIds(hash)`。变量清单从此只有这一份。
+  2. `THEME_IDS` 改成 `deriveThemeIds(ASSET_HASH)` —— 内联两套 + 资源清单里每个 `theme/<id>.css`。加主题不用改它。
+  3. `THEME_BG` 由 `build-sri.mjs` 从各主题 CSS 的 `--bg` 抽出来（内联的纸韵取裸 `:root`、安知鱼取自己的 `data-theme` 块），`index.js` 用 `import { THEME_BG as THEME_COLOR }`。手写的常量整段删掉。
+  4. 顺带把 `edge.css` 部件规则里写死的 `#d9721a` / `#f0b27d` 换成 `color-mix(in srgb, var(--brand) …)`，新增 `--on-brand` 槽位承接「橙底上的字」（白字在锚橙上只有 2.58:1）。
+  5. 手写的只剩 `public/theme.js` 的面板数组 —— 中文名与一句描述没法从文件名推出来，这份必须手写，所以 TC-07 从「序列一致」改成「集合一致」。
+- **断言**：`scripts/test-theme-contract.mjs` 新增 TC-24~TC-28，改写 TC-07 与 TC-23。
+  - `[TC-24]` 主题文件只许定义 `CONTRACT_VARS` 里的变量 —— 偷偷加 `--my-shadow` 并在组件里用，等于在结构层开后门，单看一套主题永远发现不了。
+  - `[TC-25]` 两级规则：光杆 `:root[data-theme=x]` 块只许变量声明与 `color-scheme`（挡住 `background: red !important` 这种「选择器对了、块体里改站」的绕过）；带后代的部件块允许改属性，但色值必须经 `var()`/`color-mix()` 表达，混黑混白除外。
+  - `[TC-26]` 契约变量的定义只许出现在 `:root` 块 —— 组件局部变量（`--ava` 这种评论头像哈希色）不在清单里，不受管。
+  - `[TC-27]` 每套主题浅色块覆盖全部 9 个必填槽位。第一版写成 `block.includes('--muted:')`，注入 `--xx-muted:` 时没红 —— 假阴性，改成带边界的正则。
+  - `[TC-28]` 给 `deriveThemeIds` 一个多出 `theme/probe9.css` 的假清单，新主题必须出现在结果里；反向验 `/../etc.css`、`ABC.css` 这类脏文件名不混进来。
+  - `[TC-23]` 逐值比对 `THEME_BG[id]` 与 CSS 里的 `--bg`，并要求 `THEME_IDS` 的定义体真的调用 `deriveThemeIds`（防有人改回字面量）。
+  - `[TC-07]` 集合一致而非序列一致。
+- **代价与边界**：`THEME_IDS` 依赖 `assets.gen.js`，**忘了跑 `build:sri` 时新主题会不在清单里**，症状是后台选它提示「未知的风格」—— 比「静默回落纸韵」好查，且 `deploy` 与 `npm test` 都会先跑 `build:sri`。`--brand` / `--on-brand` 仍只有 `edge` 一套用，属可选槽位，不要求每套都给。**没有**把 `style.css` 物理拆成 `contract.css` + `structure.css`：那是多一个 RTT，而「两层」靠 TC-26 用断言表达比拆文件更硬 —— 拆开之后两边照样能互相引用变量。
+- **出处**：`src/theme-contract.js`；`src/settings.js` 的 `THEME_IDS`；`scripts/build-sri.mjs` 的 `themeBg()`；`src/index.js` 的文件头 import；`public/theme/edge.css`；站务记录 2026-11-24
+
+---
+
 ---
 
 ## 每篇长文末尾的「复现条件 + 断言代码」模板

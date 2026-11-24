@@ -19,6 +19,8 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { THEME_IDS } from '../src/settings.js';
+import { ASSET_HASH, THEME_BG } from '../src/assets.gen.js';
+import { CONTRACT_CORE, CONTRACT_VARS, CONTRACT_DECLS, INLINE_THEMES, deriveThemeIds } from '../src/theme-contract.js';
 import { THEME_BOOT, THEME_ASSETS, themeBootTag } from '../src/themeboot.js';
 
 const ROOT = new URL('..', import.meta.url);
@@ -143,11 +145,19 @@ t('TC-06 默认主题的骨架规则数有上限（防第二套主题往主表�
 
 /* ---------- 清单只有一份 ---------- */
 
-t('TC-07 settings.THEME_IDS 与面板 THEMES 的 id 序列一致', () => {
+t('TC-07 面板 THEMES 与派生清单是同一个集合（顺序可以不同）', () => {
   const arr = themeJs.slice(themeJs.indexOf('export const THEMES'));
   const block = arr.slice(0, arr.indexOf('];'));
   const ids = [...block.matchAll(/\{\s*id:\s*'([a-z0-9-]+)'/g)].map((m) => m[1]);
-  assert.deepEqual(ids, THEME_IDS, `theme.js: ${ids.join(',')} ≠ settings.js: ${THEME_IDS.join(',')}`);
+  /* 顺序不再是契约的一部分：THEME_IDS 由资源清单派生（文件名字母序），
+     面板顺序是产品决策（安知鱼打头）。两处都手抄一份顺序才会天天红。 */
+  assert.deepEqual(
+    [...ids].sort(),
+    [...THEME_IDS].sort(),
+    `面板缺：${THEME_IDS.filter((i) => !ids.includes(i)).join(', ') || '（无）'}；`
+    + `多出：${ids.filter((i) => !THEME_IDS.includes(i)).join(', ') || '（无）'}`
+  );
+  assert.equal(new Set(ids).size, ids.length, '面板里同一个主题出现了两次');
 });
 
 t('TC-08 客户端不再按主题名判断"要不要额外请求"', () => {
@@ -381,32 +391,158 @@ t('TC-22 正文 / 次要 / 辅助 / 强调 对底色 ≥ 4.5:1（实算，不靠
         const r = contrast(c, bg);
         if (r < 4.5) bad.push(`${id}/${mode} --${k} ${c} on ${bg} = ${r.toFixed(2)}`);
       }
+      /* 卡片是列表、代码块、评论的载体 —— 正文在 --card 上，不是 --bg 上。
+         底色换了而卡片没换时，只有这里会红。 */
+      const card = varOf(block, 'card');
+      const fg = varOf(block, 'fg');
+      if (card && fg) {
+        const r = contrast(fg, card);
+        if (r < 4.5) bad.push(`${id}/${mode} --fg ${fg} on --card ${card} = ${r.toFixed(2)}`);
+      }
+      /* 按钮字：--on-brand 铺在 --brand 底上。只有给了 --brand 的主题才查，
+         但一查就是硬要求 —— 白字搁在锚橙上只有 2.58:1 正是这条要挡的。 */
+      const brand = varOf(block, 'brand');
+      const onBrand = varOf(block, 'on-brand');
+      if (brand && onBrand) {
+        const r = contrast(onBrand, brand);
+        if (r < 4.5) bad.push(`${id}/${mode} --on-brand ${onBrand} on --brand ${brand} = ${r.toFixed(2)}`);
+      }
     }
   }
   assert.deepEqual(bad, [], `这些配色过不了 AA：\n      ${bad.join('\n      ')}`);
 });
 
-t('TC-23 每套主题都有 theme-color，且判定不再靠主题名', () => {
-  const map = read('src/index.js').match(/const THEME_COLOR = \{([\s\S]*?)\n\};/);
-  assert.ok(map, '找不到 THEME_COLOR');
-  const ids = [...map[1].matchAll(/^\s*([a-z0-9]+):\s*'#[0-9a-f]{6}'/gm)].map((m) => m[1]);
-  assert.deepEqual(
-    [...ids].sort(),
-    [...THEME_IDS].sort(),
-    `THEME_COLOR 少了主题：${THEME_IDS.filter((i) => !ids.includes(i)).join(', ') || '（无）'}`
-  );
-  /* themeCssPath 以前写死 paper/anzhiyu，加第八套时要改这里才算接对。
-     现在它问资源清单，代码里不该再出现主题名比较。 */
-  const settings = read('src/settings.js')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
-    .filter((l) => !l.trim().startsWith('//'))
-    .join('\n');
+t('TC-23 theme-color 是构建期从 CSS 里读出来的，不是手抄的', () => {
+  /* 手抄那份真实漂了 5 套（ink 写 #f6f6f4 实为 #fdfcfa、mono 写 #ffffff 实为 #f4f4f5…），
+     症状是手机地址栏与页面底色差一点点 —— 谁都不会专门去查这个。
+     现在 THEME_BG 由 build-sri 从各主题的 --bg 抽出来，这条断言逐值比对。 */
+  const missing = THEME_IDS.filter((id) => !THEME_BG[id]);
+  assert.deepEqual(missing, [], `THEME_BG 缺主题：${missing.join(', ')}`);
+  const drift = [];
+  for (const id of THEME_IDS) {
+    const bg = varOf(blockOf(id, 'light'), 'bg');
+    assert.ok(bg, `${id} 浅色块读不到 --bg`);
+    if (bg.toLowerCase() !== THEME_BG[id].toLowerCase()) {
+      drift.push(`${id}: THEME_BG=${THEME_BG[id]} ≠ CSS=${bg}`);
+    }
+  }
+  assert.deepEqual(drift, [], `theme-color 与主题底色不一致，跑 npm run build:sri：\n      ${drift.join('\n      ')}`);
+
+  /* 元断言：清单不许被改回字面量。THEME_COLOR 只许作为 import 别名存在；
+     THEME_IDS 的定义体必须调用 deriveThemeIds（即真的在派生）。 */
+  const idx = read('src/index.js');
+  assert.doesNotMatch(idx, /const THEME_COLOR = \{/, 'index.js 又把 theme-color 抄成本地常量了');
+  assert.match(idx, /import \{ THEME_BG as THEME_COLOR \}/, 'index.js 没从 assets.gen.js 取 THEME_COLOR');
+
+  const settings = read('src/settings.js');
+  assert.match(settings, /THEME_IDS = deriveThemeIds\(ASSET_HASH\)/, 'THEME_IDS 改回字面量数组了');
   assert.doesNotMatch(
-    settings,
+    settings.replace(/\/\*[\s\S]*?\*\//g, ''),
     /===\s*'(?:paper|anzhiyu)'/,
     'settings.js 还在按主题名判断「有没有独立文件」—— 该问 ASSET_HASH'
   );
+});
+
+t('TC-24 主题文件只许覆盖契约内的变量（P-043 的真身）', () => {
+  /* 主题偷偷加一个 --my-shadow 并在组件里用，就等于在结构层开了后门：
+     下次换主题时那个组件拿不到值，退化成浏览器默认。单看一套主题永远发现不了，
+     要等切到别套才现形。 */
+  for (const id of themeIds) {
+    const text = read(`public/theme/${id}.css`).replace(/\/\*[\s\S]*?\*\//g, '');
+    const defined = [...text.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((m) => m[1]);
+    const extra = [...new Set(defined.filter((v) => !CONTRACT_VARS.has(v)))];
+    assert.deepEqual(
+      extra,
+      [],
+      `theme/${id}.css 定义了契约外的变量：${extra.join(', ')} —— `
+      + '想在组件里用它，得先把它加进 src/theme-contract.js 并保证每套主题都有值'
+    );
+  }
+});
+
+t('TC-25 变量块只许变量声明；部件块只许引用变量，不许写死色值', () => {
+  /* 两级规则，对应 style.css 的两层：
+     · 光杆 `:root[data-theme="x"]` = 变量层。块体里只许 --var 与 color-scheme。
+       选择器对了、块体里却写 `background: red !important`，那就是改站不是换皮。
+     · 带后代的 `:root[data-theme="x"] .btn` = 部件覆盖（edge 有四条）。允许改属性，
+       但色值必须经 var() / color-mix() 表达 —— 写死 #d9721a 这种「橙的加深版」，
+       下次换 --brand 它不会跟着变，等于在主题里又埋了一份配色。 */
+  const bad = [];
+  for (const id of themeIds) {
+    const text = read(`public/theme/${id}.css`).replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const m of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const sel = m[1].trim();
+      const bare = sel === `:root[data-theme="${id}"]` || sel === `:root[data-theme="${id}"][data-mode="dark"]`;
+      for (const decl of m[2].split(';')) {
+        const d = decl.trim();
+        if (!d) continue;
+        const name = d.split(':')[0].trim();
+        if (bare) {
+          if (!CONTRACT_DECLS.has(name)) bad.push(`${id} 变量块里出现 ${d.slice(0, 60)}`);
+          continue;
+        }
+        /* 部件块：把 var() 与混黑混白（调深浅的算子，不是主题色）摘掉，还剩色值就是写死的 */
+        const rest = d
+          .replace(/var\([^)]*\)/g, '')
+          .replace(/#(?:000|fff|000000|ffffff)\b/gi, '');
+        if (/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i.test(rest)) {
+          bad.push(`${id} 部件块写死了色值：${d.slice(0, 70)}`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(bad, [], `主题越界：\n      ${bad.join('\n      ')}`);
+});
+
+t('TC-26 契约变量的定义只许出现在 :root 块（结构层不许定义变量）', () => {
+  /* style.css 是「变量层 + 结构层」一个文件（拆开就多一个 RTT，见 P-051 的取舍）。
+     层次靠这条断言表达：契约变量只在 :root / :root[...] 里定义，组件块里只许用。
+     组件自己的局部变量（--ava 这种评论头像哈希色）不受管 —— 它不在契约清单里。 */
+  const s = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const bad = [];
+  let sel = '';
+  for (const m of s.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    sel = m[1].trim();
+    const scope = /^:root\b/.test(sel) || /^\s*:root\b/.test(sel);
+    if (scope) continue;
+    for (const d of m[2].split(';')) {
+      const name = d.split(':')[0].trim();
+      if (name.startsWith('--') && CONTRACT_VARS.has(name)) {
+        bad.push(`${sel.slice(0, 50)} → ${name}`);
+      }
+    }
+  }
+  assert.deepEqual(
+    bad,
+    [],
+    `契约变量在结构层被重新定义了：\n      ${bad.join('\n      ')}`
+  );
+});
+
+t('TC-27 每套主题的浅色块覆盖全部必填槽位（缺一个就静默继承上一套）', () => {
+  for (const id of THEME_IDS) {
+    const block = blockOf(id, 'light');
+    assert.ok(block, `${id} 浅色块不存在`);
+    /* 用边界匹配而不是 includes('--muted:')：后者会被 --xx-muted: 骗过，
+       第一版就是这么写的，注入验证时它没红。 */
+    const miss = CONTRACT_CORE.filter(
+      (v) => !new RegExp(`(?:^|[;{\\s])${v}\\s*:`).test(block)
+    );
+    assert.deepEqual(miss, [], `${id} 缺必填槽位：${miss.join(', ')}`);
+  }
+});
+
+t('TC-28 加一套主题只需要建一个文件（清单会自己长出来）', () => {
+  /* 这是契约成立的唯一硬证据：给派生函数一个多出一个文件、别处都没改的清单，
+     新主题必须出现在结果里。真加主题时若还要改第三处代码，这条不会红 ——
+     所以它只是必要条件，配合 TC-07（面板集合）才算充分。 */
+  const fake = { ...ASSET_HASH, 'theme/probe9.css': { v: '0000000000', i: 'sha384-x' } };
+  const ids = deriveThemeIds(fake);
+  assert.ok(ids.includes('probe9'), `派生清单没带上新文件：${ids.join(',')}`);
+
+  /* 反向：不合规的文件名不该混进清单（它会被拼进 href） */
+  const dirty = deriveThemeIds({ 'theme/../etc.css': {}, 'theme/ABC.css': {}, 'theme/a.css': {} });
+  assert.deepEqual(dirty, [...INLINE_THEMES], `脏文件名漏进清单：${dirty.join(',')}`);
 });
 
 /* 自检：同步 runner 必须拒收 async 函数（P-029 那个坑，第二次踩过） */

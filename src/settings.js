@@ -1,11 +1,15 @@
 // 站点信息：优先读 D1 的 settings 表，没配就回退 wrangler.jsonc 的 vars
 // 这样站长在后台改完立刻生效，不用重新 deploy
 import { ASSET_HASH } from './assets.gen.js';
+import { deriveThemeIds } from './theme-contract.js';
 
 const TTL = 30_000;
 let cache = { at: 0, val: null };
 
-export const THEME_IDS = ['anzhiyu', 'paper', 'ink', 'forest', 'ocean', 'plum', 'mono', 'edge'];
+/* 清单不手写：内联的两套 + 资源清单里每个 theme/<id>.css（见 deriveThemeIds）。
+   以前这里是八个 id 的字面量数组，加第九套要记得改；忘了的症状是后台提示
+   「未知的风格」，而主题文件明明存在。 */
+export const THEME_IDS = deriveThemeIds(ASSET_HASH);
 export const MODE_IDS = ['auto', 'light', 'dark'];
 
 /* 主题样式表在 head 里直出时用的标签。

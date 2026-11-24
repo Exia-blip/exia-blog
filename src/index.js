@@ -12,6 +12,11 @@ import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders, obfuscateEmail } from './security.js';
 import { ldJson, siteLd, postLd, listLd, iso } from './seo.js';
 import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.js';
+/* theme-color 与 manifest 的 theme_color 都用它。构建期从各主题的 --bg 读出来，
+   不再手抄一份常量 —— 手抄那份曾经有 5 套主题与 CSS 实际底色不一致
+   （ink 写 #f6f6f4 实为 #fdfcfa、mono 写 #ffffff 实为 #f4f4f5），
+   症状是手机地址栏与页面底色差一点点，肉眼在浅色主题上看得见（P-055）。 */
+import { THEME_BG as THEME_COLOR } from './assets.gen.js';
 import { timedDb, withServerTiming } from './timing.js';
 import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
 import { normalizePagePath } from './routes.js';
@@ -1379,17 +1384,7 @@ function siteFooter(site) {
    按钮与抽屉都在 SSR 里出，JS 没跑也能看见入口（点了没反应好过看不见）。 */
 const NAV_TOGGLE = `<button class="nav-toggle" id="nav-toggle" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="site-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path class="nt-a" d="M4 7h16"/><path class="nt-b" d="M4 12h16"/><path class="nt-c" d="M4 17h16"/></svg></button>`;
 
-// 各主题主色，用于浏览器地址栏（theme-color）
-const THEME_COLOR = {
-  anzhiyu: '#f7f9fe',
-  paper: '#faf9f7',
-  ink: '#f6f6f4',
-  forest: '#f4f7f2',
-  ocean: '#f2f7fa',
-  plum: '#faf5f8',
-  mono: '#ffffff',
-  edge: '#ffffff',
-};
+// 各主题主色（theme-color）由 src/assets.gen.js 的 THEME_BG 派生，见文件头 import。
 
 function activeKey(path) {
   if (path === '/') return 'home';
