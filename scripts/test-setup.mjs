@@ -12,6 +12,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { notifyComment } from '../src/webhook.js';
+
+/* Worker 真发那段在本进程内直接 fetch 本地自签 mock：父进程的代理会把 localhost
+   送出去，证书也会被拒。run() 的子进程已单独清过代理，这里只管本进程。 */
+for (const k of ['https_proxy', 'HTTPS_PROXY', 'http_proxy', 'HTTP_PROXY']) delete process.env[k];
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const run = (args, env = {}) =>
   spawnSync(process.execPath, ['scripts/setup.mjs', ...args], {
@@ -93,7 +99,7 @@ t('非终端 + 没给参数 → 用法提示而不是挂住', () => {
 /* 冒烟回打的本地 HTTPS mock：第一次请求（落库前的测试消息）成功，
    第二次（写入后的冒烟）回 93000。这样才能验到冒烟那一步，
    而不是在前置测试消息就 die。假 wrangler 顶掉 put，测试不写线上 secret。 */
-const withSmokeMock = async (fn) => {
+const withSmokeMock = async (fn, { mode = 'smoke' } = {}) => {
   const dir = mkdtempSync(join(tmpdir(), 'setup-smoke-'));
   const key = join(dir, 'key.pem');
   const cert = join(dir, 'cert.pem');
@@ -101,14 +107,30 @@ const withSmokeMock = async (fn) => {
     '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=localhost'], { stdio: 'ignore' });
   if (g.status !== 0) throw new Error('openssl 不可用，冒烟 mock 起不来');
   const fakeWrangler = join(dir, 'fake-wrangler.mjs');
-  writeFileSync(fakeWrangler, 'process.exit(0);\n');
+  const nameFile = join(dir, 'secret-name');
+  const valueFile = join(dir, 'secret-value');
+  /* 假 wrangler 不再直接 exit：它把「写入的名字 + 写入的值」落到文件。
+     Worker 侧真发断言要拿这个捕获值当 env.WEBHOOK_URL —— 否则回打仍用本地 url，
+     等于没验「写进去的值」和「Worker 读到的值」是不是同一个。 */
+  writeFileSync(fakeWrangler, `
+import { writeFileSync } from 'node:fs';
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (d) => { input += d; });
+process.stdin.on('end', () => {
+  writeFileSync(${JSON.stringify(nameFile)}, process.argv.slice(2).join(' '));
+  writeFileSync(${JSON.stringify(valueFile)}, input);
+});
+`);
   /* mock 必须在独立进程：run() 用 spawnSync 阻塞父进程事件循环，
      同进程的 server 永远收不到请求（实测 hits=0、请求 timeout）。 */
   const mockScript = join(dir, 'mock.mjs');
   const hitFile = join(dir, 'hits');
+  const bodyFile = join(dir, 'bodies');
   writeFileSync(mockScript, `
 import { createServer } from 'node:https';
 import { readFileSync, appendFileSync } from 'node:fs';
+const mode = process.argv[3];
 let hits = 0;
 createServer({ key: readFileSync(${JSON.stringify(key)}), cert: readFileSync(${JSON.stringify(cert)}) }, (req, res) => {
   hits++;
@@ -116,6 +138,12 @@ createServer({ key: readFileSync(${JSON.stringify(key)}), cert: readFileSync(${J
   let chunks = '';
   req.on('data', (d) => { chunks += d; });
   req.on('end', () => {
+    appendFileSync(${JSON.stringify(bodyFile)}, chunks + '\\n');
+    if (mode === 'chain') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"errcode":0,"errmsg":"ok"}');
+      return;
+    }
     /* 第二次（冒烟）必须复用 webhookPayload 的真形状：emoji + 换行 + 够长。
        写成 { text: 'test' } 会在演练里全过、真发时被 sink 的形状校验拒。 */
     let text = '';
@@ -134,7 +162,7 @@ createServer({ key: readFileSync(${JSON.stringify(key)}), cert: readFileSync(${J
       probe.close(() => resolve(p));
     });
   });
-  const child = spawn(process.execPath, [mockScript, String(port)], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [mockScript, String(port), mode], { stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('mock server 未就绪')), 10000);
@@ -151,6 +179,17 @@ createServer({ key: readFileSync(${JSON.stringify(key)}), cert: readFileSync(${J
       hits: () => {
         try { return readFileSync(hitFile, 'utf8').trim().split('\n').filter(Boolean).length; }
         catch { return 0; }
+      },
+      secretName: () => {
+        try { return readFileSync(nameFile, 'utf8'); } catch { return ''; }
+      },
+      secretValue: () => {
+        try { return readFileSync(valueFile, 'utf8'); } catch { return ''; }
+      },
+      bodies: () => {
+        try {
+          return readFileSync(bodyFile, 'utf8').trim().split('\n').filter(Boolean).map((s) => JSON.parse(s));
+        } catch { return []; }
       },
     });
   } finally {
@@ -191,6 +230,36 @@ t('调用点与 dry 跳过分支：行首锚定 + 唯一计数', () => {
   assert.equal(at(/^  await smokeWebhook\(url\);$/gm), 1, '冒烟调用点应唯一且紧跟 putSecret');
   assert.equal(at(/^  if \(dry\) \{$/gm) >= 1, true, 'dry 分支存在');
   assert.equal(at(/^    console\.log\('  --  跳过冒烟回打（--dry 未落库，没有刚写入的地址可验）'\);$/gm), 1, 'dry 跳过原因应唯一');
+});
+
+/* Worker 侧真发：接上「setup 写入 → Worker 读绑定 → 真发到 sink」这一截。
+   冒烟回打用的是本地 url 变量，抓不到「写进去的值和 Worker 读到的值不是同一个」；
+   这里用假 wrangler 捕获真正写进去的 name/value，再喂给真 webhook.js 的 notifyComment。
+   注意：验的是代码链（写值 → 绑定名 → 真代码 → sink 接受），不是 CF 线上存储的读回——
+   CF secrets 只可写不可读，那半仍属「评论端到端未验」，不冒充。 */
+t('Worker 侧真发：写入值经 env.WEBHOOK_URL 绑定发出，sink 接受真通知', async () => {
+  await withSmokeMock(async ({ url, fakeWrangler, hits, secretName, secretValue, bodies }) => {
+    const r = run(['webhook', url], {
+      WRANGLER_BIN: fakeWrangler,
+      NODE_TLS_REJECT_UNAUTHORIZED: '0',
+    });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(secretName(), 'secret put WEBHOOK_URL', '写入目标必须是 Worker 读的那个键名');
+    assert.equal(secretValue(), url, '写入值不能被包装或改写');
+    const before = hits();
+    assert.equal(before, 2, '前置测试 + 冒烟回打应各一次');
+    await notifyComment({ WEBHOOK_URL: secretValue() }, {
+      postTitle: '三层缓存',
+      postUrl: 'https://miu.sryze.cc/p/three-layer-cache',
+      name: '链路自检',
+      content: 'Worker 侧真发断言',
+    });
+    assert.equal(hits(), before + 1, 'Worker 真代码必须真的发到 sink');
+    const last = bodies().at(-1);
+    assert.match(last.text, /💬 新评论 · 三层缓存/);
+    assert.match(last.text, /链路自检：Worker 侧真发断言/);
+    assert.match(last.text, /🔗 https:\/\/miu\.sryze\.cc\/p\/three-layer-cache/);
+  }, { mode: 'chain' });
 });
 
 let pass = 0;
