@@ -47,15 +47,16 @@ const hasSecret = (n) => secrets.includes(n);
 const mask = (v) => (!v ? '' : `${v.slice(0, 6)}…（${v.length} 字符）`);
 
 const rows = [];
-const add = (name, { secret = false, note = '' } = {}) => {
+const add = (name, { secret = false, note = '', optional = false } = {}) => {
   const fromVar = varOf(name);
   const fromDev = devVarOf(name);
   const on = secret ? hasSecret(name) : !!fromVar;
   const local = !!fromDev;
   /* 三态：「只在本机能跑」和「线上生效」是两件事。
      老版本这里只判 on，结果 .dev.vars 里明明有值却显示「未配」，
-     自相矛盾的表格比没有表格更误导。 */
-  let state = '未配';
+     自相矛盾的表格比没有表格更误导。
+     可选项（Webhook / Umami）没配是「跳过」，不是欠账——别让人以为缺东西。 */
+  let state = optional ? '跳过（可选）' : '未配';
   if (on) state = '已配';
   else if (local) state = '仅本地';
   if (!on && jsonc.includes(`"${name}"`) && !fromVar) state = '键在值为空';
@@ -67,9 +68,9 @@ add('SESSION_SECRET', { secret: true, note: '登录会话签名' });
 add('GITHUB_CLIENT_SECRET', { secret: true, note: 'GitHub OAuth' });
 add('TURNSTILE_SITE_KEY', { note: '人机验证（公开值）' });
 add('TURNSTILE_SECRET', { secret: true, note: '人机验证（服务端校验）' });
-add('WEBHOOK_URL', { secret: true, note: '新评论通知' });
-add('UMAMI_SCRIPT', { note: '外部统计脚本（可选）' });
-add('UMAMI_SITE_ID', { note: '外部统计站点 id（可选）' });
+add('WEBHOOK_URL', { secret: true, note: '新评论通知', optional: true });
+add('UMAMI_SCRIPT', { note: '外部统计脚本', optional: true });
+add('UMAMI_SITE_ID', { note: '外部统计站点 id', optional: true });
 
 const site = !!varOf('TURNSTILE_SITE_KEY') || !!devVarOf('TURNSTILE_SITE_KEY');
 const secret = hasSecret('TURNSTILE_SECRET') || !!devVarOf('TURNSTILE_SECRET');

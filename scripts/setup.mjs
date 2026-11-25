@@ -165,7 +165,7 @@ const appendVarLines = (src, lines, note = '') => {
    （评论落库 → notifyComment）验，见 DEPLOY.md 的验证边界表。 */
 async function smokeWebhook(url, { label = '冒烟' } = {}) {
   if (dry) {
-    console.log(`  --  跳过${label}：冒烟回打（--dry 未落库，没有刚写入的地址可验）`);
+    console.log(`  --  跳过${label}：冒烟回打（--dry 未落库，没有刚写入的地址可验）· host ${new URL(url).host}`);
     return { skipped: true };
   }
   if (noSmoke) {
@@ -197,7 +197,8 @@ async function smokeWebhook(url, { label = '冒烟' } = {}) {
   const code = Number(data.errcode ?? data.code ?? data.StatusCode ?? 0);
   if (!r.ok || code !== 0) {
     const hint = code === 93000 ? '（地址无效、机器人被删或 token 已被轮换）' : '';
-    die(`${label}不通 —— HTTP ${r.status} / 平台码 ${code}${hint}\n  返回：${body.slice(0, 200)}`);
+    const trimmed = body.slice(0, 200) + (body.length > 200 ? '…' : '');
+    die(`${label}不通 —— HTTP ${r.status} / 平台码 ${code}${hint}\n  返回：${trimmed}`);
   }
   console.log(`  ok  ${label}通过（errcode 0）`);
   return { ok: true };

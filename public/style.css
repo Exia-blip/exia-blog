@@ -1413,9 +1413,10 @@ body.editor-page, body.stat-page {
   font-size: 10px; color: var(--muted); flex: 0 0 auto;
   border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px;
 }
-/* 投稿审核状态：待审用暖色、驳回用红，都走主题变量，亮暗自动适配 */
+/* 投稿审核状态：待审暖色、驳回红、过审绿，都走主题变量，亮暗自动适配 */
 .cat-item .flag-review { color: var(--tok-n); border-color: color-mix(in srgb, var(--tok-n) 45%, transparent); }
 .cat-item .flag-rejected { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.cat-item .flag-approved { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
 
 /* ============ 友链 ============ */
 /* 友链交换说明：给来核对的人一条明确的"怎么加、加完怎么找到我"的路。

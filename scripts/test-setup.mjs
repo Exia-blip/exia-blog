@@ -221,6 +221,8 @@ t('--dry 冒烟显式跳过并写明原因（不留静默）', async () => {
     assert.match(r.stdout, /未落库/);
     assert.match(r.stdout, /跳过写入前自检/);
     assert.match(r.stdout, /跳过写入后回打/);
+    // 跳过必须带 host，否则多环境切换时分不清跳过的是哪个地址
+    assert.match(r.stdout, new RegExp(`host ${url.replace(/^https?:\/\//, '').split('/')[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
     assert.doesNotMatch(r.stderr, /写入后回打不通/);
   });
 });
@@ -235,7 +237,7 @@ t('调用点与 dry 跳过分支：行首锚定 + 唯一计数', () => {
      写完 secrets 不可读回，没有第二次机会。 */
   assert.equal(at(/^  if \(!value \|\| !String\(value\)\.trim\(\)\) die\(`putSecret：\$\{name\} 值为空/gm), 1, 'putSecret 空值闸门应唯一且在入口');
   assert.equal(at(/^  if \(dry\) \{$/gm) >= 1, true, 'dry 分支存在');
-  assert.equal(at(/^    console\.log\(`  --  跳过\$\{label\}：冒烟回打（--dry 未落库，没有刚写入的地址可验）`\);$/gm), 1, 'dry 跳过原因应唯一');
+  assert.equal(at(/^    console\.log\(`  --  跳过\$\{label\}：冒烟回打（--dry 未落库，没有刚写入的地址可验）· host \$\{new URL\(url\)\.host\}`\);$/gm), 1, 'dry 跳过原因（含 host）应唯一');
   assert.equal(at(/^  if \(noSmoke\) \{$/gm), 1, 'noSmoke 分支应唯一');
 });
 

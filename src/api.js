@@ -687,7 +687,9 @@ export async function handleApi(env, request, url, ctx) {
     const { results } = await db
       .prepare(
         `SELECT p.*, ${AUTHOR_COLS} FROM posts p ${AUTHOR_JOIN}
-         WHERE p.author_id = ? ORDER BY p.updated_at DESC LIMIT 200`
+         WHERE p.author_id = ?
+         ORDER BY CASE p.review_status WHEN 'pending' THEN 0 WHEN 'rejected' THEN 1 ELSE 2 END,
+                  p.updated_at DESC LIMIT 200`
       )
       .bind(u.id)
       .all();

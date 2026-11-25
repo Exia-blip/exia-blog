@@ -578,9 +578,12 @@ export async function friendsAdminPage(env, request) {
 
 /* ---------- 评论审核 ---------- */
 
-/** 纯渲染：单测喂假数据即可验证转义与结构。moderation='1' 表示当前已开启先审后发。 */
-export function renderCommentsAdmin({ site = {}, rows = [], moderation = '0' }) {
+/** 纯渲染：单测喂假数据即可验证转义与结构。moderation='1' 表示当前已开启先审后发。
+    hook 只用来判「配没配 / 哪家」，绝不回显地址本身（里面带机器人 key）。 */
+export function renderCommentsAdmin({ site = {}, rows = [], moderation = '0', hook = '' }) {
   const on = moderation === true || String(moderation) === '1';
+  const hookOn = !!String(hook).trim();
+  const platform = HOOK_CN[webhookPlatform(String(hook))] || '通用';
   const list = rows.length
     ? rows
         .map(
@@ -601,7 +604,28 @@ export function renderCommentsAdmin({ site = {}, rows = [], moderation = '0' }) 
         )
         .join('')
     : '<p class="sv-empty">没有待审评论。开启先审后发后，普通用户的新评论会排在这里。</p>';
+  /* 通知送达状态：没有落库字段，不造逐条「已送达」的假事实。
+     这里只摆两件可判定的事——当前生效的通知配置（读 env），以及端到端那一半仍是读码结论。
+     让「落库 → 群里跳出消息」这半步每天看得见，比加一条永远绿的断言更贴这个仓库。 */
+  const notifyState = hookOn ? 'warn' : 'bad';
+  const notifyRow = `<div class="admin-view-card">
+  <div class="admin-view-head">
+    <span>评论通知送达</span>
+    <span class="view-tag">${hookOn ? `已配置 · ${platform}` : '未配置'}</span>
+  </div>
+  <div class="admin-view-body">
+    <div class="sv-summary ${notifyState}">
+      <span class="sv-summary-dot"></span>
+      <div class="sv-summary-main">
+        <strong>评论落库 → 群里收到：未验（读码结论）</strong>
+        <span>${hookOn ? '通知地址已生效，但没有任何一次真实评论提交触发过它。' : '当前没有通知地址，评论照收但不推送；配置后仍需真发一次才算验通。'}</span>
+      </div>
+    </div>
+    <p class="sv-note">写入前自检 / 写入后回打只验「配置写入与传输」，不住在评论触发路径上。真发验法：设好 SINK_URL，<code>npm run verify:comment-e2e</code> 生成 nonce，人工点一次验证码并原样填进评论，等 D1 与 inbox 双源命中。</p>
+  </div>
+</div>`;
   const body = `<div class="wrap-s">
+${notifyRow}
 <div class="admin-view-card">
   <div class="admin-view-head">
     <span>评论先审后发</span>
@@ -721,5 +745,5 @@ export async function commentsAdminPage(env, request) {
     console.error('comments admin', e?.message || e);
   }
   const site = await getSite(env);
-  return html(renderCommentsAdmin({ site, rows, moderation }), 200, { 'cache-control': 'no-store' });
+  return html(renderCommentsAdmin({ site, rows, moderation, hook: env.WEBHOOK_URL || '' }), 200, { 'cache-control': 'no-store' });
 }

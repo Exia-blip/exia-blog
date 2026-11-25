@@ -1409,7 +1409,16 @@ async function loadList() {
       ? posts.map((p) => {
           // 时间只留日期，栏目名当副标题；两者都没有就退回别名，别留空行
           const date = (p.published_at || p.updated_at || '').slice(0, 10);
-          const sub = [date, p.category_name || p.category, p.series].filter(Boolean).join(' · ');
+          // 预排必须用落库原值：published_at 对草稿退回 created_at，拿它判断会把旧稿当定时稿。
+          // 字符串比大小对 ISO 日期安全（与 SQL datetime('now') 同格式）。
+          const raw = p.published_at_raw || '';
+          const scheduled = raw && raw.slice(0, 10) > new Date().toISOString().slice(0, 10);
+          const sub = [scheduled ? `预排 ${raw.slice(0, 10)}` : date, p.category_name || p.category, p.series].filter(Boolean).join(' · ');
+          // 三态都给显式标记：不标 approved 时「没标记」和「忘了审」在列表里分不开。
+          const rv = p.review_status || 'approved';
+          const reviewFlag = rv === 'pending' ? '<span class="flag flag-review">待审</span>'
+            : rv === 'rejected' ? '<span class="flag flag-rejected">驳回</span>'
+            : '<span class="flag flag-approved">已过审</span>';
           return `
         <div class="cat-item ${p.id === postId ? 'active' : ''}" data-id="${p.id}" data-slug="${esc(p.slug)}">
           <span class="ci-main">
@@ -1417,7 +1426,7 @@ async function loadList() {
             ${sub ? `<span class="ci-sub">${esc(sub)}</span>` : ''}
           </span>
           ${p.is_private ? '<span class="flag">私</span>' : p.hidden ? '<span class="flag">隐</span>' : ''}
-          ${p.review_status === 'pending' ? '<span class="flag flag-review">待审</span>' : p.review_status === 'rejected' ? '<span class="flag flag-rejected">驳回</span>' : ''}
+          ${reviewFlag}
           <a href="/admin/history?post=${encodeURIComponent(p.id)}" title="版本历史" class="btn sm">历史</a>
         </div>`;
         }).join('')
