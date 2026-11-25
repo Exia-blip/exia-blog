@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 一条命令配好通知与人机验证：先验值 → 再写入 → 最后体检。
+// 一条命令配好通知与人机验证：先验值 → 再写入 → 写入后回打 → 最后体检。
 //
 // 用法：
 //   npm run setup:webhook    -- <webhook 地址>
@@ -10,6 +10,7 @@
 //   · Turnstile secret 写错时前端照常弹框、服务端永远验不过，
 //     用户看到的是「评论一直提交失败」，页面上找不到任何线索。
 // 两个都能靠一次真实请求在写进去之前判掉，那就别把它留到线上试。
+// webhook 写完还会用刚写进去的值再回打一次，抓「写入动作把值弄坏」和写入窗口内的 token 轮换。
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';

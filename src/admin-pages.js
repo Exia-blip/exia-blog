@@ -37,7 +37,7 @@ export function webhookCheck(hook = '') {
     value: on ? `已配置 · ${platform}` : '未配置',
     state: 'ok',
     note: on
-      ? 'Worker Secret，网页不可改；换地址：npm run setup:webhook -- "新地址"（会先发测试消息验通再写入）'
+      ? 'Worker Secret，网页不可改；换地址：npm run setup:webhook -- "新地址"（先发测试消息验通再写入，写入后再回打一次）'
       : '评论照收但不推送；要开通知：npm run setup:webhook -- "机器人地址"',
   };
 }

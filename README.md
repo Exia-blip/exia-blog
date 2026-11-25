@@ -210,7 +210,7 @@ printf '%s' 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' | npx wra
 
 ### 6.1 用 setup 脚本配通知与人机验证（推荐）
 
-上面两条也可以交给脚本：它会先拿真实请求验一遍，通过了才写进去。
+上面两条也可以交给脚本：先拿真实请求验一遍，通过了才写进去；webhook 写完还会回打一条，确认写进去的值没被改坏。
 
 ```bash
 # 写入前往群里发一条测试消息，收到才写 WEBHOOK_URL，写入后再回打一条确认值没写坏
