@@ -88,6 +88,22 @@ curl -s -o /dev/null -w '%{http_code}\n' https://miu.sryze.cc/p/<slug>
 
 第 2/3/4 步各取两次，才能同时覆盖「写 LRU 后读侧闸仍执行」。作者预览那半只能等有真实登录态时补，不能用这四步代替。
 
+### 评论通知链路的验证边界（2026-11-25）
+
+Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发真收；但覆盖的是通知链路本身，不是评论提交全链路。和上面那组「已实测 / 读码结论」并排记，别把两行未验读成已验：
+
+| 环节 | 结论 | 依据 |
+|---|---|---|
+| 通知构造（💬 新评论 payload） | 已验 | `src/webhook.js` 的 `notifyComment` 真代码 |
+| 通知传输（POST → sink → KV） | 已验 | 真网络、真写库，inbox 看到完整 payload |
+| 平台码判定与落库闸门 | 已验 | 真端点两条路径：errcode 0 写入；HTTP 200 + 93000 → die 且不覆盖 secret |
+| 评论落库 → 触发 `notifyComment` | **未验**（读码结论） | 读码确认调用点在提交分支，但没有真提交触发过 |
+| 浏览器真过 Turnstile → 提交评论 | **未验** | managed 模式在无头/有头自动化浏览器都拿不到 token，需真实人工点一次验证码 |
+
+`managed` 模式拿不到 token 这件事本身是停手条件：自动化先红，停在 review，不是缺代码——端到端那半只能等一次人工点击。
+
+sink 项目在工作区 `webhook-sink/`，**不在** `check:dom` / `check:size` 等博客闸门的扫描范围里：它现在只靠那次演练守着，以后改 sink 代码博客侧不会红。sink 的 `SINK_TOKEN` 走 Worker secret（不在 `wrangler.jsonc` 里落明文）；2026-11-25 曾在对话消息里泄露过一次，已生成新 token、重部署 sink、用新地址覆盖 blog 侧 secret，旧 token 实测回 93000 失效。**token 值不写进任何文档或消息。**
+
 ## 观测基线
 - **CF Analytics**：Dashboard → 设 cached/uncached 的 TTFB P50/P95 与 Web Vitals（LCP/CLS/INP）。
   token 只有 `zone:read`，读不了 Zone Settings API，需在 Dashboard 看。
