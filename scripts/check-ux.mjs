@@ -129,8 +129,19 @@ const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new'
     console.log('  跳过：这条 slug 没有评论，折叠与时间未验（UX_SLUG 换一篇有评论的）');
   }
 
-  const total = await p.evaluate(() => document.documentElement.scrollHeight - innerHeight);
-  await p.evaluate((y) => scrollTo(0, y), Math.round(total * 0.5));
+  /* 滚动目标必须落在正文自己的坐标系里。原来拿「整页滚动距离的一半」当地标，
+     而百分比是对 .post-body 算的 —— 页面里评论、相关阅读一多，整页中点就跑到
+     正文快结束的位置（CI 实测 96%、本地实测 71%：同一个断言两次读数差 25 个点，
+     全看正文之外还有多少东西）。这不是站点 bug，是判据的输入换了坐标系（P-075 同族）。 */
+  const aim = await p.evaluate(() => {
+    const root = document.querySelector('.post-body');
+    if (!root) return { ok: false, why: '页面里没有 .post-body' };
+    const r = root.getBoundingClientRect();
+    const span = r.height - innerHeight;
+    if (span <= 20) return { ok: false, why: `正文不足一屏（span=${Math.round(span)}px），百分比按设计不显示` };
+    scrollTo(0, Math.round(r.top + scrollY + span / 2));
+    return { ok: true, span: Math.round(span) };
+  });
   await new Promise((r) => setTimeout(r, 400));
   const pct = await p.evaluate(() => {
     const el = document.querySelector('.read-pct');
@@ -139,8 +150,11 @@ const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new'
     return { text: el.textContent.trim(), on: el.classList.contains('on'), shown: cs.display !== 'none' && Number(cs.opacity) > 0.5 };
   });
   t(!!pct, '侧边百分比节点存在');
-  t(pct ? pct.on && pct.shown : false, '滚到中途时百分比可见', pct ? JSON.stringify(pct) : '');
-  t(pct ? /^\d{1,3}%$/.test(pct.text) && +pct.text.replace('%', '') > 5 && +pct.text.replace('%', '') < 95 : false, '百分比数值落在 5–95 之间', pct?.text || '');
+  t(pct ? pct.on && pct.shown : false, '滚到正文中点时百分比可见', pct ? JSON.stringify(pct) : '');
+  /* 判据只认「滚到正文几何中点 → 读数接近 50%」。不去页面里复算 done：
+     那样等于拿被测公式的输出当期望值，改坏实现也会跟着一起漂（P-075）。 */
+  const pctN = pct ? Number(String(pct.text).replace('%', '')) : NaN;
+  t(aim.ok && Number.isFinite(pctN) && Math.abs(pctN - 50) <= 5, `正文中点读数落在 50%±5（${pct?.text || '—'}）`, aim.ok ? '' : aim.why);
 
   const code = await p.evaluate(async () => {
     const wraps = [...document.querySelectorAll('.code-wrap')];
