@@ -8,6 +8,8 @@ const idx = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
 const boot = readFileSync(new URL('../public/boot.js', import.meta.url), 'utf8');
 const theme = readFileSync(new URL('../public/theme.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
+const ver = readFileSync(new URL('../src/version.js', import.meta.url), 'utf8');
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 const cases = [];
 const t = (name, fn) => cases.push([name, fn]);
@@ -70,6 +72,24 @@ t('样式：跟随主题变量、窄屏、reduced-motion、打印隐藏', () => 
   assert.ok(css.includes('.foot-mode.on {'), '选中态样式');
   assert.ok(css.includes('prefers-reduced-motion: reduce'), '降级动画');
   assert.ok(/\.site-foot[^}]*display: none !important/.test(css.slice(css.indexOf('@media print'))), '打印时隐藏页脚');
+});
+
+t('页脚版本号：与 package.json 同值，且不冒充资源版本号', () => {
+  // 行首锚定 + 唯一计数：注释里也写着这串名字，indexOf 会搜到自己。
+  const defs = ver.match(/^export const SITE_RELEASE = '([0-9]+\.[0-9]+\.[0-9]+)';$/gm) || [];
+  assert.equal(defs.length, 1, `SITE_RELEASE 定义应唯一且为 x.y.z，实际 ${defs.length} 处`);
+  const shown = defs[0].match(/'([^']+)'/)[1];
+  assert.equal(shown, pkg.version, `页脚版本 ${shown} 与 package.json ${pkg.version} 不一致`);
+  assert.ok(idx.includes("import { SITE_RELEASE } from './version.js';"), '页脚必须引用同一常量');
+  assert.ok(idx.includes('v${SITE_RELEASE}'), '页脚模板要真的渲染出版本号');
+  /* 并进版权那一行而不是另起一行：CSS 预算只剩 27 B，新增一条 .sf-ver 规则
+     就会把 style.css 顶出 39000（实测 +75 B）。宁可复用 sf-copy 的样式。 */
+  assert.ok(idx.includes('© ${year} ${name} · v${SITE_RELEASE}'), '版本应与版权同一行（挂在 sf-copy 里）');
+  assert.ok(!/\.sf-ver\b/.test(css), '别为版本号新增 CSS——预算只剩 27 B');
+  /* semver 一旦进了 ?v=，「发了新内容」和「版本没变」就同时成立，缓存永远不换。
+     资源版本只认内容哈希与部署号，这两条链不许接 semver。 */
+  const assets = readFileSync(new URL('../src/assets.js', import.meta.url), 'utf8');
+  assert.ok(!/SITE_RELEASE/.test(assets), '资源版本号不该取 SITE_RELEASE');
 });
 
 let bad = 0;

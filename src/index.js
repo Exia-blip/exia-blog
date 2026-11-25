@@ -36,6 +36,7 @@ import { reviewPage } from './review.js';
 import { postCacheGet, postCacheSet, postCacheDrop, postCacheStats } from './postcache.js';
 import { assetVersion, assetCacheControl, stampAssets } from './assets.js';
 import { ASSET_HASH } from './assets.gen.js';
+import { SITE_RELEASE } from './version.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ESC[c]);
@@ -1375,7 +1376,7 @@ function siteFooter(site) {
     .join('');
   return `<footer class="site-foot"><div class="sf-inner">
   <div class="sf-line"><a href="/">${name}</a><span class="sf-dot">·</span><a href="${AUTHOR_GITHUB}" target="_blank" rel="noopener noreferrer">GitHub</a></div>
-  <div class="sf-bottom"><span class="sf-copy">© ${year} ${name}</span>
+  <div class="sf-bottom"><span class="sf-copy">© ${year} ${name} · v${SITE_RELEASE}</span>
   <div class="sf-modes" role="group" aria-label="外观模式">${modes}</div></div>
 </div></footer>`;
 }
