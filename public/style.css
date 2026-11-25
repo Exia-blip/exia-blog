@@ -683,13 +683,14 @@ a.cat-chip:hover { filter: brightness(0.96); }
   border: 1px dashed var(--border, #e3e5e8); border-radius: 5px; padding: 0 6px;
 }
 .cmt .head .cmt-mail:hover { background: var(--accent-soft, #eef2ff); }
-.cmt .text { font-size: 16px; line-height: 1.7; color: var(--fg-soft); white-space: pre-wrap; word-break: break-word; }
-.cmt .acts { margin-top: 5px; display: flex; gap: 10px; font-size: 12px; color: var(--muted); }
-.cmt .acts button { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0; font-size: 12px; }
+.cmt .text { font-size: 17px; line-height: 1.78; color: var(--fg-soft); white-space: pre-wrap; word-break: break-word; }
+.cmt .acts { margin-top: 5px; display: flex; gap: 12px; font-size: 12px; color: var(--muted); }
+.cmt .acts button { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 4px; margin: -4px; font-size: 12px; }
 .cmt .acts button:hover { color: var(--accent); }
-.cmt .replies { margin-top: 6px; padding-left: 14px; border-left: 2px solid var(--line); }
+.cmt .replies { margin-top: 6px; padding-left: 28px; border-left: 2px solid var(--line); }
 .cmt .replies .cmt { border-top: 1px solid var(--line); }
 .cmt .replies .cmt:first-child { border-top: 0; }
+.cmt .replies .cmt .ava { width: 26px; height: 26px; flex-basis: 26px; font-size: 11px; }
 .badge-owner {
   font-size: 10.5px; padding: 1px 6px; border-radius: 5px;
   background: var(--accent); color: #fff; line-height: 1.6; font-weight: 600;
@@ -697,13 +698,19 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .cmt-form { display: grid; gap: 9px; margin-top: 22px; padding: 16px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
 .cmt-form .row { display: flex; gap: 9px; flex-wrap: wrap; }
 .cmt-form .row input { flex: 1; min-width: 130px; }
-.cmt-form textarea { min-height: 84px; resize: vertical; }
+.cmt-form textarea { min-height: 110px; resize: vertical; }
 /* 蜜罐：真人看不见，自动填表的脚本会填。位置挪出视口而不是 display:none，
    某些脚本会跳过 display:none 的字段，反而不填了。 */
 .cmt-form .hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .cmt-form .ts-wrap:not([hidden]) { min-height: 65px; }
 .cmt .acts button.cmt-ban:hover { color: #e5484d; }
 .cmt-form .foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+@media (max-width: 560px) {
+  .cmt { gap: 10px; padding: 12px 0; }
+  .cmt .ava { width: 30px; height: 30px; flex-basis: 30px; }
+  .cmt .replies { padding-left: 16px; }
+  .cmt .head .when { flex-basis: 100%; }
+}
 
 /* ============ 编辑器 ============ */
 .editor-page { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -2835,7 +2842,7 @@ mark {
   mask-image: linear-gradient(180deg, #000 82%, transparent 100%);
 }
 .cmt-more {
-  display: inline-block; margin-top: 2px; padding: 0; background: none; border: 0;
+  display: inline-block; margin: -2px -4px 0; padding: 4px; background: none; border: 0;
   font-size: 12.5px; color: var(--accent); cursor: pointer;
 }
 .cmt-more:hover { text-decoration: underline; }
