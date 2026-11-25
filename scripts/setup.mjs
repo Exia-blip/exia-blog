@@ -21,6 +21,8 @@ const argv = process.argv.slice(2);
 const dry = argv.includes('--dry');
 // --no-probe：跳过会写数据的探测（umami 用）。内网实例、或不想在统计里留一条假 PV 时用。
 const noProbe = argv.includes('--no-probe');
+// --no-smoke：两次回打都跳过（仍写 secret）。只给「已知 sink 暂不可达、必须先落库」的救急场景。
+const noSmoke = argv.includes('--no-smoke');
 const [cmd, ...args] = argv.filter((a) => !a.startsWith('--'));
 const die = (msg) => {
   console.error(`\n✗ ${msg}\n`);
@@ -103,6 +105,11 @@ const wranglerBin = process.env.WRANGLER_BIN || 'node_modules/wrangler/bin/wrang
 const wrangler = (argv, opts = {}) => spawnSync(process.execPath, [wranglerBin, ...argv], opts);
 
 const putSecret = (name, value) => {
+  /* workers-sdk#16193：非 TTY 下 wrangler secret put 走 readFromStdin()，
+     空 stdin 也会上传空值并打印「Success! Uploaded secret」、exit 0。
+     写进去之后 secrets 不可读回（secret list 只给 name/type，没有长度），
+     所以唯一能挡住空值的地方就是调用 wrangler 之前。 */
+  if (!value || !String(value).trim()) die(`putSecret：${name} 值为空，拒绝写入（wrangler 空 stdin 会静默成功）`);
   if (dry) {
     console.log(`  --  跳过写入 secret ${name}（--dry）`);
     return;
@@ -155,14 +162,19 @@ const appendVarLines = (src, lines, note = '') => {
    所以回打用的还是本地 url 变量，不是从 Worker 读回的值——
    「写进去的那个值和 sink 认的值不是同一个」这件事只能靠 Worker 侧真发
    （评论落库 → notifyComment）验，见 DEPLOY.md 的验证边界表。 */
-async function smokeWebhook(url) {
+async function smokeWebhook(url, { label = '冒烟' } = {}) {
   if (dry) {
-    console.log('  --  跳过冒烟回打（--dry 未落库，没有刚写入的地址可验）');
+    console.log(`  --  跳过${label}：冒烟回打（--dry 未落库，没有刚写入的地址可验）`);
     return { skipped: true };
   }
-  /* 和前置测试消息、真业务通知同形状：emoji + 换行，复用 webhookPayload 构造。
-     另写一个 { text: 'test' } 等于白验——sink 侧改了长度/编码校验，演练全过、真发 400。 */
-  const text = '🔔 冒烟：通知链路自检\n这条由 miu.sryze.cc 的配置脚本在写入后回打，收到即表示整条链通。';
+  if (noSmoke) {
+    console.log(`  --  跳过${label}（--no-smoke 显式跳过，本次未验回打）`);
+    return { skipped: true };
+  }
+  /* 和真业务通知同形状：emoji + 换行，复用 webhookPayload 构造。
+     另写一个 { text: 'test' } 等于白验——sink 侧改了长度/编码校验，演练全过、真发 400。
+     写入前、写入后两次走同一个函数，判据只保留一份，避免两处漂移。 */
+  const text = `🔔 ${label}：通知链路自检\n这条由 miu.sryze.cc 的配置脚本发出，收到即表示地址可用。`;
   let r;
   try {
     r = await fetch(url, {
@@ -183,10 +195,10 @@ async function smokeWebhook(url) {
   }
   const code = Number(data.errcode ?? data.code ?? data.StatusCode ?? 0);
   if (!r.ok || code !== 0) {
-    const hint = code === 93000 ? '（token 无效或已被轮换，博客侧存的可能是旧值）' : '';
-    die(`冒烟：写入后回打不通 —— HTTP ${r.status} / 平台码 ${code} ${hint}\n  返回：${body.slice(0, 200)}`);
+    const hint = code === 93000 ? '（地址无效、机器人被删或 token 已被轮换）' : '';
+    die(`${label}不通 —— HTTP ${r.status} / 平台码 ${code}${hint}\n  返回：${body.slice(0, 200)}`);
   }
-  console.log('  ok  冒烟：写入的地址回打通过（errcode 0）');
+  console.log(`  ok  ${label}通过（errcode 0）`);
   return { ok: true };
 }
 
@@ -216,50 +228,14 @@ async function setupWebhook() {
     console.log('    接收端不是 Slack 兼容的话可能收不到，先看下面这条测试消息有没有到。');
   }
 
-  console.log('\n—— 发一条测试消息 ——');
-  const text = '🔔 通知已接通\n这条来自 miu.sryze.cc 的配置脚本，收到即表示地址有效。';
-  let r;
-  try {
-    r = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(webhookPayload(url, text)),
-      signal: AbortSignal.timeout(10000),
-    });
-  } catch (e) {
-    die(`请求没发出去：${e.message}\n  常见原因：地址拼错、机器人已被移除、本机网络不通。`);
-  }
-
-  const body = await r.text();
-  let code = 0;
-  let detail = '';
-  try {
-    const d = JSON.parse(body);
-    code = Number(d.errcode ?? d.code ?? d.StatusCode ?? 0);
-    detail = d.errmsg || d.msg || d.message || '';
-  } catch {
-    /* 非 JSON 响应（Slack 回 "ok" 之类），只看状态码 */
-  }
-
-  if (!r.ok || code) {
-    // 企微：93000 地址错 / 93001 内容空 / 45009 频率超限；飞书：19021 签名校验失败
-    const hint =
-      code === 93000
-        ? 'webhook 地址无效或机器人已被删除，去群里重新拿一次地址'
-        : code === 45009
-          ? '该机器人发得太频繁，等几分钟再试'
-          : code === 19021
-            ? '飞书开了「签名校验」，本项目的发送端不带签名，需要在飞书那边关掉'
-            : '看返回内容，地址一般要整段重新复制（key 在 query 里）';
-    die(`发送失败：HTTP ${r.status}${code ? ` / 平台码 ${code} ${detail}` : ''}\n  ${hint}`);
-  }
-
-  console.log(`  ok  平台接受了这条消息（HTTP ${r.status}${code ? ` code ${code}` : ''}）`);
+  /* 写入前自检：先验地址本身有效，别急着覆盖现役 secret。
+     失败时现役 WEBHOOK_URL 还没动，这是「先写后验」换不来的安全窗口。 */
+  await smokeWebhook(url, { label: '写入前自检' });
   console.log('     去群里确认一下真的收到，再往下走。');
 
   console.log('\n—— 写入密钥 ——');
   putSecret('WEBHOOK_URL', url);
-  await smokeWebhook(url);
+  await smokeWebhook(url, { label: '写入后回打' });
   preflight();
   console.log('\n完成。新评论会推到刚才那个群。');
 }

@@ -205,10 +205,10 @@ t('冒烟：写入后回打拿到 93000 时应 die，不静默成功', async () 
       NODE_TLS_REJECT_UNAUTHORIZED: '0',
     });
     assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.match(r.stderr, /冒烟：写入后回打不通/);
+    assert.match(r.stderr, /写入后回打不通/);
     assert.match(r.stderr, /93000/);
-    assert.equal(hits(), 2, '前置测试 + 冒烟回打应各一次');
-    assert.match(r.stderr, /token 无效或已被轮换/);
+    assert.equal(hits(), 2, '写入前自检 + 写入后回打应各一次');
+    assert.match(r.stderr, /token 已被轮换/);
     assert.doesNotMatch(r.stderr, /完成。新评论会推到刚才那个群/);
   });
 });
@@ -217,9 +217,11 @@ t('--dry 冒烟显式跳过并写明原因（不留静默）', async () => {
   await withSmokeMock(async ({ url }) => {
     const r = run(['webhook', url, '--dry'], { NODE_TLS_REJECT_UNAUTHORIZED: '0' });
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /跳过冒烟回打/);
+    assert.match(r.stdout, /冒烟回打（--dry 未落库/);
     assert.match(r.stdout, /未落库/);
-    assert.doesNotMatch(r.stderr, /冒烟：写入后回打不通/);
+    assert.match(r.stdout, /跳过写入前自检/);
+    assert.match(r.stdout, /跳过写入后回打/);
+    assert.doesNotMatch(r.stderr, /写入后回打不通/);
   });
 });
 
@@ -227,9 +229,14 @@ t('调用点与 dry 跳过分支：行首锚定 + 唯一计数', () => {
   const src = readFileSync('scripts/setup.mjs', 'utf8');
   const at = (re) => (src.match(re) || []).length;
   assert.equal(at(/^  putSecret\('WEBHOOK_URL', url\);$/gm), 1, 'putSecret 调用点应唯一');
-  assert.equal(at(/^  await smokeWebhook\(url\);$/gm), 1, '冒烟调用点应唯一且紧跟 putSecret');
+  assert.equal(at(/^  await smokeWebhook\(url, \{ label: '写入前自检' \}\);$/gm), 1, '写入前自检唯一，且在 putSecret 前');
+  assert.equal(at(/^  await smokeWebhook\(url, \{ label: '写入后回打' \}\);$/gm), 1, '写入后回打唯一，且在 putSecret 后');
+  /* 空值闸门必须落在 wrangler 调用之前：wrangler 空 stdin 会静默成功，
+     写完 secrets 不可读回，没有第二次机会。 */
+  assert.equal(at(/^  if \(!value \|\| !String\(value\)\.trim\(\)\) die\(`putSecret：\$\{name\} 值为空/gm), 1, 'putSecret 空值闸门应唯一且在入口');
   assert.equal(at(/^  if \(dry\) \{$/gm) >= 1, true, 'dry 分支存在');
-  assert.equal(at(/^    console\.log\('  --  跳过冒烟回打（--dry 未落库，没有刚写入的地址可验）'\);$/gm), 1, 'dry 跳过原因应唯一');
+  assert.equal(at(/^    console\.log\(`  --  跳过\$\{label\}：冒烟回打（--dry 未落库，没有刚写入的地址可验）`\);$/gm), 1, 'dry 跳过原因应唯一');
+  assert.equal(at(/^  if \(noSmoke\) \{$/gm), 1, 'noSmoke 分支应唯一');
 });
 
 /* Worker 侧真发：接上「setup 写入 → Worker 读绑定 → 真发到 sink」这一截。
