@@ -355,6 +355,8 @@ export const pageCacheControl = () =>
 
 现在改 `EDGE_TTL` 一处，两层一起变。以前是改了一处、另一处悄悄留着旧值——这类问题不会报错，只会让你在半年后排查"为什么偶尔有一次慢请求"。
 
+这里只对齐了两层。还有更外面的一层：浏览器拿到的 `max-age=0` 到底能不能生效，取决于 zone 上那个会把 HTML 压成 4 小时的 Browser Cache TTL。四层合起来的判断顺序和检查表，整理在[《三层缓存怎么排，才不会被 Cloudflare 改写成 4 小时》](/p/three-layer-cache)。
+
 ### 一个不要碰的参数
 
 ```js

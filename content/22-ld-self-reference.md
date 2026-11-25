@@ -193,7 +193,7 @@ function renderAdjacent(post, list) {
 }
 ```
 
-逻辑本来是「系列文有系列块顶着，不需要兜底」。但 `renderSeries()` 要求同系列 ≥2 篇才渲染。那个时刻「自建博客排障记」只有 sticky-toc 一篇公开（549→96 排在 11-18，「三层缓存」排在 11-25），于是：
+逻辑本来是「系列文有系列块顶着，不需要兜底」。但 `renderSeries()` 要求同系列 ≥2 篇才渲染。那个时刻「自建博客排障记」只有 sticky-toc 一篇公开（549→96 排在 11-18，「[三层缓存](/p/three-layer-cache)」排在 11-25），于是：
 
 - `renderSeries` 看到 `list.length === 1`，返回空字符串
 - `renderAdjacent` 看到 `post.series` 非空，返回空字符串
