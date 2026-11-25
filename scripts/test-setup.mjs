@@ -7,14 +7,22 @@
 //   3. --dry 说不落盘就必须一个字都不改。
 // 每一条都用真实子进程跑，不 import 内部函数 —— 这脚本的价值在于「跑起来会怎样」。
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer as createNetServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-const run = (args) =>
+const run = (args, env = {}) =>
   spawnSync(process.execPath, ['scripts/setup.mjs', ...args], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 60000,
+    env: {
+      ...process.env,
+      https_proxy: '', HTTPS_PROXY: '', http_proxy: '', HTTP_PROXY: '',
+      ...env,
+    },
   });
 
 const cases = [];
@@ -82,10 +90,113 @@ t('非终端 + 没给参数 → 用法提示而不是挂住', () => {
   assert.match(r.stderr, /用法/);
 });
 
+/* 冒烟回打的本地 HTTPS mock：第一次请求（落库前的测试消息）成功，
+   第二次（写入后的冒烟）回 93000。这样才能验到冒烟那一步，
+   而不是在前置测试消息就 die。假 wrangler 顶掉 put，测试不写线上 secret。 */
+const withSmokeMock = async (fn) => {
+  const dir = mkdtempSync(join(tmpdir(), 'setup-smoke-'));
+  const key = join(dir, 'key.pem');
+  const cert = join(dir, 'cert.pem');
+  const g = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+    '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=localhost'], { stdio: 'ignore' });
+  if (g.status !== 0) throw new Error('openssl 不可用，冒烟 mock 起不来');
+  const fakeWrangler = join(dir, 'fake-wrangler.mjs');
+  writeFileSync(fakeWrangler, 'process.exit(0);\n');
+  /* mock 必须在独立进程：run() 用 spawnSync 阻塞父进程事件循环，
+     同进程的 server 永远收不到请求（实测 hits=0、请求 timeout）。 */
+  const mockScript = join(dir, 'mock.mjs');
+  const hitFile = join(dir, 'hits');
+  writeFileSync(mockScript, `
+import { createServer } from 'node:https';
+import { readFileSync, appendFileSync } from 'node:fs';
+let hits = 0;
+createServer({ key: readFileSync(${JSON.stringify(key)}), cert: readFileSync(${JSON.stringify(cert)}) }, (req, res) => {
+  hits++;
+  appendFileSync(${JSON.stringify(hitFile)}, hits + '\\n');
+  let chunks = '';
+  req.on('data', (d) => { chunks += d; });
+  req.on('end', () => {
+    /* 第二次（冒烟）必须复用 webhookPayload 的真形状：emoji + 换行 + 够长。
+       写成 { text: 'test' } 会在演练里全过、真发时被 sink 的形状校验拒。 */
+    let text = '';
+    try { text = JSON.parse(chunks).text || ''; } catch {}
+    const shaped = hits === 1 || (/[\\u{1F300}-\\u{1FAFF}]/u.test(text) && text.includes('\\n') && text.length > 40);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(!shaped ? '{"errcode":93001,"errmsg":"payload shape"}' :
+      hits === 1 ? '{"errcode":0,"errmsg":"ok"}' : '{"errcode":93000,"errmsg":"invalid token"}');
+  });
+}).listen(Number(process.argv[2]), '127.0.0.1', () => console.log('READY'));
+`);
+  const port = await new Promise((resolve) => {
+    const probe = createNetServer();
+    probe.listen(0, '127.0.0.1', () => {
+      const p = probe.address().port;
+      probe.close(() => resolve(p));
+    });
+  });
+  const child = spawn(process.execPath, [mockScript, String(port)], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let log = '';
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('mock server 未就绪')), 10000);
+    child.stdout.on('data', (d) => {
+      log += d;
+      if (log.includes('READY')) { clearTimeout(timer); resolve(); }
+    });
+    child.on('error', (e) => { clearTimeout(timer); reject(e); });
+  });
+  try {
+    await fn({
+      url: `https://localhost:${port}/hook`,
+      fakeWrangler,
+      hits: () => {
+        try { return readFileSync(hitFile, 'utf8').trim().split('\n').filter(Boolean).length; }
+        catch { return 0; }
+      },
+    });
+  } finally {
+    child.kill();
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+t('冒烟：写入后回打拿到 93000 时应 die，不静默成功', async () => {
+  await withSmokeMock(async ({ url, fakeWrangler, hits }) => {
+    const r = run(['webhook', url], {
+      WRANGLER_BIN: fakeWrangler,
+      NODE_TLS_REJECT_UNAUTHORIZED: '0',
+    });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /冒烟：写入后回打不通/);
+    assert.match(r.stderr, /93000/);
+    assert.equal(hits(), 2, '前置测试 + 冒烟回打应各一次');
+    assert.match(r.stderr, /token 无效或已被轮换/);
+    assert.doesNotMatch(r.stderr, /完成。新评论会推到刚才那个群/);
+  });
+});
+
+t('--dry 冒烟显式跳过并写明原因（不留静默）', async () => {
+  await withSmokeMock(async ({ url }) => {
+    const r = run(['webhook', url, '--dry'], { NODE_TLS_REJECT_UNAUTHORIZED: '0' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /跳过冒烟回打/);
+    assert.match(r.stdout, /未落库/);
+    assert.doesNotMatch(r.stderr, /冒烟：写入后回打不通/);
+  });
+});
+
+t('调用点与 dry 跳过分支：行首锚定 + 唯一计数', () => {
+  const src = readFileSync('scripts/setup.mjs', 'utf8');
+  const at = (re) => (src.match(re) || []).length;
+  assert.equal(at(/^  putSecret\('WEBHOOK_URL', url\);$/gm), 1, 'putSecret 调用点应唯一');
+  assert.equal(at(/^  await smokeWebhook\(url\);$/gm), 1, '冒烟调用点应唯一且紧跟 putSecret');
+  assert.equal(at(/^  if \(dry\) \{$/gm) >= 1, true, 'dry 分支存在');
+  assert.equal(at(/^    console\.log\('  --  跳过冒烟回打（--dry 未落库，没有刚写入的地址可验）'\);$/gm), 1, 'dry 跳过原因应唯一');
+});
+
 let pass = 0;
 for (const [name, fn] of cases) {
   try {
-    fn();
+    await fn();
     pass++;
     console.log(`  ok  ${name}`);
   } catch (e) {

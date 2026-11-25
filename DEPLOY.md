@@ -97,10 +97,13 @@ Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发�
 | 通知构造（💬 新评论 payload） | 已验 | `src/webhook.js` 的 `notifyComment` 真代码 |
 | 通知传输（POST → sink → KV） | 已验 | 真网络、真写库，inbox 看到完整 payload |
 | 平台码判定与落库闸门 | 已验 | 真端点两条路径：errcode 0 写入；HTTP 200 + 93000 → die 且不覆盖 secret |
+| 写入后回打（冒烟） | 已验（脚本内） | `setup:webhook` 在 `putSecret` 后复用 `webhookPayload` 再发一次；本地 mock 注入 93000 → die，`--dry` 显式打印跳过；**三处注入验证均先红后恢复** |
 | 评论落库 → 触发 `notifyComment` | **未验**（读码结论） | 读码确认调用点在提交分支，但没有真提交触发过 |
 | 浏览器真过 Turnstile → 提交评论 | **未验** | managed 模式在无头/有头自动化浏览器都拿不到 token，需真实人工点一次验证码 |
 
-`managed` 模式拿不到 token 这件事本身是停手条件：自动化先红，停在 review，不是缺代码——端到端那半只能等一次人工点击。
+冒烟守得住「写入动作没把地址弄坏 / token 在写入窗口被轮换 / sink 此刻可用」，**守不住「写进去的值和 sink 认的值不是同一个」**：CF secrets 只可写不可读（`wrangler secret list` 只列名字），回打用的还是本地 `url` 变量，不是从 Worker 读回的值。要验那半只能靠 Worker 侧真发，也就是下面那两行未验。冒烟失败不回滚 secret——回打失败可能是 sink 抖动，回滚会把「地址本身错」和「sink 短暂不可用」混成一件事。
+
+`managed` 模式拿不到 token 这件事本身是停手条件：自动化先红，停在 review，不是缺代码——端到端那半只能等一次人工点击。**冒烟进了脚本不等于端到端已验，两件事并排看，别让前者盖住后者。**
 
 sink 项目在工作区 `webhook-sink/`，**不在** `check:dom` / `check:size` 等博客闸门的扫描范围里：它现在只靠那次演练守着，以后改 sink 代码博客侧不会红。sink 的 `SINK_TOKEN` 走 Worker secret（不在 `wrangler.jsonc` 里落明文）；2026-11-25 曾在对话消息里泄露过一次，已生成新 token、重部署 sink、用新地址覆盖 blog 侧 secret，旧 token 实测回 93000 失效。**token 值不写进任何文档或消息。**
 

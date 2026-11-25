@@ -97,7 +97,10 @@ const ask = async (q, fallback = '') => {
 /* 一切 wrangler 调用都直接跑 node_modules 里的入口：
    Windows 上 .cmd 不能被 spawn（EINVAL），用 npx 又要过一层 shell，
    而这层 shell 在受限环境里本身就可能被拦。 */
-const wrangler = (argv, opts = {}) => spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', ...argv], opts);
+/* WRANGLER_BIN 只为测试留注入点：烟测要验「写入后回打」的失败分支，
+   不能让测试真写线上 secret，所以用假入口顶掉 put。 */
+const wranglerBin = process.env.WRANGLER_BIN || 'node_modules/wrangler/bin/wrangler.js';
+const wrangler = (argv, opts = {}) => spawnSync(process.execPath, [wranglerBin, ...argv], opts);
 
 const putSecret = (name, value) => {
   if (dry) {
@@ -141,6 +144,52 @@ const appendVarLines = (src, lines, note = '') => {
 };
 
 /* ---------------- webhook ---------------- */
+/* 冒烟回打：写入成功后，用「刚写进去的那个地址」再发一次，确认整条链还通。
+   为什么不在落库前验：落库前那次只证明「传进来的 url 现在有效」，
+   写入动作本身可能把值弄坏（spawn 参数、换行、secret 名字写岔），
+   而且 token 可能在读写之间被轮换（上一轮刚做过）。回打抓的是这些。
+   不回滚 secret：回打失败可能是 sink 抖动，回滚会把「地址本身错」和
+   「sink 短暂不可用」混成一件事，让人看不出该改配置还是该等。
+
+   守不住的：CF secrets 只可写不可读，wrangler 没有 secret get，
+   所以回打用的还是本地 url 变量，不是从 Worker 读回的值——
+   「写进去的那个值和 sink 认的值不是同一个」这件事只能靠 Worker 侧真发
+   （评论落库 → notifyComment）验，见 DEPLOY.md 的验证边界表。 */
+async function smokeWebhook(url) {
+  if (dry) {
+    console.log('  --  跳过冒烟回打（--dry 未落库，没有刚写入的地址可验）');
+    return { skipped: true };
+  }
+  /* 和前置测试消息、真业务通知同形状：emoji + 换行，复用 webhookPayload 构造。
+     另写一个 { text: 'test' } 等于白验——sink 侧改了长度/编码校验，演练全过、真发 400。 */
+  const text = '🔔 冒烟：通知链路自检\n这条由 miu.sryze.cc 的配置脚本在写入后回打，收到即表示整条链通。';
+  let r;
+  try {
+    r = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(webhookPayload(url, text)),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (e) {
+    die(`冒烟：请求失败 ${e.message}`);
+  }
+  const body = await r.text().catch(() => '');
+  let data = {};
+  try {
+    data = JSON.parse(body);
+  } catch {
+    /* 非 JSON 也走平台码判定，默认 0 */
+  }
+  const code = Number(data.errcode ?? data.code ?? data.StatusCode ?? 0);
+  if (!r.ok || code !== 0) {
+    const hint = code === 93000 ? '（token 无效或已被轮换，博客侧存的可能是旧值）' : '';
+    die(`冒烟：写入后回打不通 —— HTTP ${r.status} / 平台码 ${code} ${hint}\n  返回：${body.slice(0, 200)}`);
+  }
+  console.log('  ok  冒烟：写入的地址回打通过（errcode 0）');
+  return { ok: true };
+}
+
 async function setupWebhook() {
   const url = (args[0] || '').trim();
   if (!url) die('用法：npm run setup:webhook -- <webhook 地址>');
@@ -210,6 +259,7 @@ async function setupWebhook() {
 
   console.log('\n—— 写入密钥 ——');
   putSecret('WEBHOOK_URL', url);
+  await smokeWebhook(url);
   preflight();
   console.log('\n完成。新评论会推到刚才那个群。');
 }
