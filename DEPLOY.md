@@ -100,8 +100,8 @@ Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发�
 | 写入前自检 / 写入后回打（冒烟） | 已验（脚本内） | `setup:webhook` 在 `putSecret` 前后各走一次同一个 `smokeWebhook`（带 label），复用 `webhookPayload`；93000 → die，写入前失败时现役 secret 未被覆盖；`--dry` / `--no-smoke` 显式打印跳过；**注入验证均先红后恢复** |
 | wrangler 空 stdin 静默成功（workers-sdk#16193） | 已验（闸门在调用前） | `putSecret` 入口拦空值：非 TTY 下 `wrangler secret put` 会上传空值、打印 `Success`、exit 0，`preflight` 还把空串报成「已配」。注入去掉闸门 + 传空值 → 假 wrangler 静默通过且体检给出「WEBHOOK_URL 已配」；装回闸门 → die 且不进体检 |
 | 写入值 → `env.WEBHOOK_URL` 绑定 → Worker 真发（代码链） | 已验（本地断言） | `test-setup.mjs` 用假 wrangler 捕获真正写进去的 name/value，再喂给真 `notifyComment` 打到 mock sink；四处注入（读错键 / 写错名 / 写入值被包装 / payload 形状被改）均先红后恢复 |
-| 评论落库 → 触发 `notifyComment` | **未验**（读码结论） | 读码确认调用点在提交分支，但没有真提交触发过 |
-| 浏览器真过 Turnstile → 提交评论 | **未验** | managed 模式在无头/有头自动化浏览器都拿不到 token，需真实人工点一次验证码 |
+| 评论落库 → 触发 `notifyComment` | **未验**（读码结论；脚本已备待人工跑） | 读码确认调用点在提交分支，但没有真提交触发过。`npm run verify:comment-e2e -- <slug>` 用唯一 nonce 同时查 D1 公开评论与 sink inbox 的 💬 payload，两边都命中才算过；判据自检 6/6 已进 `npm test`、两次注入（去形状判据 / 去回复递归）均先红后恢复 |
+| 浏览器真过 Turnstile → 提交评论 | **未验** | managed 模式在无头/有头自动化浏览器都拿不到 token，需真实人工点一次验证码；上面那个脚本不自动提交、只观察，token 从 `SINK_URL` 环境变量读且不回显 |
 
 冒烟守得住「写入动作没把地址弄坏 / token 在写入窗口被轮换 / sink 此刻可用」，**守不住「写进去的值和 sink 认的值不是同一个」**：CF secrets 只可写不可读（`wrangler secret list` 只列名字/类型，没有长度或哈希），回打用的还是本地 `url` 变量。补上本地断言后，代码链（写值 → 绑定名 → 真 `webhook.js` → sink 接受）已验；**未验的只剩「CF 线上实际存的值」和「评论落库会不会触发通知」**——前者要靠线上真发回打，后者要人工点一次验证码。不要把本地断言读成线上绑定已读回。
 
