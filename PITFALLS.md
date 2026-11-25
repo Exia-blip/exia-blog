@@ -788,7 +788,7 @@
 - **根因**：三类「假设」都没经过实测。scope 假设「wrangler 已登录 = 什么都能做」；授权假设「页面打开了 = 授权完成了」，而 OAuth 设备流只有 token 端点返回 200 才算数；形状假设「密钥都是 base62」，而真值带 `-`；锚点假设「R2_PUBLIC_BASE 永远是 vars 最后一项」，而每加一组配置就多一个后来者。
 - **复现**：`node scripts/test-setup.mjs`。注入验证两次：把 `[0-9A-Za-z_-]` 改回 `[0-9A-Za-z]`，「带连字符的密钥形状」用例红；把 `appendVarLines` 换回旧 `R2_PUBLIC_BASE` 锚点，既有的 `--dry` 用例红。两次都在脚本里备份、跑完还原。
 - **断言**：7/7。新增「带连字符的密钥形状被接受」，判据是「没停在形状校验、走到 siteverify 并报 SECRET 无效」；`--dry` 用例原本只守「不落盘」，这次顺带守住了 JSON 合法性。
-- **边界**：OAuth token 现在含 `challenge-widgets.write`，但设备码/回调流程仍可能因为代理或浏览器交互半成品静默失败——判据只有 `whoami` 里出现该 scope 或 token 端点 200，不看「页面显示已授权」。密钥形状放行 `-`/`_` 后，占位符拦截仍在更前面，不受影响。
+- **边界**：OAuth token 现在含 `challenge-widgets.write`，但设备码/回调流程仍可能因为代理或浏览器交互半成品静默失败——判据只有 `whoami` 里出现该 scope 或 token 端点 200，不看「页面显示已授权」。密钥形状放行 `-`/`_` 后，占位符拦截仍在更前面，不受影响。第五处同构：把「本地 Worker 的 URL」写成常量——`npm run check` 没起服务就调 `check:dom`，必然 `fetch failed`。处置是在聚合命令里换成显式跳过说明（`scripts/check-dom-note.mjs`），独立命令与 CI 的 BASE 覆盖保留；部署前置本来就不含它，不会被挡。真·未验留痕，不是消除检查。
 - **出处**：`scripts/setup.mjs` / `scripts/test-setup.mjs`；README 6.1；DEPLOY 换主域表；站务记录 2026-11-25
 
 ---

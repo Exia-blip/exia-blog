@@ -39,6 +39,15 @@ npm run backfill:check     # 正文渲染缓存有无空行（退出码 0=无需
 npm run ttfb               # TTFB 分缓存态 P50/P95（HIT/MISS/DYNAMIC）
 ```
 
+### check:dom 的显式处置（2026-11-25）
+
+`- check:dom` 默认打本地 `127.0.0.1:8787`，本机没起 dev server 时必然 `fetch failed`——
+  它压根没打线上，所以这条红不反映线上回归。`npm run deploy` 的前置闸门本来就只有
+  `check-env` / `npm test` / `schema check`，不含 `check:dom`，不会被它挡住。
+  为避免它变成「反正每次都红」的噪音，`npm run check` 里换成 `check-dom-note.mjs`
+  打印跳过原因；独立命令 `npm run check:dom` 原样保留，CI 由 `ci-browser.mjs` 传
+  本地 Worker BASE 覆盖，线上由 `check:live` 覆盖。**这是真·未验的留痕，不是消除检查。**
+
 ### 换主域时的仓库外动作（ Worker 改 SITE_ORIGIN 只解决代码侧）
 
 `wrangler.jsonc` 的 `SITE_ORIGIN` 是唯一运行时开关；canonical / JSON-LD / RSS /
