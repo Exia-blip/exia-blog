@@ -213,7 +213,7 @@ printf '%s' 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' | npx wra
 上面两条也可以交给脚本：它会先拿真实请求验一遍，通过了才写进去。
 
 ```bash
-# 会往群里发一条测试消息，收到才算通过，然后写入 WEBHOOK_URL
+# 写入前往群里发一条测试消息，收到才写 WEBHOOK_URL，写入后再回打一条确认值没写坏
 npm run setup:webhook -- 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx'
 
 # 会拿 secret 去 siteverify 验一次，然后再写 secret、写 vars
@@ -223,7 +223,7 @@ npm run setup:turnstile -- '0x4AAAAAAA...' '0x4AAAAAAA...'
 npm run setup:turnstile -- '0x4AAAAAAA...' '0x4AAAAAAA...' --dry
 ```
 
-为什么值得多这一步：这两个值配错的后果都是**静默**的。webhook 地址失效时企微回的是 `HTTP 200 + {"errcode":93000}`，只看状态码全是成功；Turnstile secret 写错时前端照常弹框、服务端永远验不过，用户看到的是「评论一直提交失败」。脚本用一次真实请求把两种情况都挡在写入之前。
+为什么值得多这一步：这两个值配错的后果都是**静默**的。webhook 地址失效时企微回的是 `HTTP 200 + {"errcode":93000}`，只看状态码全是成功；Turnstile secret 写错时前端照常弹框、服务端永远验不过，用户看到的是「评论一直提交失败」。脚本在写入前用一次真实请求把这两种情况挡住，webhook 还会在写入后用刚写进去的地址再回打一次，防的是「wrangler 报 `Success` 其实写了空值」「token 在读写之间被轮换」「写入动作把值改坏」——这三样都不会让任何现有测试变红。回打失败不会自动回滚 secret：sink 抖动和地址写错是两件事，看清是哪件再改。注意这仍不等于端到端已验：评论落库后是否真的触发 `notifyComment` 仍是读码结论，得有人真点一次验证码、真提交一条评论。
 
 Turnstile 的两个值不用去 Dashboard 手抄，`wrangler` 直接能建 widget 并打印真值：
 
