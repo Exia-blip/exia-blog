@@ -2,7 +2,7 @@
 
 <p>
   <img src="https://img.shields.io/badge/CI-GitHub%20Actions-blue?logo=githubactions&logoColor=white" alt="CI: GitHub Actions">
-  <img src="https://img.shields.io/badge/version-v1.2.5-blue.svg" alt="version v1.2.5">
+  <img src="https://img.shields.io/badge/version-v1.2.6-blue.svg" alt="version v1.2.6">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT">
   <img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white" alt="Cloudflare Workers">
   <img src="https://img.shields.io/badge/%E4%BE%9D%E8%B5%96-0-brightgreen.svg" alt="zero dependencies">
