@@ -52,7 +52,7 @@ const arg = (k, d = '') => {
    会把「进去了但状态条没渲染」读成通过。空 body 一律红（空集恒真防护）。 */
 const PAGES = [
   { path: '/editor', name: '写作页自动放行 + 新列表代码', marks: ['published_at_raw', 'flag-approved'] },
-  { path: '/admin/comments', name: '评论通知送达状态条', marks: ['评论通知送达', '未验（读码结论）'] },
+  { path: '/admin/comments', name: '评论通知送达状态条', marks: ['评论通知送达', '未尝试'] },
   { path: '/admin/friends', name: '友链巡检时间戳', marks: ['检测 '] },
   { path: '/admin/review', name: '审核队列可达', marks: [] },
 ];
@@ -132,9 +132,14 @@ async function selfCheck() {
   const { renderCommentsAdmin } = await import('../src/admin-pages.js');
   const off = renderCommentsAdmin({});
   const on = renderCommentsAdmin({ hook: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=SECRET_XYZ' });
-  t('AL-16 未配置态仍写明「未验（读码结论）」', off.includes('评论通知送达') && off.includes('未验（读码结论）'));
+  /* 通知这块已经改成「库里的投递结果」：四个计数必须在，未配置态要明说跳过。
+     仍然不许把「已送达」写成「已验」——平台回执是事实，端到端结论不是它。 */
+  t(
+    'AL-16 通知条四个计数都在，且未配置态写明跳过',
+    ['已送达', '失败', '跳过', '未尝试'].every((k) => off.includes(k)) && off.includes('未配置')
+  );
   t('AL-17 已配置态不回显 webhook 地址', on.includes('已配置') && !on.includes('SECRET_XYZ'));
-  t('AL-18 已配置态不把边界写成已验', !on.includes('已验') && on.includes('未验（读码结论）'));
+  t('AL-18 已配置态不把平台回执写成端到端已验', on.includes('已送达') && !on.includes('端到端已验'));
 
   /* 两版密钥分流：本地只认 SESSION_SECRET，线上只认 LIVE_SESSION_SECRET，互不回退。
      输入是一份同时放了两版的 kv（与实现独立），所以「选错版本」不会被同一份输入掩盖。 */

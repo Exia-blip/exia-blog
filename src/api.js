@@ -1251,15 +1251,30 @@ export async function handleApi(env, request, url, ctx) {
     }
 
     const origin = siteOrigin(env, request);
-    if (status === 'pending') {
-      await notifyTodo(env, `新评论待审：${name} 在《${p.title}》\n${origin}/admin/comments`);
-    } else {
-      await notifyComment(env, {
-        postTitle: p.title,
-        postUrl: `${origin}/p/${p.slug}`,
-        name,
-        content,
-      });
+    /* 通知结果落库：后台那一列显示的就是这里写下的值，不再是「读码结论」。
+       待审评论走的是待办提醒（不是新评论推送），note 里标明，免得把两种投递混成一种。 */
+    const notify =
+      status === 'pending'
+        ? await notifyTodo(env, `新评论待审：${name} 在《${p.title}》\n${origin}/admin/comments`)
+        : await notifyComment(env, {
+            postTitle: p.title,
+            postUrl: `${origin}/p/${p.slug}`,
+            name,
+            content,
+          });
+    try {
+      await db
+        .prepare('UPDATE comments SET notify_status=?, notify_note=?, notified_at=? WHERE id=?')
+        .bind(
+          notify.status,
+          `${status === 'pending' ? '待办提醒 ' : ''}${notify.note || ''}`.trim().slice(0, 120),
+          nowISO(),
+          info.meta.last_row_id
+        )
+        .run();
+    } catch (e) {
+      // 记账失败不阻断：评论已经落库，通知也已经发过，这里挂了不该让用户看到报错
+      console.error('notify record', e?.message || e);
     }
 
     return json({ ok: true, id: info.meta.last_row_id, status }, 200, headers);

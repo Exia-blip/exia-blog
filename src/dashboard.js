@@ -54,6 +54,27 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
     )
     .join('');
 
+  /* 待办条：四条都是可判定数字，打开三秒内知道今天要不要动手。
+     友链在本仓库没有「申请 / 审核」流程（后台直接增删改），所以这一项是「探测失败」
+     而不是「待审友链」—— 摆一个不存在的数字比不放更误导。
+     数字全来自真实查询，失败就显示「—」，不补 0。 */
+  const todos = [
+    { label: '待审评论', v: kpi.cmtPending, href: '/admin/comments' },
+    { label: '预排未发', v: kpi.queue, href: '/admin/queue' },
+    { label: '友链异常', v: sys.friendDown, href: '/admin/friends' },
+    { label: '通知失败', v: kpi.notifyFail, href: '/admin/comments?status=all' },
+  ];
+  const todoTotal = todos.reduce((s, t) => s + (Number(t.v) || 0), 0);
+  const todoBar = `<div class="sv-summary ${todoTotal > 0 ? 'warn' : 'ok'}">
+      <span class="sv-summary-dot"></span>
+      <div class="sv-summary-main">
+        <strong>${todoTotal > 0 ? `今天要做的 ${todoTotal} 件` : '今天没有待办'}</strong>
+        <span>${todos
+          .map((t) => `${esc(t.label)} <a href="${esc(t.href)}">${n(t.v)}</a>`)
+          .join(' · ')}</span>
+      </div>
+    </div>`;
+
   const posts = recent.length
     ? `<div class="kv-list">${recent
         .map(
@@ -82,6 +103,7 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
     <span class="view-tag">${esc(sys.today || dayCN())}</span>
   </div>
   <div class="admin-view-body">
+    ${todoBar}
     <div class="dash-kpis">${cards
       .map(
         (c) => `${c.key === 'pending' && c.value > 0 ? '<a class="dash-kpi dash-kpi-link" href="/admin/review">' : '<div class="dash-kpi">'}
@@ -142,7 +164,7 @@ export async function dashboardPage(env, request) {
   };
 
   const today = dayCN();
-  const [postStat, pendingStat, queueStat, pv, friendStat, recentRows, d1Ok] = await Promise.all([
+  const [postStat, pendingStat, queueStat, cmtPending, notifyFail, pv, friendStat, recentRows, d1Ok] = await Promise.all([
     safe(
       () =>
         one(
@@ -160,6 +182,8 @@ export async function dashboardPage(env, request) {
         ),
       {}
     ),
+    safe(() => one('SELECT COUNT(*) c FROM comments WHERE status = ?', 'pending'), {}),
+    safe(() => one("SELECT COUNT(*) c FROM comments WHERE notify_status = 'fail'"), {}),
     safe(() => one('SELECT COUNT(*) pv, COUNT(DISTINCT ip) uv FROM pv WHERE day = ?', today), {}),
     safe(
       () =>
@@ -199,6 +223,8 @@ export async function dashboardPage(env, request) {
         posts: postStat?.published,
         pending: pendingStat?.c,
         queue: queueStat?.c,
+        cmtPending: cmtPending?.c,
+        notifyFail: notifyFail?.c,
         pv: pv?.pv,
         uv: pv?.uv,
         friendsUp: friendStat?.up,

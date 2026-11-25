@@ -318,7 +318,7 @@ node scripts/backup-drill.mjs              # 恢复演练：空库重放导出 S
 
 备份写入同桶的 `backups/` 前缀，`/img/backups/*` 已被 `isPrivateImageKey()` 挡住，不会被图片代理公开读取（有断言守着）。滚动状态记在 `backups/_manifest.json`，不依赖 wrangler CLI 没有的 `r2 object list`。`backup-drill` 只读导出、在内存库重建，不碰线上数据——2026-11-23 已用真实导出演练通过（非空正文全部有 `html_content`）。
 
-表数以 `npm run check:schema` 的输出为准（当前 **12 张业务表 / 15 个索引**）。库里另外三张表不是我们的：`d1_migrations`（wrangler 的迁移台账）、`sqlite_sequence`（SQLite 自增计数器）、`_cf_KV`（平台内部）。用 `sqlite_master` 数表会把它们算进去，数出来是 15，别拿这个数字对账。
+表数以 `npm run check:schema` 的输出为准（当前 **12 张业务表 / 16 个索引**）。库里另外三张表不是我们的：`d1_migrations`（wrangler 的迁移台账）、`sqlite_sequence`（SQLite 自增计数器）、`_cf_KV`（平台内部）。用 `sqlite_master` 数表会把它们算进去，数出来是 15，别拿这个数字对账。
 
 定时执行交给外部调度器（GitHub Actions cron 或本机 cron），本项目不含自动触发配置——备份脚本需要 wrangler 的已登录态，CI 里要先注入 `CLOUDFLARE_API_TOKEN`。
 

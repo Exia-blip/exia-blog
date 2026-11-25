@@ -25,9 +25,13 @@ export function webhookPayload(hook, plain) {
   }
 }
 
+/* 返回投递结果，交给调用方落库：{ status, note }
+   status: ok 平台已接受 / fail HTTP 或平台码非 0 / skip 没配地址
+   只在返回「平台接受」时才是 ok —— fetch 没抛异常不等于送达，企微那种
+   200 里塞 errcode 的情况必须算 fail，否则后台那一列会把失败显示成成功。 */
 async function sendWebhook(env, plain) {
   const hook = env.WEBHOOK_URL;
-  if (!hook) return;
+  if (!hook) return { status: 'skip', note: '未配置 WEBHOOK_URL' };
 
   try {
     const r = await fetch(hook, {
@@ -38,11 +42,10 @@ async function sendWebhook(env, plain) {
     });
     /* 只看「fetch 没抛异常」是不够的：企微地址失效时回的是 HTTP 200 +
        {"errcode":93000,"errmsg":"invalid webhook url"}，飞书也是 200 + code≠0。
-       不判这一层，通知挂了永远发现不了——评论照收，群里没消息，谁也不会怀疑到这里。
-       日志进 wrangler tail，不影响评论本身的返回。 */
+       不判这一层，通知挂了永远发现不了——评论照收，群里没消息，谁也不会怀疑到这里。 */
     if (!r.ok) {
       console.error(`[webhook] HTTP ${r.status}`);
-      return;
+      return { status: 'fail', note: `HTTP ${r.status}` };
     }
     const body = await r.text();
     let code = 0;
@@ -50,9 +53,14 @@ async function sendWebhook(env, plain) {
       const d = JSON.parse(body);
       code = Number(d.errcode ?? d.code ?? d.StatusCode ?? 0);
     } catch {}
-    if (code) console.error(`[webhook] 平台返回错误 ${code}：${body.slice(0, 200)}`);
+    if (code) {
+      console.error(`[webhook] 平台返回错误 ${code}：${body.slice(0, 200)}`);
+      return { status: 'fail', note: `平台码 ${code}` };
+    }
+    return { status: 'ok', note: '' };
   } catch (e) {
     console.error('webhook failed:', e.message);
+    return { status: 'fail', note: String(e.message || '请求失败').slice(0, 80) };
   }
 }
 
@@ -60,10 +68,10 @@ export async function notifyComment(env, { postTitle, postUrl, name, content }) 
   const plain = [`💬 新评论 · ${postTitle}`, `${name}：${String(content).slice(0, 300)}`, postUrl ? `🔗 ${postUrl}` : '']
     .filter(Boolean)
     .join('\n');
-  await sendWebhook(env, plain);
+  return await sendWebhook(env, plain);
 }
 
 /** 后台待办提醒：待审稿、友链挂掉。复用评论通知的同一个 webhook 与平台适配。 */
 export async function notifyTodo(env, text) {
-  await sendWebhook(env, `[待办] ${String(text).slice(0, 500)}`);
+  return await sendWebhook(env, `[待办] ${String(text).slice(0, 500)}`);
 }

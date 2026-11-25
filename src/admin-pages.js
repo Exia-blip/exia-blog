@@ -576,38 +576,93 @@ export async function friendsAdminPage(env, request) {
   return html(renderFriendsAdmin({ site, rows }), 200, { 'cache-control': 'no-store' });
 }
 
-/* ---------- 评论审核 ---------- */
+/* ---------- 评论管理（四态 + 通知送达） ---------- */
+
+/* 四态按「待办优先」排：待审永远第一，全部放最后。
+   数量来自 counts，欠账一眼看见，不用逐页翻。 */
+const CM_TABS = [
+  { key: 'pending', label: '待审' },
+  { key: 'approved', label: '已通过' },
+  { key: 'rejected', label: '已驳回' },
+  { key: 'all', label: '全部' },
+];
+const CM_STATE = { pending: ['warn', '待审'], approved: ['ok', '已通过'], rejected: ['bad', '驳回'] };
+
+/* 通知结果只显示落库过的事实：没记录就写「未尝试」，不猜、不补默认值。
+   失败原因与尝试时刻塞进 title，排查时不用再翻 wrangler tail。 */
+function notifyCell(c) {
+  const st = String(c.notify_status || '');
+  const note = String(c.notify_note || '');
+  const at = c.notified_at ? toCN(c.notified_at) : '';
+  const hint = esc([note, at && `尝试于 ${at}`].filter(Boolean).join(' · ') || '没有投递记录');
+  const [cls, label] =
+    st === 'ok'
+      ? ['ok', '已送达']
+      : st === 'fail'
+        ? ['bad', '失败']
+        : st === 'skip'
+          ? ['', '跳过']
+          : ['', '未尝试'];
+  return `<span class="sv-pill ${cls}" title="${hint}">${label}</span>`;
+}
 
 /** 纯渲染：单测喂假数据即可验证转义与结构。moderation='1' 表示当前已开启先审后发。
     hook 只用来判「配没配 / 哪家」，绝不回显地址本身（里面带机器人 key）。 */
-export function renderCommentsAdmin({ site = {}, rows = [], moderation = '0', hook = '' }) {
+export function renderCommentsAdmin({
+  site = {},
+  rows = [],
+  moderation = '0',
+  hook = '',
+  tab = 'pending',
+  counts = {},
+  notifyStats = {},
+}) {
   const on = moderation === true || String(moderation) === '1';
   const hookOn = !!String(hook).trim();
   const platform = HOOK_CN[webhookPlatform(String(hook))] || '通用';
+  const n = (v) => (v === undefined || v === null ? '—' : String(v));
+  const tabLabel = (CM_TABS.find((t) => t.key === tab) || CM_TABS[0]).label;
+  const tabs = CM_TABS.map((t) => {
+    const active = t.key === tab;
+    return `<a class="tag${active ? ' on' : ''}" href="/admin/comments?status=${t.key}"${
+      active ? ' aria-current="page"' : ''
+    }>${t.label} ${n(counts[t.key] ?? 0)}</a>`;
+  }).join('');
+
   const list = rows.length
     ? rows
-        .map(
-          (c) => `<div class="adm-cmt-row" data-id="${esc(c.id)}">
+        .map((c) => {
+          const [cls, label] = CM_STATE[c.status] || ['', esc(c.status || '—')];
+          const lvl = c.parent_id ? `回复 ${esc(c.parent_name || '#' + c.parent_id)}` : '顶层';
+          return `<div class="adm-cmt-row" data-id="${esc(c.id)}">
     <div class="adm-cmt-main">
       <div class="adm-cmt-line">
         <strong class="adm-cmt-author">${esc(c.name || '匿名')}</strong>
+        <span class="sv-pill ${cls}">${label}</span>
         <span class="adm-cmt-post">于《${esc(c.post_title || '（文章已删除）')}》</span>
         <span class="adm-cmt-time">${esc(toCN(c.created_at))}</span>
       </div>
       <p class="adm-cmt-content">${esc(c.content || '')}</p>
+      <div class="adm-cmt-meta">${lvl} · 通知 ${notifyCell(c)}</div>
     </div>
     <div class="adm-cmt-ops">
       <button type="button" class="rv-btn ok" data-act="approve">通过</button>
       <button type="button" class="rv-btn no" data-act="reject">驳回</button>
     </div>
-  </div>`
-        )
+  </div>`;
+        })
         .join('')
-    : '<p class="sv-empty">没有待审评论。开启先审后发后，普通用户的新评论会排在这里。</p>';
-  /* 通知送达状态：没有落库字段，不造逐条「已送达」的假事实。
-     这里只摆两件可判定的事——当前生效的通知配置（读 env），以及端到端那一半仍是读码结论。
-     让「落库 → 群里跳出消息」这半步每天看得见，比加一条永远绿的断言更贴这个仓库。 */
-  const notifyState = hookOn ? 'warn' : 'bad';
+    : `<p class="sv-empty">${
+        tab === 'pending'
+          ? '没有待审评论。开启先审后发后，普通用户的新评论会排在这里。'
+          : '这个状态下还没有评论。'
+      }</p>`;
+
+  /* 通知这块从「读码结论」升级成事实汇总：数字取自 comments.notify_status，
+     已送达 = 平台回执码为 0（企微 200 里藏 errcode 算失败），刷新即变。 */
+  const ns = notifyStats;
+  const anyFail = Number(ns.fail || 0) > 0;
+  const notifyState = anyFail ? 'bad' : hookOn ? 'ok' : 'warn';
   const notifyRow = `<div class="admin-view-card">
   <div class="admin-view-head">
     <span>评论通知送达</span>
@@ -617,11 +672,15 @@ export function renderCommentsAdmin({ site = {}, rows = [], moderation = '0', ho
     <div class="sv-summary ${notifyState}">
       <span class="sv-summary-dot"></span>
       <div class="sv-summary-main">
-        <strong>评论落库 → 群里收到：未验（读码结论）</strong>
-        <span>${hookOn ? '通知地址已生效，但没有任何一次真实评论提交触发过它。' : '当前没有通知地址，评论照收但不推送；配置后仍需真发一次才算验通。'}</span>
+        <strong>已送达 ${n(ns.ok)} · 失败 ${n(ns.fail)} · 跳过 ${n(ns.skip)} · 未尝试 ${n(ns.none)}</strong>
+        <span>${
+          hookOn
+            ? '每条评论都有自己的投递结果，失败的在列表里标红，悬停看 HTTP 码或平台码。'
+            : '当前没有通知地址，投递一律记为跳过；配好 WEBHOOK_URL 后新评论才会真发。'
+        }</span>
       </div>
     </div>
-    <p class="sv-note">写入前自检 / 写入后回打只验「配置写入与传输」，不住在评论触发路径上。真发验法：设好 SINK_URL，<code>npm run verify:comment-e2e</code> 生成 nonce，人工点一次验证码并原样填进评论，等 D1 与 inbox 双源命中。</p>
+    <p class="sv-note">此前这条链路只有日志，成没成没人知道；现在每次投递写回 comments.notify_status。这仍是「本机观测到的平台回执」，群里是否真的跳出消息，用 <code>npm run verify:comment-e2e</code> 真发一次最稳。</p>
   </div>
 </div>`;
   const body = `<div class="wrap-s">
@@ -642,16 +701,20 @@ ${notifyRow}
 </div>
 <div class="admin-view-card">
   <div class="admin-view-head">
-    <span>待审评论</span>
-    <span class="view-tag">${rows.length} 条</span>
+    <span>评论 · ${tabLabel}</span>
+    <span class="view-tag">${rows.length} 条（最多 100）</span>
   </div>
-  <div class="admin-view-body adm-cmt-list">
-    ${list}
+  <div class="admin-view-body">
+    <div class="year-filter">${tabs}</div>
+    <div class="adm-cmt-list">
+      ${list}
+    </div>
   </div>
 </div>
 </div>
 <script>
 (function(){
+  var TAB = ${JSON.stringify(tab)};
   var msg = document.querySelector('.adm-cmt-msg');
   var state = document.querySelector('.adm-cmt-state');
   function fail(err) { if (msg) msg.textContent = (err && err.message) || '操作失败'; }
@@ -663,7 +726,7 @@ ${notifyRow}
       return x.d;
     });
   }
-  var pendingCount = ${rows.length};
+  var pendingCount = ${Number(counts.pending || 0)};
   var sw = document.querySelector('.adm-cmt-switch');
   if (sw) sw.addEventListener('change', function () {
     var enabled = sw.checked;
@@ -701,9 +764,15 @@ ${notifyRow}
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ action: act })
     }).then(function () {
-      row.remove();
-      if (!box.querySelector('.adm-cmt-row')) {
-        box.insertAdjacentHTML('beforeend', '<p class="sv-empty">待审队列已清空。</p>');
+      /* 待审页点掉一条就少一条，直接摘行；其余三态点完该换列了 ——
+         原地摘行会让「已通过」列表看起来像删掉了评论，改成整页重取。 */
+      if (TAB === 'pending') {
+        row.remove();
+        if (!box.querySelector('.adm-cmt-row')) {
+          box.insertAdjacentHTML('beforeend', '<p class="sv-empty">待审队列已清空。</p>');
+        }
+      } else {
+        location.reload();
       }
     }).catch(function (err) {
       fail(err);
@@ -715,8 +784,8 @@ ${notifyRow}
   return renderAdminShell({
     site,
     active: 'comments',
-    title: '评论审核',
-    desc: '放行或驳回待审评论，并可开关先审后发',
+    title: '评论管理',
+    desc: '四态一览，每行带通知投递结果，并可开关先审后发',
     body,
   });
 }
@@ -725,25 +794,82 @@ export async function commentsAdminPage(env, request) {
   const { res } = await requireAdmin(env, request);
   if (res) return res;
 
+  const want = new URL(request.url).searchParams.get('status') || '';
+  const tab = CM_TABS.some((t) => t.key === want) ? want : 'pending';
+
   let moderation = '0';
-  let rows = [];
   try {
     const s = await env.DB.prepare("SELECT value FROM settings WHERE key = 'comment_moderation'").first();
     if (s && s.value != null) moderation = String(s.value);
   } catch (e) {
     console.error('comments moderation', e?.message || e);
   }
-  try {
-    const r = await env.DB.prepare(
-      `SELECT c.*, p.title AS post_title
-       FROM comments c JOIN posts p ON p.id = c.post_id
-       WHERE c.status = 'pending'
-       ORDER BY c.id DESC LIMIT 100`
-    ).all();
-    rows = r.results || [];
-  } catch (e) {
-    console.error('comments admin', e?.message || e);
+
+  /* 三块查询各自兜底：计数挂了不该让整页白屏，列表挂了也该看得见计数。 */
+  const safe = async (fn, fallback) => {
+    try {
+      return await fn();
+    } catch (e) {
+      console.error('comments admin', e?.message || e);
+      return fallback;
+    }
+  };
+  const [byStatus, ns, rows] = await Promise.all([
+    safe(
+      () =>
+        env.DB.prepare('SELECT status, COUNT(*) c FROM comments GROUP BY status')
+          .all()
+          .then((r) => r.results || []),
+      []
+    ),
+    safe(
+      () =>
+        env.DB.prepare(
+          `SELECT SUM(CASE WHEN notify_status='ok' THEN 1 ELSE 0 END) ok,
+                  SUM(CASE WHEN notify_status='fail' THEN 1 ELSE 0 END) fail,
+                  SUM(CASE WHEN notify_status='skip' THEN 1 ELSE 0 END) skip,
+                  SUM(CASE WHEN notify_status='' THEN 1 ELSE 0 END) none
+           FROM comments`
+        ).first(),
+      null
+    ),
+    safe(
+      () =>
+        env.DB.prepare(
+          `SELECT c.id, c.post_id, c.parent_id, c.name, c.content, c.status, c.created_at,
+                  c.notify_status, c.notify_note, c.notified_at,
+                  p.title AS post_title, pc.name AS parent_name
+           FROM comments c
+           JOIN posts p ON p.id = c.post_id
+           LEFT JOIN comments pc ON pc.id = c.parent_id
+           ${tab === 'all' ? '' : 'WHERE c.status = ?'}
+           ORDER BY c.id DESC LIMIT 100`
+        )
+          .bind(...(tab === 'all' ? [] : [tab]))
+          .all()
+          .then((r) => r.results || []),
+      []
+    ),
+  ]);
+
+  const counts = { pending: 0, approved: 0, rejected: 0, all: 0 };
+  for (const row of byStatus) {
+    const k = String(row.status || '');
+    const c = Number(row.c || 0);
+    counts.all += c;
+    if (k in counts && k !== 'all') counts[k] = c;
   }
+  const notifyStats = {
+    ok: ns?.ok || 0,
+    fail: ns?.fail || 0,
+    skip: ns?.skip || 0,
+    none: ns?.none || 0,
+  };
+
   const site = await getSite(env);
-  return html(renderCommentsAdmin({ site, rows, moderation, hook: env.WEBHOOK_URL || '' }), 200, { 'cache-control': 'no-store' });
+  return html(
+    renderCommentsAdmin({ site, rows, moderation, hook: env.WEBHOOK_URL || '', tab, counts, notifyStats }),
+    200,
+    { 'cache-control': 'no-store' }
+  );
 }

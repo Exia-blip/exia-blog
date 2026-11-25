@@ -93,7 +93,11 @@ CREATE TABLE IF NOT EXISTS comments (
   is_admin    INTEGER NOT NULL DEFAULT 0,
   status      TEXT NOT NULL DEFAULT 'approved', -- approved 公开 / pending 待审 / rejected 驳回
   ip          TEXT,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  -- 通知投递结果：'' 未尝试 / ok 平台已接受 / fail HTTP 或平台码非 0 / skip 未配 WEBHOOK_URL
+  notify_status TEXT NOT NULL DEFAULT '',
+  notify_note   TEXT NOT NULL DEFAULT '',
+  notified_at   TEXT NOT NULL DEFAULT ''
 );
 
 -- 评论限额。k 是钥匙：'ip:1.2.3.4' 或 'dev:<设备 cookie>'，一行一把。
@@ -107,6 +111,7 @@ CREATE TABLE IF NOT EXISTS comment_guard (
   banned   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
+CREATE INDEX IF NOT EXISTS idx_comments_notify ON comments(notify_status, id);
 CREATE INDEX IF NOT EXISTS idx_comments_ip   ON comments(ip);
 CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status, created_at);
 
