@@ -3,22 +3,13 @@
 import { html } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { getSite } from './settings.js';
-import { renderAdminShell, esc } from './admin-ui.js';
+import { renderAdminShell, esc, toCN, pill, fresh, emptyState } from './admin-ui.js';
 import { postCacheStats } from './postcache.js';
 import { webhookPlatform } from './webhook.js';
 
 /* 这两页的样式已收进 public/style.css 的 .stat-page 命名空间，
    和 editor.html 的 .view-card 共用一套卡片/分组/细线列表口径。
    不再内联 <style>：一是避免 CSP 多一处内联，二是颜色能走 CSS 变量自动适配七套主题。 */
-
-/** 北京时间展示。D1 存的是 UTC 的 `YYYY-MM-DD HH:MM:SS`。 */
-function toCN(s) {
-  if (!s) return '—';
-  const t = String(s).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(String(s)) ? '' : 'Z');
-  const d = new Date(t);
-  if (Number.isNaN(d.getTime())) return esc(s);
-  return new Date(d.getTime() + 8 * 3600e3).toISOString().slice(0, 16).replace('T', ' ') + ' 北京';
-}
 
 /* 键值行：和 editor 视图列表同一套口径——细线分隔、左标签右值。
    cls 传状态名（ok/warn/bad）时只给值上色，不改行结构。 */
@@ -51,7 +42,7 @@ export function renderHealth({ site = {}, checks = [], friend = {}, pc = {} }) {
       (c) =>
         `<div class="kv-row"><span class="kv-k">${esc(c.label)}${
           c.note ? `<span class="kv-note">${esc(c.note)}</span>` : ''
-        }</span><span class="kv-v"><span class="sv-pill ${esc(c.state)}">${esc(c.value)}</span></span></div>`
+        }</span><span class="kv-v">${pill(c.state, c.value)}</span></div>`
     )
     .join('');
   /* 顶部一句结论：不用逐行读六项才知道整体好不好。只要有一项故障就按故障算，
@@ -182,7 +173,7 @@ export function renderQueue({ site = {}, rows = [] }) {
     </tr>`
         )
         .join('')}</tbody></table></div>`
-    : '<p class="sv-empty">没有待发布的文章。把文章发布时间设到将来，它就会排在这里，到点自动公开。</p>';
+    : emptyState('没有待发布的文章。把文章发布时间设到将来，它就会排在这里，到点自动公开。');
   const body = `<div class="wrap-s">
 <div class="admin-view-card">
   <div class="admin-view-head">
@@ -243,7 +234,7 @@ export function renderAudit({ site = {}, rows = [] }) {
     </tr>`
         )
         .join('')}</tbody></table></div>`
-    : '<p class="sv-empty">还没有操作记录。文章增删改、审核、评论处置、友链变更与版本回滚都会记在这里。</p>';
+    : emptyState('还没有操作记录。文章增删改、审核、评论处置、友链变更与版本回滚都会记在这里。');
   const body = `<div class="wrap-s">
 <div class="admin-view-card">
   <div class="admin-view-head">
@@ -304,7 +295,7 @@ export function renderHistory({ site = {}, post = {}, rows = [] }) {
   </div>`
         )
         .join('')
-    : '<p class="sv-empty">还没有历史版本。每次保存文章都会留一份快照，最多保留最近 30 版。</p>';
+    : emptyState('还没有历史版本。每次保存文章都会留一份快照，最多保留最近 30 版。');
   const body = `<div class="wrap-s">
 <div class="admin-view-card" data-post="${esc(post.id || '')}">
   <div class="admin-view-head">
@@ -428,11 +419,12 @@ export function renderFriendsAdmin({ site = {}, rows = [] }) {
     <div class="adm-fr-main">
       <div class="adm-fr-line">
         <strong class="adm-fr-name">${esc(f.name)}</strong>
-        <span class="sv-pill ${frBadge(f.status)}">${frStatus(f.status)}</span>
+        ${pill(frBadge(f.status), frStatus(f.status))}
       </div>
       <div class="adm-fr-url"><a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.url)}</a></div>
-      <div class="adm-fr-meta">HTTP ${esc(f.http_status ?? 0)} · 延迟 ${esc(f.latency_ms ?? '—')} ms · 检测 ${esc(
-        toCN(f.checked_at)
+      <div class="adm-fr-meta">HTTP ${esc(f.http_status ?? 0)} · 延迟 ${esc(f.latency_ms ?? '—')} ms · 检测 ${fresh(
+        f.checked_at,
+        { staleMs: 45 * 60e3 }
       )}</div>
       ${f.desc ? `<p class="adm-fr-desc">${esc(f.desc)}</p>` : ''}
     </div>
@@ -454,7 +446,7 @@ export function renderFriendsAdmin({ site = {}, rows = [] }) {
   </div>`
         )
         .join('')
-    : '<p class="sv-empty">还没有友链。用上面的表单添加第一条。</p>';
+    : emptyState('还没有友链。用上面的表单添加第一条。');
   const body = `<div class="wrap-s">
 <div class="admin-view-card">
   <div class="admin-view-head">
@@ -589,21 +581,19 @@ const CM_TABS = [
 const CM_STATE = { pending: ['warn', '待审'], approved: ['ok', '已通过'], rejected: ['bad', '驳回'] };
 
 /* 通知结果只显示落库过的事实：没记录就写「未尝试」，不猜、不补默认值。
-   失败原因与尝试时刻塞进 title，排查时不用再翻 wrangler tail。 */
+   失败原因塞进 title，排查时不用再翻 wrangler tail。
+   时刻用相对时间：投递是一次性历史事件，不会重跑，所以 staleMs 给 Infinity
+   ——不能用「已过期」去标一条三周前送达成功的记录，那是拿错了判据。 */
 function notifyCell(c) {
   const st = String(c.notify_status || '');
   const note = String(c.notify_note || '');
-  const at = c.notified_at ? toCN(c.notified_at) : '';
-  const hint = esc([note, at && `尝试于 ${at}`].filter(Boolean).join(' · ') || '没有投递记录');
-  const [cls, label] =
-    st === 'ok'
-      ? ['ok', '已送达']
-      : st === 'fail'
-        ? ['bad', '失败']
-        : st === 'skip'
-          ? ['', '跳过']
-          : ['', '未尝试'];
-  return `<span class="sv-pill ${cls}" title="${hint}">${label}</span>`;
+  const [kind, label] =
+    st === 'ok' ? ['ok', '已送达'] : st === 'fail' ? ['bad', '失败'] : st === 'skip' ? ['muted', '跳过'] : ['muted', '未尝试'];
+  const at = String(c.notified_at || '');
+  const hint = [note, at && `尝试于 ${toCN(at)}`].filter(Boolean).join(' · ') || '没有投递记录';
+  // fresh() 自带 <span class="sv-time">，别再包一层——套两层会把字号与颜色叠两遍。
+  const when = at ? ` ${fresh(at, { staleMs: Infinity })}` : '';
+  return `${pill(kind, label, hint)}${when}`;
 }
 
 /** 纯渲染：单测喂假数据即可验证转义与结构。moderation='1' 表示当前已开启先审后发。
@@ -638,7 +628,7 @@ export function renderCommentsAdmin({
     <div class="adm-cmt-main">
       <div class="adm-cmt-line">
         <strong class="adm-cmt-author">${esc(c.name || '匿名')}</strong>
-        <span class="sv-pill ${cls}">${label}</span>
+        ${pill(cls, label)}
         <span class="adm-cmt-post">于《${esc(c.post_title || '（文章已删除）')}》</span>
         <span class="adm-cmt-time">${esc(toCN(c.created_at))}</span>
       </div>
@@ -652,11 +642,11 @@ export function renderCommentsAdmin({
   </div>`;
         })
         .join('')
-    : `<p class="sv-empty">${
+    : emptyState(
         tab === 'pending'
           ? '没有待审评论。开启先审后发后，普通用户的新评论会排在这里。'
           : '这个状态下还没有评论。'
-      }</p>`;
+      );
 
   /* 通知这块从「读码结论」升级成事实汇总：数字取自 comments.notify_status，
      已送达 = 平台回执码为 0（企微 200 里藏 errcode 算失败），刷新即变。 */

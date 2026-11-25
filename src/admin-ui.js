@@ -7,6 +7,74 @@ import { THEME_BOOT, themeBootTag } from './themeboot.js';
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ESC[ch]);
 
+/* ---------- 后台原子：时间 / 徽章 / 新鲜度 / 空态 ----------
+   这四样此前在页面里各写一份：语义色是散落的 if、时间是绝对时刻、
+   空态是同一句 sv-empty 抄五遍。抽到这里，页面只传数据。
+   不新增一行 CSS —— 全部复用 style.css 已有的 .sv-pill(.ok/.warn/.bad)
+   / .sv-time / .sv-empty（预算只剩 27 B，加规则必爆）。 */
+
+/** 绝对时刻（北京）。D1 存的是 UTC 的 `YYYY-MM-DD HH:MM:SS`，不补 Z 会差 8 小时。 */
+export function toCN(s) {
+  if (!s) return '—';
+  const t = String(s).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(String(s)) ? '' : 'Z');
+  const d = new Date(t);
+  if (Number.isNaN(d.getTime())) return esc(s);
+  return new Date(d.getTime() + 8 * 3600e3).toISOString().slice(0, 16).replace('T', ' ') + ' 北京';
+}
+
+/** 语义徽章。kind 只有四档，正好对上 sv-pill 的三个变体 + 默认中性。 */
+export function pill(kind, text, title = '') {
+  const k = kind === 'ok' || kind === 'warn' || kind === 'bad' ? kind : 'muted';
+  const cls = k === 'muted' ? 'sv-pill' : `sv-pill ${k}`;
+  return `<span class="${cls}"${title ? ` title="${esc(title)}"` : ''}>${esc(text)}</span>`;
+}
+
+/** 新鲜度：定时任务的结果必须显「多久以前」。
+    只把绝对时刻换成相对时刻是不够的——巡检停跑时页面上那行字照样静态好看。
+    超过 staleMs 换成琥珀徽章并明说「已过期」，让「停跑」在界面上有颜色。
+    at 为空 = 这次任务从没跑过，也单独成一档，别和「刚刚」混在一起。 */
+export function fresh(at, { staleMs = 6 * 3600e3, noun = '' } = {}) {
+  const raw = String(at ?? '').trim();
+  if (!raw) return `<span class="sv-time">${esc(noun)}未运行</span>`;
+  const t = Date.parse(raw.replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(raw) ? '' : 'Z'));
+  if (!Number.isNaN(t) && Number.isFinite(t)) {
+    const age = Date.now() - t;
+    const full = toCN(raw);
+    /* 负 age = 库里记的时刻在未来。真实巡检不会超前，所以这必是口径错了
+       （写入端拿本地时间当 UTC 存、或时钟漂移）。此时不能说「刚刚」——
+       那会把一个错数据渲染成最健康的状态，比报错更难查。 */
+    if (age < -60e3) return pill('warn', '时间异常', `${noun}${full} 晚于当前时刻，检查写入端的时区口径`);
+    const mins = Math.round(age / 60e3);
+    const text = mins < 1 ? '刚刚' : mins < 60 ? `${mins} 分钟前` : `${Math.round(mins / 60)} 小时前`;
+    if (age > staleMs) return pill('warn', `${text} · 已过期`, `${noun}${full}`);
+    return `<span class="sv-time" title="${esc(noun + full)}">${esc(text)}</span>`;
+  }
+  return `<span class="sv-time">${esc(toCN(raw))}</span>`;
+}
+
+/** 空态：不把「没有数据」渲染成一片空白。 */
+export const emptyState = (text) => `<p class="sv-empty">${esc(text)}</p>`;
+
+/** 待办条：概览页最顶那一行，全是可判定数字，相加就是「今天要做的 N 件」。
+    数字全部来自已有查询，组件本身不取数、不写入——它只是把欠账摆到看得见的地方。
+    items: [{ label, v, href }]，v 为 0 的行照样显示（0 也是事实，藏起来就成了「没这项」）。 */
+export function todoBar(items = []) {
+  /* 负值钳到 0：查询出错时 COUNT 可能回 -1，不钳的话 5 条待办 + 一个 -99
+     会把总数拉成「今天没有待办」——待办被一个错误数字整体吞掉，
+     而界面上看起来比平时还干净。 */
+  const val = (v) => Math.max(0, Number(v) || 0);
+  const total = items.reduce((s, t) => s + val(t.v), 0);
+  return `<div class="sv-summary ${total > 0 ? 'warn' : 'ok'}">
+      <span class="sv-summary-dot"></span>
+      <div class="sv-summary-main">
+        <strong>${total > 0 ? `今天要做的 ${total} 件` : '今天没有待办'}</strong>
+        <span>${items
+          .map((t) => `${esc(t.label)} <a href="${esc(t.href)}">${val(t.v)}</a>`)
+          .join(' · ')}</span>
+      </div>
+    </div>`;
+}
+
 /* 主题防闪引导统一在 src/themeboot.js，这里只做转出。
    以前这段是本文件手抄的一份副本：不带 __ASSET_H__，于是后台切主题发出的
    主题 CSS 既没有 integrity 也没有 ?v=。副本现在只剩一处，改那儿全站生效。 */

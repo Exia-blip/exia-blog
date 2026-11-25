@@ -4,7 +4,7 @@
 import { html, localParts } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { getSite } from './settings.js';
-import { renderAdminShell, esc, ADMIN_NAV } from './admin-ui.js';
+import { renderAdminShell, esc, ADMIN_NAV, pill, emptyState, todoBar } from './admin-ui.js';
 import { dayCN } from './stats.js';
 
 // 快捷入口说明：从 ADMIN_NAV 派生链接，这里只补一句用途，避免两处各写一份 href。
@@ -36,7 +36,7 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
   const postFlag = (p) => {
     if (p.review_status === 'pending')
       return '<a class="sv-pill warn dash-flag-link" href="/admin/review" title="去审核">待审</a>';
-    if (p.review_status === 'rejected') return '<span class="sv-pill bad">驳回</span>';
+    if (p.review_status === 'rejected') return pill('bad', '驳回');
     return esc(p.is_private ? '私密' : p.hidden ? '不列出' : '公开');
   };
   const whenOf = (p) => {
@@ -64,16 +64,7 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
     { label: '友链异常', v: sys.friendDown, href: '/admin/friends' },
     { label: '通知失败', v: kpi.notifyFail, href: '/admin/comments?status=all' },
   ];
-  const todoTotal = todos.reduce((s, t) => s + (Number(t.v) || 0), 0);
-  const todoBar = `<div class="sv-summary ${todoTotal > 0 ? 'warn' : 'ok'}">
-      <span class="sv-summary-dot"></span>
-      <div class="sv-summary-main">
-        <strong>${todoTotal > 0 ? `今天要做的 ${todoTotal} 件` : '今天没有待办'}</strong>
-        <span>${todos
-          .map((t) => `${esc(t.label)} <a href="${esc(t.href)}">${n(t.v)}</a>`)
-          .join(' · ')}</span>
-      </div>
-    </div>`;
+  const todosHtml = todoBar(todos);
 
   const posts = recent.length
     ? `<div class="kv-list">${recent
@@ -87,7 +78,7 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
           </div>`
         )
         .join('')}</div>`
-    : '<p class="sv-empty">还没有文章。点上面的「写作」新建第一篇。</p>';
+    : emptyState('还没有文章。点上面的「写作」新建第一篇。');
 
   const issues = [];
   if (sys.d1 === 'bad') issues.push('D1 不可用');
@@ -103,7 +94,7 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
     <span class="view-tag">${esc(sys.today || dayCN())}</span>
   </div>
   <div class="admin-view-body">
-    ${todoBar}
+    ${todosHtml}
     <div class="dash-kpis">${cards
       .map(
         (c) => `${c.key === 'pending' && c.value > 0 ? '<a class="dash-kpi dash-kpi-link" href="/admin/review">' : '<div class="dash-kpi">'}
@@ -183,7 +174,18 @@ export async function dashboardPage(env, request) {
       {}
     ),
     safe(() => one('SELECT COUNT(*) c FROM comments WHERE status = ?', 'pending'), {}),
-    safe(() => one("SELECT COUNT(*) c FROM comments WHERE notify_status = 'fail'"), {}),
+    /* 通知失败只算近 7 天。评论通知没有重发机制——一周前的投递失败已经无法补救，
+       全表统计会让这个数字永久挂着，而界面上没有任何办法把它清掉：
+       「今天要做的 N 件」里塞一条永远做不完的事，待办条就废了。
+       要看全部历史，评论页 ?status=all 的「通知」列逐条都在。 */
+    safe(
+      () =>
+        one(
+          `SELECT COUNT(*) c FROM comments
+           WHERE notify_status = 'fail' AND notified_at >= datetime('now','-7 days')`
+        ),
+      {}
+    ),
     safe(() => one('SELECT COUNT(*) pv, COUNT(DISTINCT ip) uv FROM pv WHERE day = ?', today), {}),
     safe(
       () =>
