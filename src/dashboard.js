@@ -4,22 +4,8 @@
 import { html, localParts } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { getSite } from './settings.js';
-import { renderAdminShell, esc, ADMIN_NAV, pill, emptyState, todoBar } from './admin-ui.js';
+import { renderAdminShell, esc, pill, emptyState, todoBar } from './admin-ui.js';
 import { dayCN } from './stats.js';
-
-// 快捷入口说明：从 ADMIN_NAV 派生链接，这里只补一句用途，避免两处各写一份 href。
-const DESC = {
-  review: '放行普通用户的新投稿',
-  write: '新建一篇草稿',
-  posts: '编辑、整理已有文章',
-  checks: '扫描图片、链接与替代文本',
-  series: '管理文章系列',
-  site: '站名、头像与主题',
-  stats: '访问、来源与设备',
-  health: 'D1、密钥与友链状态',
-  queue: '等待发布时间到达的稿件',
-  home: '回到前台首页',
-};
 
 /** 纯渲染：只吃数据，不碰数据库。单测喂假数据即可验证转义与结构。 */
 export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], sys = {} }) {
@@ -44,25 +30,16 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
     return t.md && t.time ? `${t.md} ${t.time}` : t.md || '';
   };
 
-  const links = ADMIN_NAV.filter((it) => it.key !== 'dash')
-    .map(
-      (it) => `<a class="dash-tile" href="${esc(it.href)}" id="dash-${it.key}">
-        <span class="dash-tile-t">${esc(it.text)}</span>
-        <span class="dash-tile-d">${esc(DESC[it.key] || '')}</span>
-        <span class="dash-tile-arrow" aria-hidden="true">→</span>
-      </a>`
-    )
-    .join('');
-
   /* 待办条：四条都是可判定数字，打开三秒内知道今天要不要动手。
      友链在本仓库没有「申请 / 审核」流程（后台直接增删改），所以这一项是「探测失败」
      而不是「待审友链」—— 摆一个不存在的数字比不放更误导。
-     数字全来自真实查询，失败就显示「—」，不补 0。 */
+     数字全来自真实查询，失败就显示「—」，不补 0。
+     四格是上限：格子越多，越容易有一格永远不变，整条就没可信度了。 */
   const todos = [
     { label: '待审评论', v: kpi.cmtPending, href: '/admin/comments' },
     { label: '预排未发', v: kpi.queue, href: '/admin/queue' },
     { label: '友链异常', v: sys.friendDown, href: '/admin/friends' },
-    { label: '通知失败', v: kpi.notifyFail, href: '/admin/comments?status=all' },
+    { label: '通知失败', v: kpi.notifyFail, href: '/admin/notify' },
   ];
   const todosHtml = todoBar(todos);
 
@@ -108,12 +85,7 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
 </div>
 
 <div class="admin-view-card">
-  <div class="admin-view-head"><span>快捷入口</span><span class="view-tag">管理员 ${esc(user.login || '')}</span></div>
-  <div class="admin-view-body"><div class="dash-links">${links}</div></div>
-</div>
-
-<div class="admin-view-card">
-  <div class="admin-view-head"><span>最近编辑</span><a class="dash-more" href="/editor?panel=posts">全部文章 →</a></div>
+  <div class="admin-view-head"><span>最近编辑</span><span class="view-tag">管理员 ${esc(user.login || '')}</span><a class="dash-more" href="/editor?panel=posts">全部文章 →</a></div>
   <div class="admin-view-body">${posts}</div>
 </div>
 
@@ -133,7 +105,7 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
     site,
     active: 'dash',
     title: '工作台',
-    desc: '站点近况与常用入口，一眼看完',
+    desc: '今天要做什么，一眼看完',
     body,
   });
 }

@@ -2,8 +2,8 @@
 // 不一致时表现为「写作页能看到新入口，统计页看不到」，人工很难发现。
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
-import { ADMIN_NAV, renderAdminNav, renderAdminShell, THEME_BOOT_JS } from '../src/admin-ui.js';
-import { renderHealth, renderQueue, webhookCheck } from '../src/admin-pages.js';
+import { ADMIN_NAV, ADMIN_GROUPS, renderAdminNav, renderAdminShell, THEME_BOOT_JS } from '../src/admin-ui.js';
+import { renderHealth, renderQueue, webhookCheck, renderNotify, renderTools } from '../src/admin-pages.js';
 import { renderDashboard } from '../src/dashboard.js';
 import { renderReview } from '../src/review.js';
 import { liveSql, timeGateSql } from '../src/api.js';
@@ -28,11 +28,38 @@ for (const it of ADMIN_NAV) assert.ok(nav.includes(`href="${it.href}"`), `服务
 assert.match(nav, /href="\/admin\/health"[^>]*aria-current|class="on" aria-current="page" href="\/admin\/health"/);
 ok('服务端菜单渲染同一批入口，当前项正确高亮');
 
-// 2b. 单一分组平铺：只允许一个 admin-nav-label，不再切成多段
-assert.equal((editor.match(/class="admin-nav-label"/g) || []).length, 1, 'editor.html 应只有一个分组标签');
-assert.equal((nav.match(/class="admin-nav-label"/g) || []).length, 1, '服务端菜单应只有一个分组标签');
-assert.equal((editor.match(/class="admin-nav"/g) || []).length, 1, 'editor.html 应只有一个 nav 容器');
-ok('侧栏单一分组平铺，无多段切分');
+// 2b. 四栏：分组标题、顺序、归属都要对得上；栏数是硬上限，不许开第五栏
+assert.deepEqual(
+  ADMIN_GROUPS.map((g) => g.text),
+  ['概览', '内容', '系统', '工具'],
+  '四栏文案与顺序：概览 / 内容 / 系统 / 工具'
+);
+assert.equal((editor.match(/class="admin-nav-label"/g) || []).length, 4, 'editor.html 应有四个分组标签');
+assert.equal((nav.match(/class="admin-nav-label"/g) || []).length, 4, '服务端菜单应有四个分组标签');
+assert.equal((editor.match(/class="admin-nav"/g) || []).length, 1, 'editor.html 应只有一个 nav 容器（四段 label 不拆成四个 nav）');
+assert.equal((nav.match(/class="admin-nav"/g) || []).length, 1, '服务端菜单应只有一个 nav 容器');
+for (const it of ADMIN_NAV) {
+  assert.ok(ADMIN_GROUPS.some((g) => g.key === it.group), `${it.key} 的 group「${it.group}」不在四栏里`);
+}
+/* 归属用「切段」验证，而不是只看 group 字段：渲染时若把某一项放错段，
+   字段仍然是旧的，只有切出来的 href 顺序会不对。 */
+const segments = (html) => {
+  const at = (t) => html.indexOf(`<div class="admin-nav-label">${t}</div>`);
+  return ADMIN_GROUPS.map((g, i) => {
+    const s = at(g.text);
+    assert.ok(s >= 0, `${g.text} 分组标签缺失`);
+    const next = ADMIN_GROUPS.slice(i + 1).map((x) => at(x.text)).filter((x) => x > s);
+    return { key: g.key, html: html.slice(s, next.length ? next[0] : html.length) };
+  });
+};
+for (const html of [nav, editor]) {
+  for (const seg of segments(html)) {
+    const want = ADMIN_NAV.filter((it) => it.group === seg.key).map((it) => `id="${it.id}"`);
+    const got = [...seg.html.matchAll(/id="nav-[^"]+"/g)].map((m) => m[0]);
+    assert.deepEqual(got, want, `「${seg.key}」段里的入口与该组的 group 不符`);
+  }
+}
+ok('四栏：顺序固定、每项归属正确、栏数锁在 4');
 
 // 3. stats.js 不再内联自己的菜单，避免两边漂移
 assert.ok(stats.includes('renderAdminNav(\'stats\')'), 'stats.js 应复用共享菜单');
@@ -220,7 +247,11 @@ assert.ok(dash.includes('&lt;script&gt;') && !dash.includes('管理员 <script>'
 assert.ok(!dash.includes('<b>标题</b>'), '文章标题必须转义');
 assert.ok(dash.includes('sv-summary bad') && dash.includes('有故障需要处理'), 'D1 故障必须按 bad 呈现');
 assert.ok(!dash.includes('<style'), '工作台不应内联样式');
-assert.ok(dash.includes('dash-home') && dash.includes('回到前台首页'), '工作台应有返回站点入口');
+/* 快捷键墙已经拆了：概览只回答「今天做什么」，入口交给四栏侧栏。
+   返回站点仍在 rail 顶部的品牌块上，不占一栏、也不占一格待办。 */
+assert.ok(dash.includes('admin-brand') && dash.includes('返回站点'), '工作台应有返回站点入口（品牌块）');
+assert.ok(!dash.includes('dash-tile'), '概览不该再摆入口墙，入口只在侧栏');
+assert.ok(dash.includes('id="nav-notify"') && dash.includes('id="nav-tools"'), '侧栏缺通知投递 / 工具入口');
 assert.ok((dash.match(/href="\/admin\/health"/g) || []).length >= 2, '运行状态卡要给健康页明细链接');
 assert.ok(dash.includes('dash-flag-link') && dash.includes('待审'), '待审稿要能直达审核页');
 assert.ok(dash.includes('sv-pill bad') && dash.includes('驳回'), '驳回稿要有独立徽标，不能显示成公开');
@@ -259,5 +290,39 @@ assert.ok(rv.includes('&amp;raw'), '摘要必须转义');
 assert.ok(rv.includes('id="nav-review"'), '审核页侧栏应高亮');
 assert.ok(renderReview({}).includes('没有待审文章'), '空队列应有引导');
 ok('审核页渲染：转义/按钮/空态/高亮正确');
+
+/* 10. 通知投递页：明细 + 只读。这一页的价值是「哪一条、发给谁、平台回了什么」，
+      所以判据落在行级信息上，不落在「有没有这张卡片」上。 */
+const nt = renderNotify({
+  site: { name: 'X' },
+  hook: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=SECRET',
+  stats: { ok: 3, fail: 1, skip: 2, none: 4 },
+  rows: [
+    { id: 1, name: '<b>路人</b>', notify_status: 'ok', notify_note: '', notified_at: '2026-11-26 01:00:00', post_title: '<script>x</script>' },
+    { id: 2, name: 'CI', notify_status: 'fail', notify_note: '平台码 93000', notified_at: '2026-11-26 00:30:00', post_title: '普通标题' },
+  ],
+});
+assert.ok(nt.includes('已送达 3 · 失败 1 · 跳过 2 · 未尝试 4'), '通知页四个计数必须与评论页同口径');
+assert.ok(nt.includes('sv-pill ok') && nt.includes('sv-pill bad'), '每条投递都要有状态徽章');
+assert.ok(nt.includes('平台码 93000'), '失败原因要显示出来（这条是排障的全部意义）');
+assert.ok(!nt.includes('SECRET'), '绝不回显 webhook 地址里的 key');
+assert.ok(!nt.includes('qyapi.weixin.qq.com'), '只显示平台名，不显示地址');
+assert.ok(!nt.includes('<b>路人</b>') && nt.includes('&lt;b&gt;路人'), '评论人必须转义');
+assert.ok(!nt.includes('<script>x</script>'), '文章标题必须转义');
+/* 只读页的硬边界：不新增可写入口。标签页一旦长出 form/button，就成了没被断言守的写路径。 */
+assert.ok(!/<form|<button|type="submit"/.test(nt), '通知页只读：不许出现表单或按钮');
+assert.ok(renderNotify({ stats: {}, hook: 'https://hooks.slack.com/x' }).includes('还没有投递记录'), '配了地址但没记录时要明说，不摆空壳');
+assert.ok(renderNotify({ stats: {} }).includes('一律记为「跳过」'), '没配地址时要说「跳过是可选」，不能说成欠账');
+ok('通知投递页：行级状态、转义、不回显地址、只读');
+
+/* 11. 工具页：只做索引，不提供按钮；命令名必须是真的（改脚本名会在这里红）。 */
+const tl = renderTools({ site: { name: 'X' } });
+for (const cmd of ['scripts/backup-upload.mjs', 'scripts/backup-drill.mjs', 'scripts/migrate.mjs', 'npm run deploy']) {
+  assert.ok(tl.includes(cmd), `工具页缺命令 ${cmd}`);
+}
+assert.ok(tl.includes('为什么这里没有按钮'), '工具页要解释「为什么不给按钮」，不是空目录');
+assert.ok(!/<form|<button|type="submit"/.test(tl), '工具页只读：不许出现表单或按钮');
+assert.ok(tl.includes('id="nav-tools"'), '工具页侧栏应高亮');
+ok('工具页：命令索引、只读、无按钮');
 
 console.log(`\nadmin nav: ${pass} passed`);

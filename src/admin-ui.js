@@ -97,39 +97,59 @@ const ICON = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   home: '<path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  bell: '<path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
 };
 
 const svg = (name) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[name]}</svg>`;
 
-/* 菜单唯一事实来源。单一分组平铺——和参考站一样，一组标签 + 一列入口，
-   不再按「内容管理/站点运维/其它」切成三段，避免侧栏被标签切碎。
-   key 用于测试比对，href 是真实落点。 */
-export const ADMIN_NAV = [
-  { key: 'dash', text: '工作台', href: '/admin', icon: 'grid', id: 'nav-dash' },
-  { key: 'review', text: '投稿审核', href: '/admin/review', icon: 'check', id: 'nav-review' },
-  { key: 'cmts', text: '评论审核', href: '/admin/comments', icon: 'check', id: 'nav-cmts' },
-  { key: 'write', text: '写作', href: '/editor', icon: 'write', id: 'nav-write' },
-  { key: 'posts', text: '文章列表', href: '/editor?panel=posts', icon: 'list', id: 'nav-posts' },
-  { key: 'checks', text: '发布自检', href: '/editor?panel=checks', icon: 'check', id: 'nav-checks' },
-  { key: 'series', text: '系列', href: '/editor?panel=series', icon: 'layers', id: 'nav-series' },
-  { key: 'site', text: '站点设置', href: '/editor?panel=site', icon: 'gear', id: 'nav-site' },
-  { key: 'stats', text: '访问统计', href: '/admin/stats', icon: 'chart', id: 'nav-stats' },
-  { key: 'health', text: '健康检查', href: '/admin/health', icon: 'shield', id: 'nav-health' },
-  { key: 'audit', text: '操作日志', href: '/admin/audit', icon: 'list', id: 'nav-audit' },
-  { key: 'friends', text: '友链管理', href: '/admin/friends', icon: 'grid', id: 'nav-friends' },
-  { key: 'queue', text: '定时队列', href: '/admin/queue', icon: 'clock', id: 'nav-queue' },
-  { key: 'home', text: '返回站点', href: '/', icon: 'home', id: 'nav-home' },
+/* 四栏：按「打开后台时要做什么」分，不按「系统有哪些功能」分。
+   概览=3 秒判断今天动不动手；内容=日常 90% 的操作；系统=配好就不常动；
+   工具=低频且误触代价高。以前一列平铺 13 项，找「评论审核」要和「操作日志」
+   一起扫一遍——分组不是装饰，是把判断前置。
+   「返回站点」不占一栏：rail 顶部的品牌块本来就指向首页。 */
+export const ADMIN_GROUPS = [
+  { key: 'dash', text: '概览' },
+  { key: 'content', text: '内容' },
+  { key: 'system', text: '系统' },
+  { key: 'tools', text: '工具' },
 ];
 
+/* 菜单唯一事实来源。group 必须是 ADMIN_GROUPS 里的 key，
+   key 用于测试比对，href 是真实落点。加一栏要同时过四组上限的断言。 */
+export const ADMIN_NAV = [
+  { key: 'dash', group: 'dash', text: '工作台', href: '/admin', icon: 'grid', id: 'nav-dash' },
+  { key: 'write', group: 'content', text: '写作', href: '/editor', icon: 'write', id: 'nav-write' },
+  { key: 'posts', group: 'content', text: '文章列表', href: '/editor?panel=posts', icon: 'list', id: 'nav-posts' },
+  { key: 'checks', group: 'content', text: '发布自检', href: '/editor?panel=checks', icon: 'check', id: 'nav-checks' },
+  { key: 'review', group: 'content', text: '投稿审核', href: '/admin/review', icon: 'check', id: 'nav-review' },
+  { key: 'cmts', group: 'content', text: '评论审核', href: '/admin/comments', icon: 'check', id: 'nav-cmts' },
+  { key: 'series', group: 'content', text: '系列', href: '/editor?panel=series', icon: 'layers', id: 'nav-series' },
+  { key: 'friends', group: 'content', text: '友链管理', href: '/admin/friends', icon: 'grid', id: 'nav-friends' },
+  { key: 'notify', group: 'system', text: '通知投递', href: '/admin/notify', icon: 'bell', id: 'nav-notify' },
+  { key: 'stats', group: 'system', text: '访问统计', href: '/admin/stats', icon: 'chart', id: 'nav-stats' },
+  { key: 'health', group: 'system', text: '健康检查', href: '/admin/health', icon: 'shield', id: 'nav-health' },
+  { key: 'queue', group: 'system', text: '定时队列', href: '/admin/queue', icon: 'clock', id: 'nav-queue' },
+  { key: 'audit', group: 'system', text: '操作日志', href: '/admin/audit', icon: 'list', id: 'nav-audit' },
+  { key: 'site', group: 'system', text: '站点设置', href: '/editor?panel=site', icon: 'gear', id: 'nav-site' },
+  { key: 'tools', group: 'tools', text: '工具与备份', href: '/admin/tools', icon: 'shield', id: 'nav-tools' },
+];
+
+/* 分组标题复用 .admin-nav-label：CSS 预算只剩 27B，不为分组新增规则。
+   一个 <nav> 里放四段 label + 链接，语义上仍是一张菜单（一组 aria-label），
+   不拆成四个 nav —— 屏幕阅读器会把四个 nav 念成四块导航区。 */
 export function renderAdminNav(active = '') {
-  return `<div class="admin-nav-label">后台管理</div>
-    <nav class="admin-nav" aria-label="后台管理">${ADMIN_NAV.map((it) => {
-      const on = it.key === active;
-      return `<a${on ? ' class="on" aria-current="page"' : ''} href="${esc(it.href)}" id="${it.id}">${svg(
-        it.icon
-      )}<span>${esc(it.text)}</span></a>`;
-    }).join('')}</nav>`;
+  const one = (it) => {
+    const on = it.key === active;
+    return `<a${on ? ' class="on" aria-current="page"' : ''} href="${esc(it.href)}" id="${it.id}">${svg(
+      it.icon
+    )}<span>${esc(it.text)}</span></a>`;
+  };
+  return `<nav class="admin-nav" aria-label="后台管理">${ADMIN_GROUPS.map(
+    (g) =>
+      `<div class="admin-nav-label">${esc(g.text)}</div>` +
+      ADMIN_NAV.filter((it) => it.group === g.key).map(one).join('')
+  ).join('')}</nav>`;
 }
 
 /** 服务端页面统一外壳。body 是 <main> 里的内容，不在这里转义。

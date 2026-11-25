@@ -81,6 +81,8 @@ const OWNERS = {
   '/admin/history': { file: 'admin-pages.js' },
   '/admin/friends': { file: 'admin-pages.js' },
   '/admin/comments': { file: 'admin-pages.js' },
+  '/admin/notify': { file: 'admin-pages.js' },
+  '/admin/tools': { file: 'admin-pages.js' },
 
   // 页面
   '/archive': { file: 'index.js' },

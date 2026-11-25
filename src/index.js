@@ -29,6 +29,8 @@ import {
   historyPage,
   friendsAdminPage,
   commentsAdminPage,
+  notifyPage,
+  toolsPage,
 } from './admin-pages.js';
 import { dashboardPage } from './dashboard.js';
 import { requestLog, emit } from './observe.js';
@@ -2661,6 +2663,8 @@ async function route(request, env, ctx) {
   if (path === '/admin/history') return await historyPage(env, request);
   if (path === '/admin/friends') return await friendsAdminPage(env, request);
   if (path === '/admin/comments') return await commentsAdminPage(env, request);
+  if (path === '/admin/notify') return await notifyPage(env, request);
+  if (path === '/admin/tools') return await toolsPage(env, request);
 
   // 标签页 / 栏目页复用首页骨架，前端读路径
   if (path.startsWith('/tag/')) {

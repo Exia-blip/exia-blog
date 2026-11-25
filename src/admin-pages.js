@@ -863,3 +863,165 @@ export async function commentsAdminPage(env, request) {
     { 'cache-control': 'no-store' }
   );
 }
+
+/* ---------- 通知投递（独立页） ----------
+   以前「通知到底发出去没有」只存在于评论页顶部一行汇总和 wrangler tail 里。
+   汇总回答「一共几条」，回答不了「哪一条、发给谁、平台回了什么」——
+   而排障要的正是后者。这一页只做只读明细，不提供任何重发按钮：
+   通知没有重放语义，加一个「重发」就是新增一条没有断言守的写路径（P-075）。 */
+
+/** 纯渲染：rows 是 comments 里带投递记录的行。 */
+export function renderNotify({ site = {}, rows = [], stats = {}, hook = '' }) {
+  const n = (v) => (v === undefined || v === null ? '—' : String(v));
+  const hookOn = !!String(hook || '').trim();
+  const platform = HOOK_CN[webhookPlatform(String(hook))] || '通用';
+
+  /* 汇总与评论页同一口径（同一张表、同一组 CASE），两处数字必须能对上。
+     对不上就是有一处口径漂了——比单个数字错更难查，所以这里把 SQL 也写在一起。 */
+  const summary = `<div class="sv-summary ${Number(stats.fail || 0) > 0 ? 'bad' : hookOn ? 'ok' : 'warn'}">
+  <span class="sv-summary-dot"></span>
+  <div class="sv-summary-main">
+    <strong>已送达 ${n(stats.ok)} · 失败 ${n(stats.fail)} · 跳过 ${n(stats.skip)} · 未尝试 ${n(stats.none)}</strong>
+    <span>${hookOn ? `当前地址：已配置 · ${platform}（不回显具体地址）` : '当前没有通知地址，新评论一律记为「跳过」——这是可选项，不是欠账'}</span>
+  </div>
+</div>`;
+
+  const list = rows.length
+    ? rows
+        .map((c) => {
+          const st = String(c.notify_status || '');
+          const [kind, label] =
+            st === 'ok' ? ['ok', '已送达'] : st === 'fail' ? ['bad', '失败'] : st === 'skip' ? ['muted', '跳过'] : ['muted', '未尝试'];
+          const note = String(c.notify_note || '');
+          /* 目标是文章标题 + 评论人；note 里是平台回执或失败原因。
+             时刻用相对时间、staleMs 给 Infinity：投递是一次性历史事件，不会重跑。 */
+          const when = c.notified_at ? fresh(c.notified_at, { staleMs: Infinity }) : '<span class="sv-time">没有投递记录</span>';
+          return `<div class="kv-row">
+      <span class="kv-k">${esc(c.post_title || '（文章已删除）')}<span class="kv-note">${esc(c.name || '匿名')}${note ? ` · ${esc(note)}` : ''}</span></span>
+      <span class="kv-v">${pill(kind, label)} ${when}</span>
+    </div>`;
+        })
+        .join('')
+    : emptyState(hookOn ? '还没有投递记录。发一条评论后这里会出现它的结果。' : '没有通知地址，投递全部记为跳过；配好 WEBHOOK_URL 后新评论才会真发。');
+
+  const body = `<div class="wrap-s">
+<div class="admin-view-card">
+  <div class="admin-view-head">
+    <span>投递明细 · 最近 50 条</span>
+    <span class="view-tag">只读</span>
+  </div>
+  <div class="admin-view-body">
+    ${summary}
+    <div class="kv-list">${list}</div>
+    <p class="sv-note">这些是「本机观测到的平台回执」：HTTP 200 里塞 errcode 也算失败。评论落库 → 触发通知这段已在本地 dev 真发验证，线上仍待人工点一次验证码（<code>npm run verify:comment-e2e</code>）。</p>
+  </div>
+</div>
+</div>`;
+  return renderAdminShell({
+    site,
+    active: 'notify',
+    title: '通知投递',
+    desc: '每条通知发给谁、平台回了什么',
+    body,
+  });
+}
+
+export async function notifyPage(env, request) {
+  const { res } = await requireAdmin(env, request);
+  if (res) return res;
+  const safe = async (fn, fallback) => {
+    try {
+      return await fn();
+    } catch (e) {
+      console.error('notify admin', e?.message || e);
+      return fallback;
+    }
+  };
+  const [stats, rows] = await Promise.all([
+    safe(
+      () =>
+        env.DB.prepare(
+          `SELECT SUM(CASE WHEN notify_status='ok' THEN 1 ELSE 0 END) ok,
+                  SUM(CASE WHEN notify_status='fail' THEN 1 ELSE 0 END) fail,
+                  SUM(CASE WHEN notify_status='skip' THEN 1 ELSE 0 END) skip,
+                  SUM(CASE WHEN notify_status='' THEN 1 ELSE 0 END) none
+           FROM comments`
+        ).first(),
+      null
+    ),
+    safe(
+      () =>
+        env.DB.prepare(
+          `SELECT c.id, c.name, c.notify_status, c.notify_note, c.notified_at, p.title AS post_title
+           FROM comments c LEFT JOIN posts p ON p.id = c.post_id
+           WHERE c.notified_at IS NOT NULL AND c.notified_at != ''
+           ORDER BY c.notified_at DESC, c.id DESC LIMIT 50`
+        )
+          .all()
+          .then((r) => r.results || []),
+      []
+    ),
+  ]);
+  const site = await getSite(env);
+  return html(
+    renderNotify({
+      site,
+      rows,
+      stats: { ok: stats?.ok || 0, fail: stats?.fail || 0, skip: stats?.skip || 0, none: stats?.none || 0 },
+      hook: env.WEBHOOK_URL || '',
+    }),
+    200,
+    { 'cache-control': 'no-store' }
+  );
+}
+
+/* ---------- 工具与备份（只读索引） ----------
+   这一栏存在的意义不是「把功能搬到网页」，正好相反：这些动作低频、误触代价高，
+   后台一个按钮都不给。页面只负责回答「有这些能力、在哪跑、跑之前看哪里」——
+   省掉「后台能不能点」这种翻代码确认。 */
+
+export function renderTools({ site = {} }) {
+  const item = (name, cmd, why) => `<div class="kv-row">
+      <span class="kv-k">${esc(name)}<span class="kv-note">${esc(why)}</span></span>
+      <span class="kv-v"><code>${esc(cmd)}</code></span>
+    </div>`;
+  const body = `<div class="wrap-s">
+<div class="admin-view-card">
+  <div class="admin-view-head"><span>为什么这里没有按钮</span><span class="view-tag">只读</span></div>
+  <div class="admin-view-body">
+    <p class="sv-note">备份、恢复、导入导出这几件事都是「一按就改全库」的量级，且需要先看清目标环境（本地 / 线上）。放在网页上，误触的代价远大于省下的几步；所以只在这里列命令与前置条件，动作仍在命令行执行。所有命令都要求先跑 <code>npm test</code>。</p>
+  </div>
+</div>
+<div class="admin-view-card">
+  <div class="admin-view-head"><span>备份与恢复</span><span class="view-tag">D1</span></div>
+  <div class="admin-view-body"><div class="kv-list">
+${item('滚动备份到 R2', 'node scripts/backup-upload.mjs', '导出 → 上传 → 保留 7 份；先看 --dry-run 的计划')}
+${item('备份可恢复演练', 'node scripts/backup-drill.mjs', '把导出灌进内存库重建；没演练过的备份等于没有')}
+${item('整站搬迁', 'node scripts/migrate.mjs export|import', '换账号/灾备用；换域名不需要搬数据')}
+  </div></div>
+</div>
+<div class="admin-view-card">
+  <div class="admin-view-head"><span>内容与结构</span><span class="view-tag">可回滚</span></div>
+  <div class="admin-view-body"><div class="kv-list">
+${item('回填正文 HTML', 'npm run backfill:html -- --all', '改了渲染函数才需要；只补空行，不覆盖已有')}
+${item('结构迁移', 'npm run schema:apply', '只走 migrations/；先跑 schema:apply:local 验幂等')}
+${item('发布前闸门', 'npm run deploy', '内置 npm test + 结构校验，失败即停')}
+  </div></div>
+</div>
+<div class="admin-view-card">
+  <div class="admin-view-head"><span>MCP 接入</span><span class="view-tag">本机</span></div>
+  <div class="admin-view-body"><div class="kv-list">
+${item('配置文件', '~/.workbuddy/mcp.json', '不进仓库：里面是该机器的凭据')}
+${item('生效方式', '连接器管理 → 信任', '写入后不会自动加载，需要在客户端确认一次')}
+  </div></div>
+</div>
+</div>`;
+  return renderAdminShell({ site, active: 'tools', title: '工具与备份', desc: '低频动作的入口索引，后台不提供按钮', body });
+}
+
+export async function toolsPage(env, request) {
+  const { res } = await requireAdmin(env, request);
+  if (res) return res;
+  const site = await getSite(env);
+  return html(renderTools({ site }), 200, { 'cache-control': 'no-store' });
+}
