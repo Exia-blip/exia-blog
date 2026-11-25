@@ -8,21 +8,27 @@
  *   零鉴权降级，也不需要为此部署一次。
  *   反过来「给登录层加个自动放行分支」才是真降档：那就是一把新的万能钥匙。
  *
- * 密钥只从本机读，绝不打印、绝不写进仓库、绝不进对话：
- *   1) 环境变量 LIVE_SESSION_SECRET      （推荐：线上现役 SESSION_SECRET）
- *   2) .dev.vars 的 LIVE_SESSION_SECRET  （推荐，文件已 gitignore）
- *   3) .dev.vars 的 SESSION_SECRET      （仅本地 wrangler dev 同源时适用）
+ * 两套密钥，按目标环境分流，互不回退（dev 的票打线上、线上的票打本地，
+ * 都只会得到 302 —— 回退只会把「配错了」伪装成「登录失败」，白白多查一轮）：
+ *   本地（localhost / 127.0.0.1 / ::1）→ SESSION_SECRET
+ *       env SESSION_SECRET → .dev.vars 的 SESSION_SECRET（wrangler dev 用的就是它）
+ *   线上（其余 host）              → LIVE_SESSION_SECRET
+ *       env LIVE_SESSION_SECRET → .dev.vars 的 LIVE_SESSION_SECRET
+ *   两串都只从本机读，绝不打印、绝不写进仓库、绝不进对话。文件已 gitignore。
+ *   需要强制换一版用 --key=dev|live（调试用，默认按 host 自动选）。
  *   也可以直接给现成的管理员会话：环境变量 ADMIN_SID（不推荐，泄露窗口 30 天，
  *   且本仓库退出登录没有服务端吊销；自签短效票才是这个仓库该用的形状）。
  *
- * 实测前提（2026-11-26）：本机 .dev.vars 的三个值与线上 SESSION_SECRET 都不同源，
- *   自签票打线上会 302。脚本会明确报「密钥不同源」，不把「签出来了」当「登录成功」。
- *   线上要自动登录，只需老板在本机 .dev.vars 补一行 LIVE_SESSION_SECRET=<线上值>。
+ * 实测前提（2026-11-26）：本机 .dev.vars 的 SESSION_SECRET 与线上现役
+ *   SESSION_SECRET 不同源，拿它打线上会 302。线上那版要能跑，只差
+ *   .dev.vars 里一行 LIVE_SESSION_SECRET；没填时脚本明确报「缺哪一版」，
+ *   不拿 dev 密钥去冒充线上，也不把「签出来了」当「登录成功」。
  *
  * 用法：
  *   node scripts/admin-autologin.mjs --check                     # 判据自检（离线，已挂进 npm test）
+ *   npm run check:admin:dev                                      # dev 版：本地 wrangler dev + SESSION_SECRET
+ *   npm run check:admin:live                                     # 线上版：miu.sryze.cc + LIVE_SESSION_SECRET
  *   node scripts/admin-autologin.mjs --origin=https://miu.sryze.cc [--uid=1] [--ttl=300]
- *   node scripts/admin-autologin.mjs --origin=http://127.0.0.1:8788   # 本地 dev，.dev.vars 同源即可
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -130,37 +136,68 @@ async function selfCheck() {
   t('AL-17 已配置态不回显 webhook 地址', on.includes('已配置') && !on.includes('SECRET_XYZ'));
   t('AL-18 已配置态不把边界写成已验', !on.includes('已验') && on.includes('未验（读码结论）'));
 
+  /* 两版密钥分流：本地只认 SESSION_SECRET，线上只认 LIVE_SESSION_SECRET，互不回退。
+     输入是一份同时放了两版的 kv（与实现独立），所以「选错版本」不会被同一份输入掩盖。 */
+  const both = { SESSION_SECRET: 'dev-key', LIVE_SESSION_SECRET: 'live-key' };
+  const pDev = pickSecret(true, {}, both);
+  const pLive = pickSecret(false, {}, both);
+  const pLiveMissing = pickSecret(false, {}, { SESSION_SECRET: 'dev-key' });
+  t('AL-19 dev 版取 SESSION_SECRET', pDev.secret === 'dev-key' && pDev.want === 'SESSION_SECRET');
+  t('AL-20 线上版取 LIVE_SESSION_SECRET', pLive.secret === 'live-key' && pLive.want === 'LIVE_SESSION_SECRET');
+  t('AL-21 线上缺 LIVE 时不回退 dev 密钥', pLiveMissing.secret === '' && pLiveMissing.want === 'LIVE_SESSION_SECRET');
+  t('AL-22 env 优先于文件', pickSecret(true, { SESSION_SECRET: 'env-key' }, both).secret === 'env-key');
+
   console.log(`\n判据自检 ${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);
 }
 
 /* ---------------- 线上/本地自动登录 + 验收 ---------------- */
 
-function readSecret() {
-  const fromEnv = String(process.env.LIVE_SESSION_SECRET || '').trim();
-  if (fromEnv) return { secret: fromEnv, from: 'env LIVE_SESSION_SECRET' };
-  const p = join(ROOT, '.dev.vars');
-  if (existsSync(p)) {
-    const kv = Object.fromEntries(
-      readFileSync(p, 'utf8')
-        .split(/\r?\n/)
-        .filter((l) => l && !l.startsWith('#') && l.includes('='))
-        .map((l) => {
-          const i = l.indexOf('=');
-          return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
-        })
-    );
-    if (kv.LIVE_SESSION_SECRET) return { secret: kv.LIVE_SESSION_SECRET, from: '.dev.vars LIVE_SESSION_SECRET' };
-    if (kv.SESSION_SECRET) return { secret: kv.SESSION_SECRET, from: '.dev.vars SESSION_SECRET' };
+/* 目标环境决定用哪一版密钥：本地只认 SESSION_SECRET，线上只认 LIVE_SESSION_SECRET。
+   不做「缺一版就回退另一版」—— 那会让「配错环境」与「登录失败」长成同一个症状，
+   而这两件事的修法完全相反。 */
+const isLocalHost = (origin) => {
+  try {
+    const h = new URL(origin).hostname;
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
+  } catch {
+    return false;
   }
-  return null;
-}
+};
+
+const loadKv = () => {
+  const p = join(ROOT, '.dev.vars');
+  if (!existsSync(p)) return {};
+  return Object.fromEntries(
+    readFileSync(p, 'utf8')
+      .split(/\r?\n/)
+      .filter((l) => l && !l.startsWith('#') && l.includes('='))
+      .map((l) => {
+        const i = l.indexOf('=');
+        return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
+      })
+  );
+};
+
+/* env 优先于文件：临时换一版不用改文件。want 一并返回，报错时能说清缺的是哪一版。 */
+const pickSecret = (local, env, kv) => {
+  const want = local ? 'SESSION_SECRET' : 'LIVE_SESSION_SECRET';
+  const fromEnv = String((env && env[want]) || '').trim();
+  if (fromEnv) return { secret: fromEnv, from: `env ${want}`, want };
+  const fromFile = String((kv && kv[want]) || '').trim();
+  if (fromFile) return { secret: fromFile, from: `.dev.vars ${want}`, want };
+  return { secret: '', from: '', want };
+};
 
 async function run() {
   const ORIGIN = (arg('origin', 'https://miu.sryze.cc')).replace(/\/$/, '');
   const uid = Number(arg('uid', '1')) || 1;
   const ttl = Math.max(30, Math.min(Number(arg('ttl', '300')) || 300, 3600));
   const { signToken } = await import('../src/utils.js');
+
+  const forceKey = arg('key'); // dev | live | ''（默认按 host 自动选）
+  const local = forceKey ? forceKey === 'dev' : isLocalHost(ORIGIN);
+  const picked = pickSecret(local, process.env, loadKv());
 
   let token;
   let credential;
@@ -169,19 +206,24 @@ async function run() {
     token = sid;
     credential = 'env ADMIN_SID（现成会话）';
   } else {
-    const found = readSecret();
-    if (!found) {
+    if (!picked.secret) {
       die(
-        '本机没有可签会话的密钥。在本机 .dev.vars 补一行 LIVE_SESSION_SECRET=<线上 SESSION_SECRET>（文件已 gitignore，值不要贴进对话），\n' +
-          '   或 export LIVE_SESSION_SECRET=... 后重跑。本地 wrangler dev 可直接用 .dev.vars 的 SESSION_SECRET。'
+        local
+          ? 'dev 版缺 SESSION_SECRET：在 .dev.vars 配好（wrangler dev 用的就是它），或 export SESSION_SECRET=... 后重跑。'
+          : '线上版缺 LIVE_SESSION_SECRET：在本机 .dev.vars 补一行 LIVE_SESSION_SECRET=<线上现役 SESSION_SECRET>（文件已 gitignore，值不要进对话/仓库）。\n' +
+              '   不要拿 dev 的 SESSION_SECRET 去试线上 —— 两者不同源，签出来必然 302。'
       );
     }
-    token = await signToken(found.secret, { uid, admin: 1 }, ttl);
-    credential = found.from;
+    token = await signToken(picked.secret, { uid, admin: 1 }, ttl);
+    credential = picked.from;
   }
   /* token / secret 一律不打印；cookie 只存在于本次进程内存。 */
   const cookie = `sid=${encodeURIComponent(token)}`;
-  console.log(`自动登录：${ORIGIN} · 凭据 ${credential} · uid ${uid} · ${sid ? '现成会话' : `自签 ${ttl}s 短效票`}`);
+  console.log(
+    `自动登录：${ORIGIN} · ${local ? 'dev 版' : '线上版'} · 凭据 ${credential} · uid ${uid} · ${
+      sid ? '现成会话' : `自签 ${ttl}s 短效票`
+    }`
+  );
 
   let pass = 0;
   let fail = 0;
@@ -210,9 +252,15 @@ async function run() {
   }
 
   if (saw302) {
-    console.log('\n✗ 会话没被接受（302/401）：本机密钥与 ' + ORIGIN + ' 的 SESSION_SECRET 不同源。');
-    console.log('  这不是脚本坏了，是「签出来了 ≠ 登录成功」。要线上自动登录，把线上现役 SESSION_SECRET');
-    console.log('  放进本机 .dev.vars 的 LIVE_SESSION_SECRET（一行，值不要进对话/仓库），或改用 --origin 指向本地 wrangler dev。');
+    console.log(
+      `\n✗ 会话没被接受（302/401）：${local ? 'dev 版' : '线上版'}用的 ${picked.want} 与 ${ORIGIN} 的 SESSION_SECRET 不同源。`
+    );
+    console.log('  这不是脚本坏了，是「签出来了 ≠ 登录成功」。');
+    console.log(
+      local
+        ? '  本地：.dev.vars 的 SESSION_SECRET 必须与 wrangler dev 启动时读到的一致；改过文件要重启 dev server。'
+        : '  线上：把线上现役 SESSION_SECRET 填进 .dev.vars 的 LIVE_SESSION_SECRET（值不进对话/仓库）；它不是 dev 那一版。'
+    );
     process.exit(1);
   }
   console.log(`\n后台状态自动验收 ${pass} 通过，${fail} 失败`);

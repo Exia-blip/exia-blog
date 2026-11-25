@@ -50,6 +50,8 @@
     "cls": "node scripts/cls-dig.mjs",
     "check:live": "node scripts/check-live.mjs && node scripts/check-sitemap.mjs && node scripts/check-numbers-live.mjs",
     "check:admin": "node scripts/admin-autologin.mjs",
+    "check:admin:dev": "node scripts/admin-autologin.mjs --origin=http://127.0.0.1:8788",
+    "check:admin:live": "node scripts/admin-autologin.mjs --origin=https://miu.sryze.cc",
     "verify:mermaid": "node scripts/verify-mermaid.mjs",
     "verify:editor": "node scripts/verify-editor.mjs",
     "backfill:html": "node scripts/backfill-html.mjs",
