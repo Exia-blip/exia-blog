@@ -225,6 +225,18 @@ npm run setup:turnstile -- '0x4AAAAAAA...' '0x4AAAAAAA...' --dry
 
 为什么值得多这一步：这两个值配错的后果都是**静默**的。webhook 地址失效时企微回的是 `HTTP 200 + {"errcode":93000}`，只看状态码全是成功；Turnstile secret 写错时前端照常弹框、服务端永远验不过，用户看到的是「评论一直提交失败」。脚本用一次真实请求把两种情况都挡在写入之前。
 
+Turnstile 的两个值不用去 Dashboard 手抄，`wrangler` 直接能建 widget 并打印真值：
+
+```bash
+npx wrangler turnstile widget create miu-blog-comments \
+  --domain miu.sryze.cc --mode managed --json
+# 输出里 sitekey / secret 就是 setup:turnstile 的两个参数
+```
+
+前提是 OAuth token 带 `challenge-widgets.write` scope。旧 token 会报 403 `Authentication error`（实测 `worker scripts` 200、同一 token 读 widget 403，不是账号权限问题）；跑一次 `npx wrangler login` 刷新即可。本项目的 widget 是 2026-11-25 用这条命令建的，domain 写站点主域，mode 用 `managed`（服务端 `siteverify` 校验）。
+
+`setup.mjs` 的形状校验放行密钥里的 `-` / `_`：CF 真 key 形如 `0x4AAAAAAGSeGX0Z2Mj-pELs`，不是纯 base62。
+
 写完跑一次体检，它会列出每一项是「已配」「仅本地」还是「未配」，并拦下有问题的组合：
 
 ```bash

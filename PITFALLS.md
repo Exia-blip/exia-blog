@@ -782,6 +782,18 @@
 
 ---
 
+## P-076 外部真值配置：scope、密钥形状、插入锚点，三处都会让「真值写不进去」
+
+- **现象**：2026-11-25 配 Turnstile 时连续三次卡住，每次表象都不同：① 已有 OAuth token 读 widget 返回 HTTP 403 `Authentication error`，但同一 token 读 worker scripts 是 200 —— 不是权限等级问题，是缺 `challenge-widgets.write` scope；② 设备码授权页点了但 token 一直不回写，日志里 token 端点持续 400，抓 body 是 `authorization_pending`，即浏览器侧交互根本没走到最后一步；③ 拿到真 sitekey `0x4AAAAAAGSeGX0Z2Mj-pELs` 后 setup 脚本报「形状不对」—— CF 真密钥含连字符，旧正则只收 base62。写进去后又踩第四处：umami 的 `--dry` 用例红，因为 vars 插入写死 `R2_PUBLIC_BASE` 当锚，Turnstile 键插到它后面后，再插 UMAMI 两键就丢了 comma，整份配置 JSON 非法。
+- **根因**：三类「假设」都没经过实测。scope 假设「wrangler 已登录 = 什么都能做」；授权假设「页面打开了 = 授权完成了」，而 OAuth 设备流只有 token 端点返回 200 才算数；形状假设「密钥都是 base62」，而真值带 `-`；锚点假设「R2_PUBLIC_BASE 永远是 vars 最后一项」，而每加一组配置就多一个后来者。
+- **复现**：`node scripts/test-setup.mjs`。注入验证两次：把 `[0-9A-Za-z_-]` 改回 `[0-9A-Za-z]`，「带连字符的密钥形状」用例红；把 `appendVarLines` 换回旧 `R2_PUBLIC_BASE` 锚点，既有的 `--dry` 用例红。两次都在脚本里备份、跑完还原。
+- **断言**：7/7。新增「带连字符的密钥形状被接受」，判据是「没停在形状校验、走到 siteverify 并报 SECRET 无效」；`--dry` 用例原本只守「不落盘」，这次顺带守住了 JSON 合法性。
+- **边界**：OAuth token 现在含 `challenge-widgets.write`，但设备码/回调流程仍可能因为代理或浏览器交互半成品静默失败——判据只有 `whoami` 里出现该 scope 或 token 端点 200，不看「页面显示已授权」。密钥形状放行 `-`/`_` 后，占位符拦截仍在更前面，不受影响。
+- **出处**：`scripts/setup.mjs` / `scripts/test-setup.mjs`；README 6.1；DEPLOY 换主域表；站务记录 2026-11-25
+
+---
+
+---
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

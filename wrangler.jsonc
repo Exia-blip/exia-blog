@@ -63,7 +63,8 @@
     "SITE_ORIGIN": "https://miu.sryze.cc",
     "GITHUB_CLIENT_ID": "Ov23liBYcJtW33DLooEd",
     // R2 公开访问域名，留空则走 /img/ 代理
-    "R2_PUBLIC_BASE": ""
+    "R2_PUBLIC_BASE": "",
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAGSeGX0Z2Mj-pELs"
     // 访问统计默认自己记（/api/pv → D1，后台 /admin/stats 看）。
     // 想换成 umami 之类的外部服务，把下面两个值写上再部署：
     //   UMAMI_SCRIPT    = "https://analytics.example.com/script.js"

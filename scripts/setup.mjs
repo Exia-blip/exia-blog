@@ -119,6 +119,27 @@ const preflight = () => {
   if (r.status !== 0) die('体检没过，见上面的原因');
 };
 
+/* 往 vars 块末尾追加键。
+   写死 R2_PUBLIC_BASE 当锚点会断链：2026-11-25 实测，Turnstile 键插到它后面后，
+   再插 umami 两键就会把新键塞到 TURNSTILE_SITE_KEY 前面，而那行没有逗号，
+   整份配置当场语法错误（--dry 的 umami 用例红正是抓到这个）。
+   vars 块以 `"vars": {` 起、顶格两空格的 `}` 收，块内最后一条 `"key": value`
+   就是唯一可靠的锚——不依赖任何具体键名，加多少组配置都不打架。 */
+const appendVarLines = (src, lines, note = '') => {
+  const start = src.indexOf('"vars": {');
+  if (start < 0) return null;
+  const end = src.indexOf('\n  }', start);
+  if (end < 0) return null;
+  const keys = [...src.slice(start, end).matchAll(/^(\s*)"[^"]+"\s*:\s*"[^"]*"/gm)];
+  const last = keys[keys.length - 1];
+  if (!last) return null;
+  const at = start + last.index + last[0].length;
+  const indent = last[1];
+  const comma = src[at] === ',' ? '' : ',';
+  const body = lines.map((l, i) => `${indent}${l}${i < lines.length - 1 ? ',' : ''}`).join('\n');
+  return src.slice(0, at) + comma + '\n' + (note ? `${indent}${note}\n` : '') + body + src.slice(at);
+};
+
 /* ---------------- webhook ---------------- */
 async function setupWebhook() {
   const url = (args[0] || '').trim();
@@ -198,8 +219,11 @@ async function setupTurnstile() {
   const [siteKey, secret] = args.map((s) => (s || '').trim());
   if (!siteKey || !secret) die('用法：npm run setup:turnstile -- <SITE_KEY> <SECRET>');
 
-  // Cloudflare 的密钥都是 0x/1x/2x/3x 开头 + 一长串 base62，长度 24 上下
-  const shape = /^[0-9]x[0-9A-Za-z]{18,}$/;
+  /* Cloudflare 的密钥是 0x/1x/2x/3x 开头 + 一长串 base62，长度 24 上下。
+     2026-11-25 实测：新建 widget 返回的 sitekey/secret 含连字符
+     （0x4AAAAAAGSeGX0Z2Mj-pELs），旧正则把它判成非法，真值根本写不进去。
+     连字符和下划线都要放行；占位符拦截在更前面，不受这里放宽影响。 */
+  const shape = /^[0-9]x[0-9A-Za-z_-]{18,}$/;
   if (!shape.test(siteKey)) die(`SITE_KEY 形状不对：${siteKey.slice(0, 12)}…（应以 0x 开头，二十多位）`);
   if (!shape.test(secret)) die(`SECRET 形状不对：${secret.slice(0, 12)}…（同上）`);
   if (siteKey === secret) die('SITE_KEY 和 SECRET 填成同一个了。它们是两个不同的值。');
@@ -245,12 +269,9 @@ async function setupTurnstile() {
     out = src.replace(/"TURNSTILE_SITE_KEY"\s*:\s*"[^"]*"/, line);
     console.log('  ok  已有该键，替换为新值');
   } else {
-    /* 插在 R2_PUBLIC_BASE 后面：那里是 vars 的最后一项，
-       新键接上去要补一个逗号，否则整份配置立刻语法错误。 */
-    const anchor = /(\n(\s*)"R2_PUBLIC_BASE":\s*"[^"]*")(,?)/;
-    if (!anchor.test(src)) die('wrangler.jsonc 里找不到 "R2_PUBLIC_BASE"，不敢乱插，停手。');
-    out = src.replace(anchor, (m, keep, indent, comma) => `${keep}${comma || ','}\n${indent}${line}`);
-    console.log('  ok  已插入 vars');
+    out = appendVarLines(src, [line]);
+    if (!out) die('wrangler.jsonc 里找不到 vars 块的末项，不敢乱插，停手。');
+    console.log('  ok  已插入 vars 末项');
   }
 
   /* 写回之前先确认这份 JSONC 去掉注释后还能被解析。
@@ -411,14 +432,9 @@ async function setupUmami() {
   } else if (hasScript || hasId) {
     die('wrangler.jsonc 里只有其中一个键，配置处于半写状态，不敢自动改。手动补齐或先删掉再跑。');
   } else {
-    const anchor = /(\n(\s*)"R2_PUBLIC_BASE":\s*"[^"]*")(,?)/;
-    if (!anchor.test(src)) die('wrangler.jsonc 里找不到 "R2_PUBLIC_BASE"，不敢乱插，停手。');
-    out = src.replace(
-      anchor,
-      (m, keep, indent, comma) =>
-        `${keep}${comma || ','}\n${indent}${note}\n${indent}${lines.join(',\n' + indent)}`
-    );
-    console.log('  ok  已插入 vars');
+    out = appendVarLines(src, lines, note);
+    if (!out) die('wrangler.jsonc 里找不到 vars 块的末项，不敢乱插，停手。');
+    console.log('  ok  已插入 vars 末项');
   }
 
   const stripped = out.replace(/^\s*\/\/.*$/gm, '');

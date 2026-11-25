@@ -66,6 +66,15 @@ t('--dry 跑完成功路径但不落盘', () => {
   console.log('        （本机连不上 cloud.umami.is，本次只验了 --dry 不落盘）');
 });
 
+/* 2026-11-25 实测：CF 新建 widget 的真 sitekey/secret 含连字符，
+   旧正则 [0-9A-Za-z] 把真值判成非法。这里用一个形状正确但必然验不过的 secret，
+   判据是「没停在形状校验」——会继续走到 siteverify 并报 SECRET 无效。 */
+t('带连字符的密钥形状被接受（CF 真值形态）', () => {
+  const r = run(['turnstile', '0x4AAAAAAA-test-shape-key', '0x4AAAAAAA-test-shape-secret', '--dry']);
+  assert.doesNotMatch(r.stderr, /形状不对/, r.stderr);
+  assert.match(r.stderr, /SECRET 无效|连不上 siteverify|没见过的结果/);
+});
+
 t('非终端 + 没给参数 → 用法提示而不是挂住', () => {
   // stdio 里 stdin 是 ignore（等同 EOF），没有 TTY，应该直接退而不是等输入
   const r = run(['umami']);

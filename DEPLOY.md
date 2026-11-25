@@ -48,7 +48,7 @@ sitemap / OAuth 回调 / 友链自环 全部从它派生。但它管不到下面
 | 项 | 动作 | 漏了的症状 |
 |---|---|---|
 | **GitHub OAuth App → Authorization callback URL** | 改成 `https://miu.sryze.cc/auth/callback`（GitHub 只认登记值，而且往往只能登记一条；改之前旧域那条要换掉） | 点登录跳回 GitHub 报 `redirect_uri MUST match` |
-| **Turnstile widget → Hostname** | 若将来启用，widget 的 Hostname 白名单要加 `miu.sryze.cc`；本站在 2026-11-24 是**两项都未配**，此刻无需动作 | 配了一半时前端照常弹框，服务端 `siteverify` 永远验不过 → 评论全量拒收 |
+| **Turnstile widget → Hostname** | 2026-11-25 已建 widget `miu-blog-comments`（managed，domain `miu.sryze.cc`）；sitekey 在 `wrangler.jsonc` vars、secret 走线上密钥。`npm run preflight` 两项均「已配」 | 配了一半时前端照常弹框，服务端 `siteverify` 永远验不过 → 评论全量拒收 |
 | **Cloudflare Zone 级规则** | 新域是独立 active zone（`miu.sryze.cc`），不是根域 `sryze.cc`。Transform Rules / WAF / 缓存规则按 zone 归属，不会跟 Worker 自动迁移；需要时跑 `node scripts/apply-edge-headers.mjs` 前先确认 `CF_ZONE=miu.sryze.cc` | Worker 侧 CSP 仍生效（每个响应都带），但 zone 级 `X-Content-Type-Options` 之类少一层 |
 | **DNS** | 已就绪：`miu.sryze.cc` 有 A 记录且路由到同一 Worker，无需动作 | — |
 
