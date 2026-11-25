@@ -402,4 +402,6 @@ const rows = isAdm ? results : results.map(({ email, ip, ...rest }) => rest);
 
 后补一句：蜜罐命中时到底返回什么、拦住的到底是响应还是落库，后来单独写成了一篇（排期 2027-02）。在那之前，把 `400` 改成 `200`、或者把蜜罐挪到 `INSERT` 之后，`npm test` 一条都不会红。
 
+再补一句：Turnstile 配好了不等于配对了。sitekey 下发、CSP 放行、页面能弹框，三样都绿也可能服务端在拒收每一条评论；把「接口说成功」拆开看的那次实测，写在[接口说成功，业务其实没通](/p/success-but-not-through)。
+
 #cloudflare #turnstile #security
