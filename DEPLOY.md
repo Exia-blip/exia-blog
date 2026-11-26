@@ -70,6 +70,17 @@ sitemap / OAuth 回调 / 友链自环 全部从它派生。但它管不到下面
 `200` 就是没生效，**别把「打得开」当成正常**（P-085）。GET/HEAD 给 301，其余方法给 308：
 301 会让浏览器把 POST 降级成 GET 并丢掉 body，评论提交和 OAuth 回调都会静默变成读请求。
 
+**旧域「还吐 200」时先分清是哪一层缓存，两层长得很像、处置完全相反：**
+
+| 层 | 位置 | 会不会挡住 301 | 处置 |
+|---|---|---|---|
+| `caches.default` | Worker 内（`edgeGet`/`edgePut` 那套，键含完整 URL） | **不会**——`hostRedirect()` 在它之前，命中前就跳走了 | 什么都不用做；`purge_cache` 也清不到它（那是 zone 级 API），只能等 `s-maxage` 自然过期 |
+| zone 级 CDN 缓存 | Worker 外，只有 zone 配了 Cache Rule 才存在 | 会 | 面板 Purge Everything，或 `POST /zones/<zone_id>/purge_cache` |
+
+判据是**时序**，不是响应头：部署后立刻用同一个键请求旧域（`check:live` 的 `[HOST]` 段就在这个时点）——
+立刻 `301` 说明缓存位于 Worker 内层，不用清；仍 `200` 且带 `Age` 才是 zone 层。
+两者都会给 `CF-Cache-Status: HIT` + `Age`，**看头分不出来**。
+
 ### 审核态匿名可见性（有 pending 样本时做）
 
 四项状态，两项已实测、两项仍是读码结论 —— 不要把后两项读成「已验过」：
