@@ -2287,6 +2287,52 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   .md tbody tr:nth-child(even) td { background: none; }
   .md .code-wrap { border-color: #d6d6d6; page-break-inside: avoid; }
   .post-lead { border: 1px solid #ddd; background: #fff; }
+
+  /* ---- 逐页审计补的 5 处（2026-11-27，13 个前台路由全跑过） ---- */
+  /* 顶部阅读进度（桌面 ≥1280 才出现）和归档页的年份/排序切换条：
+     纸上看不到滚动位置，也点不了分段按钮，留着只会印成一条空条。 */
+  .read-pct, .arch-bar, .g404 form { display: none !important; }
+  /* 归档时间线的 .tl-item 用 margin: 0 -10px 做出悬挂缩进，屏幕上被容器
+     padding 吸收，纸上直接把右边界顶出 10px（审计里 right=1290 / 1280）。
+     圆点是悬挂装饰，去掉缩进后它只会跑到页边外面。 */
+  .tl-item { margin-left: 0 !important; margin-right: 0 !important; padding-left: 0 !important; padding-right: 0 !important; }
+  .tl-item::before { display: none !important; }
+  /* 行号在屏幕上是 sticky（横向滚动时钉在左边），打印分页会把这一列数字
+     每页重复一遍，看起来像每页都从第 1 行开始。 */
+  .md pre.code-block > .gutter { position: static !important; }
+  /* 列表页封面：纸上十张缩略图只是墨，标题 / 摘要 / 时间才是目录。 */
+  .post-card .thumb { display: none !important; }
+  /* 首屏横幅压成一行页眉。原文 159px（标题 40 + 描述 27 + 上下留白 92），
+     纸面第一页顶部空掉四厘米；压到 60px 以内，站点身份仍留着。 */
+  .hero {
+    margin: 0 0 14px !important; padding: 0 0 10px !important;
+    border: 0 !important; text-align: left !important;
+  }
+  .hero h1 { font-size: 15pt !important; margin: 0 0 2px !important; }
+  .hero p { font-size: 9pt !important; margin: 0 !important; color: #444 !important; }
+
+  /* ---- 后台 4 页（/admin、/admin/media、/admin/stats、/editor） ----
+     后台没有既定的打印场景，但「全站唯一一段 print 策略」不写就等于
+     只覆盖了前台。实测两件事：① body 锁 100vh + overflow:hidden，
+     内容在 .wrap-s 里内部滚动 —— 存 PDF 只有第一屏；
+     ② 侧栏 264px 常驻，占掉两成纸宽，操作按钮印出来是空框。 */
+  body.stat-page, body.editor-page { height: auto !important; overflow: visible !important; }
+  .stat-page .admin-main .wrap-s,
+  .admin-main, .admin-main > .view.active, .editor-body {
+    overflow: visible !important; height: auto !important; max-height: none !important;
+  }
+  .admin-shell { display: block !important; background: #fff !important; padding: 0 !important; }
+  .admin-rail, .pub-actions, .view-head .btn, .admin-view-actions { display: none !important; }
+  .admin-main { border: 0 !important; border-radius: 0 !important; background: #fff !important; }
+  /* 输入框去掉控件外观，标题与正文仍按文本印出来（打印草稿有人干） */
+  .admin-main input, .admin-main textarea, .admin-main select {
+    border: 0 !important; background: #fff !important; color: #000 !important;
+    box-shadow: none !important; padding-left: 0 !important; padding-right: 0 !important;
+  }
+  /* 编辑器里剩下的两块灰底：整块编辑区（fg 3% 混出来的）与发布卡里的
+     开关/定时块。灰底在纸上只是墨，开关本身印出来是个空框。 */
+  .editor-body, .pub-switch, .pub-time { background: #fff !important; }
+  .pub-switches, .pub-mini-actions, .ed-toolbar, .pub-foot-ops { display: none !important; }
 }
 
 .md .code-meta { display: inline-flex; align-items: center; gap: 8px; }
