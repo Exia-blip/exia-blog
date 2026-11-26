@@ -163,6 +163,25 @@ npx wrangler secret put ADMIN_LOGINS       # 输入: exia-blip
 - 改完对下一次登录立即生效（`wrangler secret put` 会创建一个新版本）；已签发的 token 不受影响，
   但 `ADMIN_LOGINS` 的权限同步只发生在登录那一刻。
 
+## 本机 .dev.vars：线上会话密钥的唯一副本
+
+`npm run check:admin:live` 要拿线上现役 `SESSION_SECRET` 自签短效票，所以本机
+`.dev.vars` 里有一行 `LIVE_SESSION_SECRET`。**CF secrets 只可写不可读** ——
+`wrangler secret list` 只回名字和类型，没有值、没有长度、没有哈希（见上一节第 106 行）。
+所以这份文件丢了，那把密钥就永远取不回来，只能轮换。
+
+三条必须同时成立，缺一条就等于是「配好了」假装「安全了」：
+
+1. **它在 `.gitignore` 里，且那行带注释说明为什么不能删。** 删掉 = 下一次 `git add -A`
+   会把线上会话密钥推进 public 仓库。注释是给未来清理 gitignore 的人看的，不是给现在。
+2. **离线留一份**（密码管理器）。单副本 + 平台不可读 = 本机硬盘坏了就只能轮换。
+3. **轮换线上 `SESSION_SECRET` 之后，把这里那份同步删掉或覆盖。** 过期副本比没有副本危险：
+   它看起来仍然有效，出事时会被当成「确认过的密钥」去排查，把方向带偏。
+
+分流规则（`scripts/admin-autologin.mjs`）：本地 host 只认 `SESSION_SECRET`，线上 host 只认
+`LIVE_SESSION_SECRET`，**互不回退**（AL-21 守着）。回退会把「配错了」伪装成「登录失败」。
+`--key=dev|live` 可强制覆盖，仅调试用。
+
 ## 运维兜底
 - **D1 备份**：`node node_modules/wrangler/bin/wrangler.js d1 export blog-db --remote --output backups/d1-$(date +%Y%m%d).sql --skip-confirmation`
   （`backups/*.sql` 已 gitignore，含全文不进仓库）

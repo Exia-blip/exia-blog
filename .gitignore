@@ -1,5 +1,7 @@
 node_modules/
 .wrangler/
+# 本地密钥文件。这行不能删：文件里有 LIVE_SESSION_SECRET（线上现役 SESSION_SECRET 的副本），
+# 删了下次 git add -A 就会把线上会话密钥推进 public 仓库；CF secrets 只可写不可读，泄漏后只能轮换。
 .dev.vars
 .DS_Store
 *.log
