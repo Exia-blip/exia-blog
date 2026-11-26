@@ -117,13 +117,13 @@ Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发�
 | 写入前自检 / 写入后回打（冒烟） | 已验（脚本内；**只到写入与传输**） | `setup:webhook` 在 `putSecret` 前后各走一次同一个 `smokeWebhook`（带 label），复用 `webhookPayload`；93000 → die，写入前失败时现役 secret 未被覆盖；`--dry` / `--no-smoke` 显式打印跳过；**注入验证均先红后恢复**。这行验的是配置写入与平台码传输，**不是评论触发**——别读成「通知链路全验过了」 |
 | wrangler 空 stdin 静默成功（workers-sdk#16193） | 已验（闸门在调用前） | `putSecret` 入口拦空值：非 TTY 下 `wrangler secret put` 会上传空值、打印 `Success`、exit 0，`preflight` 还把空串报成「已配」。注入去掉闸门 + 传空值 → 假 wrangler 静默通过且体检给出「WEBHOOK_URL 已配」；装回闸门 → die 且不进体检 |
 | 写入值 → `env.WEBHOOK_URL` 绑定 → Worker 真发（代码链） | 已验（本地断言） | `test-setup.mjs` 用假 wrangler 捕获真正写进去的 name/value，再喂给真 `notifyComment` 打到 mock sink；四处注入（读错键 / 写错名 / 写入值被包装 / payload 形状被改）均先红后恢复 |
-| 评论落库 → 触发 `notifyComment` | **本地已验 + 线上已验（管理员身份）** | 2026-11-26 本地 dev 真发一条评论（`POST /api/comments` → `{ok:true,status:"pending"}`），本地 sink 收到 `[待办] 新评论待审…`，库里 `notify_status=ok / notify_note=待办提醒 / notified_at` 与 `created_at` 同秒。那一轮把 `TURNSTILE_SITE_KEY` 置空跑的，**只覆盖「落库 → 通知」这段，不含 Turnstile 那一跳**。线上同一段 2026-11-26 23:57 也已验：管理员 cookie 走 `POST /api/comments` 真发 #18（`status=approved` / `is_admin=1` / `notify_status=ok` / `notify_note` 为空＝首次投递而非「补发」），与访客共用 `notifyForComment`。**未覆盖的只剩真人过 Turnstile 那一跳**（管理员豁免）。没有管理员态时仍可跑 `npm run verify:comment-e2e -- <slug>`：用唯一 nonce 同时查 D1 公开评论与 sink inbox 的 💬 payload，两边都命中才算过；判据自检 6/6 已进 `npm test`、两次注入（去形状判据 / 去回复递归）均先红后恢复 |
+| 评论落库 → 触发 `notifyComment` | **本地已验 + 线上已验（管理员身份）** | 2026-11-26 本地 dev 真发一条评论（`POST /api/comments` → `{ok:true,status:"pending"}`），本地 sink 收到 `[待办] 新评论待审…`，库里 `notify_status=ok / notify_note=待办提醒 / notified_at` 与 `created_at` 同秒。那一轮把 `TURNSTILE_SITE_KEY` 置空跑的，**只覆盖「落库 → 通知」这段，不含 Turnstile 那一跳**。线上同一段 2026-11-26 23:57 也已验：管理员 cookie 走 `POST /api/comments` 真发 #18（`status=approved` / `is_admin=1` / `notify_status=ok` / `notify_note` 为空＝首次投递而非「补发」），与访客共用 `notifyForComment`。**未覆盖的只剩真人过 Turnstile 那一跳**（管理员豁免）。投递到群这一格 2026-11-27 已由维护者肉眼确认（#18 的 💬 真实到达，见本节末）。没有管理员态时仍可跑 `npm run verify:comment-e2e -- <slug>`：用唯一 nonce 同时查 D1 公开评论与 sink inbox 的 💬 payload，两边都命中才算过；判据自检 6/6 已进 `npm test`、两次注入（去形状判据 / 去回复递归）均先红后恢复 |
 | 浏览器真过 Turnstile → 提交评论 | **未验** | managed 模式在无头/有头自动化浏览器都拿不到 token，需真实人工点一次验证码；上面那个脚本不自动提交、只观察，token 从 `SINK_URL` 环境变量读且不回显 |
 
 **判据的强弱顺序（留痕按这个写）**：`群里真的跳出 💬` > `D1 + sink 双源命中同一个 nonce` > `脚本单侧命中`。
 理由不是「多查一处更硬」，而是覆盖面不同：双源守的是「落库了但通知没发」这条缝；消息真进群说明投递确实发生了，
 它把「`notifyComment` 被调用」和「sink 收到」两步一起覆盖，范围比两个接口都命中更大。所以留痕优先写「群里收到」
-（前提是留痕的人有群入口——这个前提在本节末单独说了，目前不成立）。
+（前提是留痕的人有群入口——2026-11-27 维护者已确认在群内看到 #18 的 💬，这条前提当下成立）。
 双源脚本（`verify:comment-e2e`）的价值主要在**排查定位**：群里没消息时跑一次，D1 缺 = 评论没落库，sink 缺 = 通知没发，
 一次分清哪半步断，不用两边猜。平时不必跑。
 `SINK_URL` 带 `token=` 查询参数，**它本身就是凭证**：只在 shell 里 `export`，别贴进对话、别写进文档、别进任何提交。
@@ -136,11 +136,12 @@ Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发�
 **退出码就是判据**：0 = 平台回执 ok；1 = fail（平台码 93000 会点名「地址失效」）；2 = skip（没配 `WEBHOOK_URL`）；3 = 鉴权 / 参数 / 条目不存在。
 **`ok` 已经排掉两类怀疑**：地址失效与机器人被移出群都回 `200 + errcode 93000`，`sendWebhook` 判 `fail`。所以「`notify_status=ok` 但群里没消息」只剩一种可能——`WEBHOOK_URL` 指向另一个同样有效的群（两个群都回 0，机器分不出来）。那一步去对机器人配置，不是查代码。
 
-**这条判据目前无人可填，按「已到代码上限」记，不按待办记。** 2026-11-27 确认：仓库维护者与代理都没有该群的读取入口，
-`notify_status=ok` 是代码侧能拿到的最高一档（已排除地址失效与移出群）。剩下的「指向另一个有效群」只能由
-**机器人配置的持有方**打开群或在企微后台看机器人所属群来确认——不是再查一遍代码，也不是再发一条评论。
-别在验收清单里继续挂「待人工确认」：挂着而不动，和过期状态是同一种东西，看起来仍然有效。
-同理，第 123 行的「留痕优先写群里收到」**只对留痕的人有群入口时成立**；没有入口时写 `ok` + 它排除掉的那两类，
+**这条已验：2026-11-27 维护者在群内看到 #18 的 💬。** 这是最强一档判据，不是 `ok` 的另一种说法——
+`notify_status=ok` 只能排掉「地址失效」与「机器人被移出群」（两者都回 `200 + errcode 93000`，`sendWebhook` 判 `fail`），
+排不掉「`WEBHOOK_URL` 指向另一个同样有效的群」：两个群都回 0，机器分不出来，只有人眼能分辨。
+这次就是人眼分辨的：看到的那条对应 #18（管理员身份、`notify_note` 为空 = 首次投递，不是「补发」）。
+**改群或换 webhook 时这一格要重新验一次**——`ok` 不能替代它，把这次的结论当成永久有效，就是又造一份会过期的记录。
+同理，第 123 行的「留痕优先写群里收到」只在留痕的人有群入口时成立；没有入口时写 `ok` + 它排除掉的那两类，
 不要用「应该收到了」凑数。
 不带 `--id` 时补发最新一条 —— 发完评论紧接着跑的那条命令就是它。
 
