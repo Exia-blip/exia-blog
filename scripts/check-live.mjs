@@ -504,7 +504,7 @@ console.log(`\n${ORIGIN}\n`);
     inLlms.filter((s) => !inSitemap.has(s)).join(', ')
   );
 
-  for (const p of ['/admin', '/admin/review', '/admin/audit', '/admin/history', '/admin/friends', '/admin/comments']) {
+  for (const p of ['/admin', '/admin/review', '/admin/audit', '/admin/history', '/admin/friends', '/admin/comments', '/admin/media']) {
     const r = await fetch(ORIGIN + p, { method: 'HEAD', redirect: 'manual' });
     ok(`${p} 匿名不可达`, r.status === 401 || r.status === 302, `HTTP ${r.status}`);
   }

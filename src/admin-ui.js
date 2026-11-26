@@ -97,6 +97,7 @@ const ICON = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   home: '<path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
   bell: '<path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
 };
 
@@ -125,6 +126,7 @@ export const ADMIN_NAV = [
   { key: 'review', group: 'content', text: '投稿审核', href: '/admin/review', icon: 'check', id: 'nav-review' },
   { key: 'cmts', group: 'content', text: '评论审核', href: '/admin/comments', icon: 'check', id: 'nav-cmts', badge: 'pendingComments' },
   { key: 'series', group: 'content', text: '系列', href: '/editor?panel=series', icon: 'layers', id: 'nav-series' },
+  { key: 'media', group: 'content', text: '媒体', href: '/admin/media', icon: 'image', id: 'nav-media' },
   { key: 'friends', group: 'content', text: '友链管理', href: '/admin/friends', icon: 'grid', id: 'nav-friends' },
   { key: 'notify', group: 'system', text: '通知投递', href: '/admin/notify', icon: 'bell', id: 'nav-notify', badge: 'notifyFail7d' },
   { key: 'stats', group: 'system', text: '访问统计', href: '/admin/stats', icon: 'chart', id: 'nav-stats' },

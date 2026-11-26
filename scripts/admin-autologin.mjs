@@ -55,6 +55,7 @@ const PAGES = [
   { path: '/editor', name: '写作页自动放行 + 新列表代码', marks: ['published_at_raw', 'flag-approved'] },
   { path: '/admin/comments', name: '评论通知送达状态条', marks: ['评论通知送达', '未尝试'] },
   { path: '/admin/friends', name: '友链巡检时间戳', marks: ['检测 '] },
+  { path: '/admin/media', name: '媒体库清单可达', marks: ['R2 · 只读清单'] },
   { path: '/admin/review', name: '审核队列可达', marks: [] },
 ];
 

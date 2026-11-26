@@ -583,6 +583,134 @@ export async function friendsAdminPage(env, request) {
   return html(renderFriendsAdmin({ site, rows, nav: await navP }), 200, { 'cache-control': 'no-store' });
 }
 
+/* ---------- 媒体库（只读） ----------
+
+   R2 里的对象分三类，只有第一类是「媒体」：
+   · 正文图片（编辑器上传，key 形如 2026/11/uuid.png）
+   · 派生变体（同 key 再挂 .webp / .w800.webp / .avif，批量脚本转出来的）
+   · 头像缓存（avatar/u<id>-<size>，回源 GitHub 后落的副本）
+   后两类不列：变体让同一张图出现三四遍，头像混进素材库也没有意义。
+
+   变体的判据写成「原始扩展名 + 变体后缀」，不是直接排除 `.webp` ——
+   直接传上来的 photo.webp 是媒体，按后缀一律排除会把它误杀。
+
+   只读是刻意的：删对象没有二次确认、也没有引用计数，删掉正文里的一张图
+   就是线上裂图。清理走命令行，和「工具与备份」页同一条纪律。 */
+const fmtBytes = (n) => {
+  const b = Math.max(0, Number(n) || 0);
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / 1048576).toFixed(2)} MB`;
+};
+
+/* 变体：`a.png.webp`、`a.png.w800.webp`、`a.jpg.avif`。原图扩展名在前，
+   变体后缀在后；两者之间还可能夹一个 w<数字>。 */
+const VARIANT_KEY = /\.(png|jpe?g|gif|svg|bmp|tiff?)\.(w\d+\.)?(webp|avif)$/i;
+
+/* key 里可能有空格、中文、#。不编码会被当成 URL 片段截断，
+   `/img/` 那边 decodeURIComponent 回来还是原 key，所以逐段编码。 */
+const imgSrc = (key) =>
+  '/img/' + String(key).split('/').map((s) => encodeURIComponent(s)).join('/');
+
+/* 过滤与排序抽成纯函数：页面只负责摆版式，判据能被单测直接喂数组。
+   放在渲染函数里的话，「变体被滤掉」只能靠肉眼看页面少没少一行。 */
+export function mediaRows(objects = []) {
+  return objects
+    .filter((o) => !String(o.key).startsWith('avatar/') && !VARIANT_KEY.test(String(o.key)))
+    .map((o) => ({
+      key: o.key,
+      size: o.size,
+      uploaded: o.uploaded instanceof Date ? o.uploaded.toISOString() : o.uploaded,
+    }))
+    .sort((a, b) => String(b.uploaded).localeCompare(String(a.uploaded)));
+}
+
+export function renderMediaAdmin({ site = {}, rows = [], nav = null, sum = 0, truncated = false, error = '' }) {
+  const list = rows.length
+    ? rows
+        .map(
+          (o) => `<div class="adm-fr-row">
+    <div class="adm-fr-main">
+      <img class="admin-ava" src="${esc(imgSrc(o.key))}" alt="" width="54" height="54" loading="lazy" decoding="async">
+      <strong class="adm-fr-name">${esc(String(o.key).split('/').pop())}</strong>
+      <span class="adm-fr-code">${esc(fmtBytes(o.size))}</span>
+      <span class="adm-fr-latency">${esc(toCN(o.uploaded))}</span>
+    </div>
+    <div class="adm-fr-ops">
+      <a class="adm-fr-op" href="${esc(imgSrc(o.key))}" target="_blank" rel="noopener noreferrer">打开</a>
+    </div>
+  </div>`
+        )
+        .join('')
+    : emptyState(
+        error
+          ? `读取 R2 失败：${error}`
+          : '还没有图片。在编辑器里插入图片时会自动上传到这里，不用单独建库。'
+      );
+
+  const body = `<div class="wrap-s">
+<div class="admin-view-card">
+  <div class="admin-view-head">
+    <span>媒体库</span>
+    <span class="view-tag">R2 · 只读清单</span>
+  </div>
+  <div class="admin-view-body">
+    ${row('对象', `${rows.length}${truncated ? '+' : ''} 个`)}
+    ${row('合计', fmtBytes(sum))}
+    ${row('读取', error ? '失败' : '正常', error ? 'bad' : 'ok')}
+    <p class="sv-note">图片由编辑器直传 R2；这里只列不删 —— 正文引用的图删掉就是线上裂图。清理走命令行。</p>
+  </div>
+</div>
+<div class="admin-view-card">
+  <div class="admin-view-head">
+    <span>图片</span>
+    <span class="view-tag">${rows.length} 条${truncated ? ' · 已达单次上限 200' : ''}</span>
+  </div>
+  <div class="admin-view-body adm-fr-list">
+    ${list}
+  </div>
+</div>
+</div>`;
+
+  return renderAdminShell({
+    site,
+    nav,
+    active: 'media',
+    title: '媒体库',
+    desc: 'R2 里的正文图片清单，只读',
+    body,
+  });
+}
+
+export async function mediaAdminPage(env, request) {
+  const { res } = await requireAdmin(env, request);
+  if (res) return res;
+  /* 与其它后台页同源：先起查询、最后 await，不额外加一个 RTT。 */
+  const navP = navCounts(env.DB);
+  const site = await getSite(env);
+
+  let rows = [];
+  let truncated = false;
+  let error = '';
+  try {
+    /* 200 是「空壳」阶段的上限：一屏够看、一次 list 就能取回。
+       truncated 不假装是全部 —— 数字后面带 +，页面上写明达到上限。 */
+    const r = await env.BUCKET.list({ limit: 200 });
+    truncated = !!r.truncated;
+    rows = mediaRows(r.objects || []);
+  } catch (e) {
+    /* R2 读失败和「库里没图」是两回事：前者是故障（该在页面上看见），
+       后者是常态。混成同一个空态，故障会伪装成「还没上传过」。 */
+    error = String(e?.message || e).slice(0, 120);
+    console.error('media admin', error);
+  }
+
+  const sum = rows.reduce((s, o) => s + (Number(o.size) || 0), 0);
+  return html(renderMediaAdmin({ site, rows, nav: await navP, sum, truncated, error }), 200, {
+    'cache-control': 'no-store',
+  });
+}
+
 /* ---------- 评论管理（四态 + 通知送达） ---------- */
 
 /* 四态按「待办优先」排：待审永远第一，全部放最后。
