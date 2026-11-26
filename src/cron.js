@@ -213,10 +213,23 @@ export async function checkFriends(env) {
    每 20 分钟一轮（与友链巡检同一个 cron）。两件事：
 
    ① 补推：发评论时那一次投递没成功（notify_status 为空 = 没尝试过 / 'fail' = 平台拒了），
-      这里按冷却补一次。冷却写在 SQL 里而不是内存里 —— Worker 每次冷启都是新进程，
-      内存计数等于没有。created_at 只回看 6 小时：一天的失败堆积不该在三天后突然炸进群。
-      不带 notified_at 的行（0006 之前的老数据）也会被补，但同样受 6 小时窗限制，
-      老评论不会被突然翻出来推送 —— 那才叫「半夜群里跳出一条两年前的评论」。
+      这里按冷却补一次。三条边界全部写在下面这条 SQL 里，调用方拿不到、也改不掉：
+
+        · 下界 created_at >= now-6h —— 一天的失败堆积不该在三天后突然炸进群。
+          没有下界就是「两年前的评论半夜被捞出来推群」。
+        · 冷却 notified_at <= now-1h —— 一条失败最多每小时试一次，6 小时内约 6 次。
+        · 每轮 LIMIT 10 —— 没有上限，一次平台抖动就会把整个队列打穿。
+
+      冷却/窗口写在 SQL 里而不是内存里 —— Worker 每次冷启都是新进程，内存计数等于没有；
+      写在 SQL 里还有个好处：改调用方（加参数、改成别处调用）不会把窗口弄丢，
+      与 navCounts 把 -7 days 写死在查询里是同一手法。
+
+      **不按 is_admin 过滤**。首次投递（POST /api/comments）不区分身份，补推曾经多带一个
+      is_admin 过滤条件，两边判据不一致 —— 等于「管理员自己发的评论，第一次失败就没人管」。
+      这种不对称不报错、不改状态码、CI 全绿，只有对照两条路径才看得出来，与 P-077 同族。
+      也别把那个条件写回去：它在 SQL 里读起来像刻意排除，其实只是漏了。
+
+      不带 notified_at 的行（0006 之前的老数据）也会被补，但同样受 6 小时窗限制。
 
    ② 清垃圾：只删「机械可判定」的形状（见 spam.js 的每条规则与权重）。
       四条免检线写在代码里，不靠 SQL：管理员自己发的、已拒绝的、有回复的、分数不够的。
@@ -234,8 +247,7 @@ export async function sweepComments(env, { dry = false, limit = 20 } = {}) {
     const { results = [] } = await env.DB.prepare(
       `SELECT c.id, c.name, c.content, c.status, c.notify_status, c.notified_at, p.slug, p.title
          FROM comments c LEFT JOIN posts p ON p.id = c.post_id
-        WHERE c.is_admin = 0
-          AND c.notify_status IN ('', 'fail')
+        WHERE c.notify_status IN ('', 'fail')
           AND c.created_at <= datetime('now','-2 minutes')
           AND c.created_at >= datetime('now','-6 hours')
           AND (c.notified_at IS NULL OR c.notified_at = '' OR c.notified_at <= datetime('now','-1 hour'))

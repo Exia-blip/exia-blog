@@ -71,7 +71,8 @@ exia-blog/
 │   ├── api.js          # 全部 API
 │   ├── auth.js         # GitHub OAuth + 签名会话
 │   ├── s3.js           # R2 presigned PUT（SigV4，纯 WebCrypto）
-│   ├── cron.js         # 友链巡检
+│   ├── cron.js         # 友链巡检 + 评论巡检（补推漏发的通知 / 按打分清垃圾）
+│   ├── spam.js         # 垃圾评论打分（只看机械可判定的形状，误杀面写在文件头）
 │   ├── webhook.js      # 评论通知
 │   ├── ai.js           # AI 摘要：Workers AI / 外部接口 / 抽取式兜底
 │   ├── settings.js     # 站点名 / 介绍 / 头像 / 默认风格（D1 覆盖 vars）
