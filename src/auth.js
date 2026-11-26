@@ -158,8 +158,12 @@ export async function loginRedirect(env, request) {
   const bootOk = !!bootToken && secretEq(boot, bootToken);
   if (boot && !bootOk) console.warn('[auth] 引导令牌不匹配，按普通登录处理');
 
-  // 从非主域进来（旧 workers.dev、备用域名）：先回主域再走 OAuth
-  // 否则会话 cookie 会落在另一个 host 上，授权回来后台仍然是"未登录"
+  // 兜底：从非主域进来就先回主域再走 OAuth，否则会话 cookie 落在另一个 host 上，
+  // 授权回来后台仍然是「未登录」。
+  // 2026-11-27 起这条已经**轮不到它**了：hostRedirect() 在 handleFetch 最前面就把
+  // 非主域整站 301 走了，请求到不了这里。留着是因为它守的是另一件事（cookie 必须
+  // 落在主域），与「哪个域名对外服务」是两回事 —— 万一哪天有人把整站跳转改成
+  // 只跳页面，这层还在。别把它当成主域归一的实现，那是 utils.js 的 hostRedirect()。
   if (url.origin !== origin) {
     const to = new URL('/auth/github', origin);
     if (next && next !== '/') to.searchParams.set('next', next);
