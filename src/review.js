@@ -4,7 +4,7 @@
 import { html } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { getSite } from './settings.js';
-import { renderAdminShell, esc } from './admin-ui.js';
+import { renderAdminShell, esc, navCounts } from './admin-ui.js';
 
 const cn = (s) => {
   const v = String(s || '');
@@ -13,7 +13,7 @@ const cn = (s) => {
 };
 
 /** 纯渲染：单测喂假数据即可验证转义与结构。 */
-export function renderReview({ site = {}, rows = [] }) {
+export function renderReview({ site = {}, rows = [], nav = null }) {
   const list = rows.length
     ? rows
         .map(
@@ -80,6 +80,7 @@ export function renderReview({ site = {}, rows = [] }) {
 
   return renderAdminShell({
     site,
+    nav,
     active: 'review',
     title: '投稿审核',
     desc: '普通用户的新稿默认待审，通过后才会公开',
@@ -90,6 +91,7 @@ export function renderReview({ site = {}, rows = [] }) {
 export async function reviewPage(env, request) {
   const { res } = await requireAdmin(env, request);
   if (res) return res;
+  const navP = navCounts(env.DB); // 侧栏徽章，与页面主查询并行
 
   let rows = [];
   try {
@@ -106,5 +108,5 @@ export async function reviewPage(env, request) {
     console.error('review page', e?.message || e);
   }
   const site = await getSite(env);
-  return html(renderReview({ site, rows }), 200, { 'cache-control': 'no-store' });
+  return html(renderReview({ site, rows, nav: await navP }), 200, { 'cache-control': 'no-store' });
 }

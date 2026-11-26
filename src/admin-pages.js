@@ -3,7 +3,7 @@
 import { html } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { getSite } from './settings.js';
-import { renderAdminShell, esc, toCN, pill, fresh, emptyState } from './admin-ui.js';
+import { renderAdminShell, esc, toCN, pill, fresh, emptyState, navCounts } from './admin-ui.js';
 import { postCacheStats } from './postcache.js';
 import { webhookPlatform } from './webhook.js';
 
@@ -36,7 +36,7 @@ export function webhookCheck(hook = '') {
 /* ---------- 健康检查 ---------- */
 
 /** 纯渲染，单测喂假数据就能验。checks 是 [{label,value,state,note}]。 */
-export function renderHealth({ site = {}, checks = [], friend = {}, pc = {} }) {
+export function renderHealth({ site = {}, checks = [], friend = {}, pc = {}, nav = null }) {
   const list = checks
     .map(
       (c) =>
@@ -93,6 +93,7 @@ ${row('当前篇数', String(pc.size || 0))}
 </div>`;
   return renderAdminShell({
     site,
+    nav,
     active: 'health',
     title: '健康检查',
     desc: '只读探测 D1、配置与友链状态',
@@ -103,6 +104,8 @@ ${row('当前篇数', String(pc.size || 0))}
 export async function healthPage(env, request) {
   const { res } = await requireAdmin(env, request);
   if (res) return res;
+  /* 侧栏徽章与概览待办条同源：先起查询、最后再 await，和页面主查询并行，不额外加 RTT。 */
+  const navP = navCounts(env.DB);
 
   const ev = (k) => !!String(env?.[k] ?? '').trim();
   let d1 = { state: 'bad', value: '不可用' };
@@ -157,12 +160,12 @@ export async function healthPage(env, request) {
   }
 
   const site = await getSite(env);
-  return html(renderHealth({ site, checks, friend, pc: postCacheStats() }), 200, { 'cache-control': 'no-store' });
+  return html(renderHealth({ site, checks, friend, pc: postCacheStats(), nav: await navP }), 200, { 'cache-control': 'no-store' });
 }
 
 /* ---------- 定时队列 ---------- */
 
-export function renderQueue({ site = {}, rows = [] }) {
+export function renderQueue({ site = {}, rows = [], nav = null }) {
   const list = rows.length
     ? `<div class="sv-table-wrap"><table class="sv-table"><thead><tr><th>标题</th><th>发布时间</th><th>状态</th></tr></thead><tbody>${rows
         .map(
@@ -189,6 +192,7 @@ export function renderQueue({ site = {}, rows = [] }) {
 </div>`;
   return renderAdminShell({
     site,
+    nav,
     active: 'queue',
     title: '定时队列',
     desc: '已写好、等待发布时间到达的文章',
@@ -199,6 +203,8 @@ export function renderQueue({ site = {}, rows = [] }) {
 export async function queuePage(env, request) {
   const { res } = await requireAdmin(env, request);
   if (res) return res;
+  /* 侧栏徽章与概览待办条同源：先起查询、最后再 await，和页面主查询并行，不额外加 RTT。 */
+  const navP = navCounts(env.DB);
 
   let rows = [];
   try {
@@ -213,13 +219,13 @@ export async function queuePage(env, request) {
     console.error('queue', e?.message || e);
   }
   const site = await getSite(env);
-  return html(renderQueue({ site, rows }), 200, { 'cache-control': 'no-store' });
+  return html(renderQueue({ site, rows, nav: await navP }), 200, { 'cache-control': 'no-store' });
 }
 
 /* ---------- 操作日志 ---------- */
 
 /** 纯渲染：单测喂假数据即可验证转义与结构。rows 是 audit_log 行。 */
-export function renderAudit({ site = {}, rows = [] }) {
+export function renderAudit({ site = {}, rows = [], nav = null }) {
   const list = rows.length
     ? `<div class="sv-table-wrap"><table class="sv-table adm-audit-table"><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>详情</th></tr></thead><tbody>${rows
         .map(
@@ -249,6 +255,7 @@ export function renderAudit({ site = {}, rows = [] }) {
 </div>`;
   return renderAdminShell({
     site,
+    nav,
     active: 'audit',
     title: '操作日志',
     desc: '谁在什么时候改了什么',
@@ -259,6 +266,8 @@ export function renderAudit({ site = {}, rows = [] }) {
 export async function auditPage(env, request) {
   const { res } = await requireAdmin(env, request);
   if (res) return res;
+  /* 侧栏徽章与概览待办条同源：先起查询、最后再 await，和页面主查询并行，不额外加 RTT。 */
+  const navP = navCounts(env.DB);
 
   let rows = [];
   try {
@@ -268,13 +277,13 @@ export async function auditPage(env, request) {
     console.error('audit page', e?.message || e);
   }
   const site = await getSite(env);
-  return html(renderAudit({ site, rows }), 200, { 'cache-control': 'no-store' });
+  return html(renderAudit({ site, rows, nav: await navP }), 200, { 'cache-control': 'no-store' });
 }
 
 /* ---------- 版本历史 ---------- */
 
 /** 纯渲染：单测喂假数据即可验证转义与结构。script 里不插用户数据，id 全走 data-*。 */
-export function renderHistory({ site = {}, post = {}, rows = [] }) {
+export function renderHistory({ site = {}, post = {}, rows = [], nav = null }) {
   const list = rows.length
     ? rows
         .map(
@@ -350,6 +359,7 @@ export function renderHistory({ site = {}, post = {}, rows = [] }) {
 </script>`;
   return renderAdminShell({
     site,
+    nav,
     active: 'history',
     title: '版本历史',
     desc: '误覆盖、误删之后从这里找回来',
@@ -360,13 +370,15 @@ export function renderHistory({ site = {}, post = {}, rows = [] }) {
 export async function historyPage(env, request) {
   const { res } = await requireAdmin(env, request);
   if (res) return res;
+  /* 侧栏徽章与概览待办条同源：先起查询、最后再 await，和页面主查询并行，不额外加 RTT。 */
+  const navP = navCounts(env.DB);
 
   const url = new URL(request.url);
   const id = parseInt(url.searchParams.get('post') || '', 10);
   const site = await getSite(env);
   const noStore = { 'cache-control': 'no-store' };
   /* 参数缺失 / 文章已删：给一页带提示的页面，不抛 500。 */
-  if (!Number.isFinite(id) || id <= 0) return html(renderHistory({ site }), 200, noStore);
+  if (!Number.isFinite(id) || id <= 0) return html(renderHistory({ site, nav: await navP }), 200, noStore);
 
   let post = null;
   try {
@@ -385,7 +397,7 @@ export async function historyPage(env, request) {
 </div>
 </div>`;
     return html(
-      renderAdminShell({ site, active: 'history', title: '版本历史', desc: '误覆盖、误删之后从这里找回来', body }),
+      renderAdminShell({ site, nav, active: 'history', title: '版本历史', desc: '误覆盖、误删之后从这里找回来', body }),
       200,
       noStore
     );
@@ -402,7 +414,7 @@ export async function historyPage(env, request) {
   } catch (e) {
     console.error('history revisions', e?.message || e);
   }
-  return html(renderHistory({ site, post, rows }), 200, noStore);
+  return html(renderHistory({ site, post, rows, nav: await navP }), 200, noStore);
 }
 
 /* ---------- 友链管理 ---------- */
@@ -411,7 +423,7 @@ const frStatus = (s) => (Number(s) === 1 ? '可访问' : Number(s) === 2 ? '状�
 const frBadge = (s) => (Number(s) === 1 ? 'ok' : Number(s) === 2 ? 'warn' : 'bad');
 
 /** 纯渲染：单测喂假数据即可验证转义与结构。script 里不插用户数据，id 全走 data-*。 */
-export function renderFriendsAdmin({ site = {}, rows = [] }) {
+export function renderFriendsAdmin({ site = {}, rows = [], nav = null }) {
   const list = rows.length
     ? rows
         .map(
@@ -546,6 +558,7 @@ export function renderFriendsAdmin({ site = {}, rows = [] }) {
 </script>`;
   return renderAdminShell({
     site,
+    nav,
     active: 'friends',
     title: '友链管理',
     desc: '增删友链，并查看最近一次探测结果',
@@ -556,6 +569,8 @@ export function renderFriendsAdmin({ site = {}, rows = [] }) {
 export async function friendsAdminPage(env, request) {
   const { res } = await requireAdmin(env, request);
   if (res) return res;
+  /* 侧栏徽章与概览待办条同源：先起查询、最后再 await，和页面主查询并行，不额外加 RTT。 */
+  const navP = navCounts(env.DB);
 
   let rows = [];
   try {
@@ -565,7 +580,7 @@ export async function friendsAdminPage(env, request) {
     console.error('friends admin', e?.message || e);
   }
   const site = await getSite(env);
-  return html(renderFriendsAdmin({ site, rows }), 200, { 'cache-control': 'no-store' });
+  return html(renderFriendsAdmin({ site, rows, nav: await navP }), 200, { 'cache-control': 'no-store' });
 }
 
 /* ---------- 评论管理（四态 + 通知送达） ---------- */
@@ -606,6 +621,7 @@ export function renderCommentsAdmin({
   tab = 'pending',
   counts = {},
   notifyStats = {},
+  nav = null,
 }) {
   const on = moderation === true || String(moderation) === '1';
   const hookOn = !!String(hook).trim();
@@ -773,7 +789,8 @@ ${notifyRow}
 </script>`;
   return renderAdminShell({
     site,
-    active: 'comments',
+    nav,
+    active: 'cmts', // 与 ADMIN_NAV 的 key 对齐；曾经写成 'comments'，评论页侧栏一直没高亮过
     title: '评论管理',
     desc: '四态一览，每行带通知投递结果，并可开关先审后发',
     body,
@@ -783,6 +800,8 @@ ${notifyRow}
 export async function commentsAdminPage(env, request) {
   const { res } = await requireAdmin(env, request);
   if (res) return res;
+  /* 侧栏徽章与概览待办条同源：先起查询、最后再 await，和页面主查询并行，不额外加 RTT。 */
+  const navP = navCounts(env.DB);
 
   const want = new URL(request.url).searchParams.get('status') || '';
   const tab = CM_TABS.some((t) => t.key === want) ? want : 'pending';
@@ -858,7 +877,7 @@ export async function commentsAdminPage(env, request) {
 
   const site = await getSite(env);
   return html(
-    renderCommentsAdmin({ site, rows, moderation, hook: env.WEBHOOK_URL || '', tab, counts, notifyStats }),
+    renderCommentsAdmin({ site, rows, moderation, hook: env.WEBHOOK_URL || '', tab, counts, notifyStats, nav: await navP }),
     200,
     { 'cache-control': 'no-store' }
   );
@@ -871,7 +890,7 @@ export async function commentsAdminPage(env, request) {
    通知没有重放语义，加一个「重发」就是新增一条没有断言守的写路径（P-075）。 */
 
 /** 纯渲染：rows 是 comments 里带投递记录的行。 */
-export function renderNotify({ site = {}, rows = [], stats = {}, hook = '' }) {
+export function renderNotify({ site = {}, rows = [], stats = {}, hook = '', nav = null }) {
   const n = (v) => (v === undefined || v === null ? '—' : String(v));
   const hookOn = !!String(hook || '').trim();
   const platform = HOOK_CN[webhookPlatform(String(hook))] || '通用';
@@ -919,6 +938,7 @@ export function renderNotify({ site = {}, rows = [], stats = {}, hook = '' }) {
 </div>`;
   return renderAdminShell({
     site,
+    nav,
     active: 'notify',
     title: '通知投递',
     desc: '每条通知发给谁、平台回了什么',
@@ -929,6 +949,8 @@ export function renderNotify({ site = {}, rows = [], stats = {}, hook = '' }) {
 export async function notifyPage(env, request) {
   const { res } = await requireAdmin(env, request);
   if (res) return res;
+  /* 侧栏徽章与概览待办条同源：先起查询、最后再 await，和页面主查询并行，不额外加 RTT。 */
+  const navP = navCounts(env.DB);
   const safe = async (fn, fallback) => {
     try {
       return await fn();
@@ -966,6 +988,7 @@ export async function notifyPage(env, request) {
   return html(
     renderNotify({
       site,
+      nav: await navP,
       rows,
       stats: { ok: stats?.ok || 0, fail: stats?.fail || 0, skip: stats?.skip || 0, none: stats?.none || 0 },
       hook: env.WEBHOOK_URL || '',
@@ -980,7 +1003,7 @@ export async function notifyPage(env, request) {
    后台一个按钮都不给。页面只负责回答「有这些能力、在哪跑、跑之前看哪里」——
    省掉「后台能不能点」这种翻代码确认。 */
 
-export function renderTools({ site = {} }) {
+export function renderTools({ site = {}, nav = null }) {
   const item = (name, cmd, why) => `<div class="kv-row">
       <span class="kv-k">${esc(name)}<span class="kv-note">${esc(why)}</span></span>
       <span class="kv-v"><code>${esc(cmd)}</code></span>
@@ -1016,12 +1039,14 @@ ${item('生效方式', '连接器管理 → 信任', '写入后不会自动加�
   </div></div>
 </div>
 </div>`;
-  return renderAdminShell({ site, active: 'tools', title: '工具与备份', desc: '低频动作的入口索引，后台不提供按钮', body });
+  return renderAdminShell({ site, nav, active: 'tools', title: '工具与备份', desc: '低频动作的入口索引，后台不提供按钮', body });
 }
 
 export async function toolsPage(env, request) {
   const { res } = await requireAdmin(env, request);
   if (res) return res;
+  /* 侧栏徽章与概览待办条同源：先起查询、最后再 await，和页面主查询并行，不额外加 RTT。 */
+  const navP = navCounts(env.DB);
   const site = await getSite(env);
-  return html(renderTools({ site }), 200, { 'cache-control': 'no-store' });
+  return html(renderTools({ site, nav: await navP }), 200, { 'cache-control': 'no-store' });
 }

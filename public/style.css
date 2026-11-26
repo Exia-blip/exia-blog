@@ -1019,6 +1019,9 @@ input.invalid, textarea.invalid {
 .admin-nav a.on, .admin-nav a[aria-current="page"] {
   background: var(--accent); color: #fff;
 }
+/* 侧栏徽章：数字推右端，on 项只留数字不上底色。前缀必须带 .stat-page，否则被 .stat-page .sv-pill 盖掉。 */
+.stat-page .admin-nav .sv-pill{margin-left:auto;font-size:11px;padding:1px 7px;font-weight:600}
+.stat-page .admin-nav a.on .sv-pill{background:none;color:inherit}
 
 .admin-main {
   flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;

@@ -4,11 +4,11 @@
 import { html, localParts } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { getSite } from './settings.js';
-import { renderAdminShell, esc, pill, emptyState, todoBar } from './admin-ui.js';
+import { renderAdminShell, esc, pill, emptyState, todoBar, navCounts } from './admin-ui.js';
 import { dayCN } from './stats.js';
 
 /** 纯渲染：只吃数据，不碰数据库。单测喂假数据即可验证转义与结构。 */
-export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], sys = {} }) {
+export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], sys = {}, nav = null }) {
   const n = (v) => (v === undefined || v === null ? '—' : String(v));
   const cards = [
     { label: '已发布文章', value: kpi.posts, sub: '公开且已到点' },
@@ -103,6 +103,7 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
 
   return renderAdminShell({
     site,
+    nav,
     active: 'dash',
     title: '工作台',
     desc: '今天要做什么，一眼看完',
@@ -127,7 +128,7 @@ export async function dashboardPage(env, request) {
   };
 
   const today = dayCN();
-  const [postStat, pendingStat, queueStat, cmtPending, notifyFail, pv, friendStat, recentRows, d1Ok] = await Promise.all([
+  const [postStat, pendingStat, queueStat, nav, pv, friendStat, recentRows, d1Ok] = await Promise.all([
     safe(
       () =>
         one(
@@ -145,19 +146,10 @@ export async function dashboardPage(env, request) {
         ),
       {}
     ),
-    safe(() => one('SELECT COUNT(*) c FROM comments WHERE status = ?', 'pending'), {}),
-    /* 通知失败只算近 7 天。评论通知没有重发机制——一周前的投递失败已经无法补救，
-       全表统计会让这个数字永久挂着，而界面上没有任何办法把它清掉：
-       「今天要做的 N 件」里塞一条永远做不完的事，待办条就废了。
-       要看全部历史，评论页 ?status=all 的「通知」列逐条都在。 */
-    safe(
-      () =>
-        one(
-          `SELECT COUNT(*) c FROM comments
-           WHERE notify_status = 'fail' AND notified_at >= datetime('now','-7 days')`
-        ),
-      {}
-    ),
+    /* 待审评论 + 近 7 天通知失败：与侧栏徽章走同一个 navCounts()。
+       以前这里各查一遍，两个数字漂了没人能查谁对 —— 现在物理同源。
+       「通知失败只算近 7 天」的理由见 navCounts 上方的注释。 */
+    navCounts(db),
     safe(() => one('SELECT COUNT(*) pv, COUNT(DISTINCT ip) uv FROM pv WHERE day = ?', today), {}),
     safe(
       () =>
@@ -197,8 +189,8 @@ export async function dashboardPage(env, request) {
         posts: postStat?.published,
         pending: pendingStat?.c,
         queue: queueStat?.c,
-        cmtPending: cmtPending?.c,
-        notifyFail: notifyFail?.c,
+        cmtPending: nav.pendingComments,
+        notifyFail: nav.notifyFail7d,
         pv: pv?.pv,
         uv: pv?.uv,
         friendsUp: friendStat?.up,
@@ -206,6 +198,7 @@ export async function dashboardPage(env, request) {
       },
       recent,
       sys: { d1: d1Ok ? 'ok' : 'bad', friendDown: friendStat?.down || 0, today },
+      nav,
     }),
     200,
     { 'cache-control': 'no-store' }

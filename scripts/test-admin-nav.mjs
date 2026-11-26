@@ -1,8 +1,8 @@
 // 后台导航一致性：editor.html 的静态菜单和 admin-ui.js 的服务端菜单必须同一套。
 // 不一致时表现为「写作页能看到新入口，统计页看不到」，人工很难发现。
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
-import { ADMIN_NAV, ADMIN_GROUPS, renderAdminNav, renderAdminShell, THEME_BOOT_JS } from '../src/admin-ui.js';
+import { ADMIN_NAV, ADMIN_GROUPS, BADGE_SOURCE, navCounts, renderAdminNav, renderAdminShell, THEME_BOOT_JS } from '../src/admin-ui.js';
 import { renderHealth, renderQueue, webhookCheck, renderNotify, renderTools } from '../src/admin-pages.js';
 import { renderDashboard } from '../src/dashboard.js';
 import { renderReview } from '../src/review.js';
@@ -324,5 +324,101 @@ assert.ok(tl.includes('为什么这里没有按钮'), '工具页要解释「为�
 assert.ok(!/<form|<button|type="submit"/.test(tl), '工具页只读：不许出现表单或按钮');
 assert.ok(tl.includes('id="nav-tools"'), '工具页侧栏应高亮');
 ok('工具页：命令索引、只读、无按钮');
+
+/* 12. 侧栏徽章：口径、白名单、不排零、名字必须带窗口。
+      这一组里 N-07 是本轮唯一把口头纪律变成机械判据的一条 ——
+      「不设窗口的计数会变成永久欠账」以前靠人记得，现在谁加谁红。 */
+
+// N-01 每一项的 group 都必须存在于 ADMIN_GROUPS；栏数仍是 4，不许多开
+const groupKeys = new Set(ADMIN_GROUPS.map((g) => g.key));
+for (const it of ADMIN_NAV) assert.ok(groupKeys.has(it.group), `${it.key} 的 group 不在 ADMIN_GROUPS 里`);
+assert.equal(ADMIN_GROUPS.length, 4, '四栏是硬上限，不许开第五栏');
+assert.ok(ADMIN_NAV.length >= 9, '导航项被删过头了');
+ok('N-01 栏目归属合法、栏数锁 4');
+
+// N-02 每组至少一项：空分组会渲染出一个孤零零的标题
+for (const g of ADMIN_GROUPS) {
+  assert.ok(ADMIN_NAV.some((it) => it.group === g.key), `分组「${g.text}」下面是空的`);
+}
+ok('N-02 没有空分组');
+
+// N-03 href 全局唯一：同一项不许挂两栏
+const hrefs = ADMIN_NAV.map((it) => it.href);
+assert.equal(new Set(hrefs).size, hrefs.length, '有重复 href');
+ok('N-03 href 全局唯一');
+
+// N-04 tone 白名单：把配置里的值直接拼进 class 就是注入面，必须走 TONE_CLASS
+const ALLOWED_PILL = /^sv-pill( ok| warn| bad)?$/;
+const scanPills = (html) => (html.match(/class="sv-pill[^"]*"/g) || []).map((m) => m.slice(7, -1));
+const withCounts = renderAdminNav('dash', { pendingComments: 2, notifyFail7d: 1 });
+for (const c of scanPills(withCounts)) assert.match(c, ALLOWED_PILL, `徽章 class 逃出白名单：${c}`);
+/* 把 tone 临时改成未知值，必须退化成中性徽章而不是拼出 sv-pill weird。
+   这不是拿被测输出当期望值 —— 期望值是白名单本身，改的是输入。 */
+const keepTone = BADGE_SOURCE.pendingComments.tone;
+BADGE_SOURCE.pendingComments.tone = 'weird';
+const weird = renderAdminNav('dash', { pendingComments: 2 });
+BADGE_SOURCE.pendingComments.tone = keepTone;
+for (const c of scanPills(weird)) assert.match(c, ALLOWED_PILL, `未知 tone 没被白名单挡住：${c}`);
+assert.ok(weird.includes('class="sv-pill"'), '未知 tone 应退化成中性徽章 sv-pill');
+ok('N-04 未知 tone 退化为中性徽章，class 不出白名单');
+
+// N-05 0 / null / 负数 都不渲染：一排 0 会把「有没有事」重新变成阅读任务
+const zero = renderAdminNav('dash', { pendingComments: 0, notifyFail7d: 0 });
+assert.ok(!scanPills(zero).length, '0 不该渲染徽章');
+assert.ok(!scanPills(renderAdminNav('dash', null)).length, 'counts 缺省时不该渲染徽章');
+assert.ok(!scanPills(renderAdminNav('dash', { pendingComments: -3, notifyFail7d: NaN })).length, '负数 / NaN 不该渲染徽章');
+const two = renderAdminNav('dash', { pendingComments: 2, notifyFail7d: 0 });
+assert.ok(scanPills(two).length === 1 && two.includes('>2</span>'), '有值时只渲染有值那一个');
+ok('N-05 零值/缺省/负数不渲染，只渲染真实待办');
+
+// N-06 每一项的 badge 名都必须在 BADGE_SOURCE 有定义：不出现无口径的计数
+for (const it of ADMIN_NAV) {
+  if (!it.badge) continue;
+  assert.ok(BADGE_SOURCE[it.badge], `${it.key} 的 badge「${it.badge}」没在 BADGE_SOURCE 登记`);
+}
+ok('N-06 徽章名全部有口径定义');
+
+// N-07 带窗口的计数，名字里必须带窗口后缀。
+// 不加窗口 = 数字永远不归零 = 几天后没人再看待办条（P-078 的第二次）。
+for (const [name, src] of Object.entries(BADGE_SOURCE)) {
+  if (src.window == null) continue;
+  assert.match(name, /\d+[dhw]$/, `「${name}」设了 window 却没在名字里带窗口后缀`);
+  assert.ok(name.endsWith(src.window), `「${name}」的后缀和 window=${src.window} 对不上`);
+}
+assert.ok(Object.keys(BADGE_SOURCE).includes('notifyFail7d'), '通知失败必须带 7d 窗口');
+ok('N-07 带窗口的计数，名字里必须带窗口后缀');
+
+// N-08 源码结构不变量：侧栏容器只能由 renderAdminNav 产出。
+// 用「除 admin-ui.js 外命中 0 次」+「admin-ui.js 命中恰好 1 次」两个独立计数，
+// 单看前者会在 renderAdminNav 被删掉时变成空集恒真（假绿形态①）。
+const navLit = /<nav class="admin-nav"/g;
+let outside = 0;
+for (const f of readdirSync('src')) {
+  if (!f.endsWith('.js') || f === 'admin-ui.js') continue;
+  outside += (readFileSync(`src/${f}`, 'utf8').match(navLit) || []).length;
+}
+const inside = (readFileSync('src/admin-ui.js', 'utf8').match(navLit) || []).length;
+assert.equal(inside, 1, 'renderAdminNav 里应恰好产出一处 <nav class="admin-nav"');
+assert.equal(outside, 0, '有页面手写了侧栏容器，应改用 renderAdminNav()');
+const editorNav = (editor.match(navLit) || []).length;
+assert.equal(editorNav, 1, 'editor.html 的静态侧栏应恰好一处');
+ok('N-08 侧栏容器只由 renderAdminNav 产出');
+
+// N-09 每个页面传的 active 都必须是 ADMIN_NAV 里真实存在的 key。
+// 这条抓的是一个真发生过的 bug：评论页写 active:'comments'，而 key 是 'cmts'
+// —— 侧栏在评论页永远不高亮，肉眼几乎看不出来（那页本来就在评论管理里）。
+const navKeys = new Set(ADMIN_NAV.map((it) => it.key));
+const UNLIT = new Set(['history']); // 版本历史是子页，菜单里没有对应项
+const actives = new Set();
+for (const f of readdirSync('src')) {
+  if (!f.endsWith('.js')) continue;
+  for (const m of readFileSync(`src/${f}`, 'utf8').matchAll(/\bactive: '([a-z]+)'/g)) actives.add(m[1]);
+}
+assert.ok(actives.size >= 8, `只扫到 ${actives.size} 个 active 值，判据的输入可疑（空集恒真防护）`);
+for (const a of actives) {
+  assert.ok(navKeys.has(a) || UNLIT.has(a), `active:'${a}' 在 ADMIN_NAV 里没有对应 key，那一页侧栏永远不会高亮`);
+}
+assert.ok(renderAdminNav('cmts').includes('class="on" aria-current="page"'), '评论页高亮必须落在 cmts 上');
+ok('N-09 active 值全部对得上导航 key');
 
 console.log(`\nadmin nav: ${pass} passed`);

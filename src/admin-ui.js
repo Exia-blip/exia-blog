@@ -11,7 +11,7 @@ export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ESC[ch]);
    这四样此前在页面里各写一份：语义色是散落的 if、时间是绝对时刻、
    空态是同一句 sv-empty 抄五遍。抽到这里，页面只传数据。
    不新增一行 CSS —— 全部复用 style.css 已有的 .sv-pill(.ok/.warn/.bad)
-   / .sv-time / .sv-empty（预算只剩 27 B，加规则必爆）。 */
+   / .sv-time / .sv-empty（gzip -9 余量 199 B，只够给侧栏徽章加一条定位规则）。 */
 
 /** 绝对时刻（北京）。D1 存的是 UTC 的 `YYYY-MM-DD HH:MM:SS`，不补 Z 会差 8 小时。 */
 export function toCN(s) {
@@ -123,27 +123,74 @@ export const ADMIN_NAV = [
   { key: 'posts', group: 'content', text: '文章列表', href: '/editor?panel=posts', icon: 'list', id: 'nav-posts' },
   { key: 'checks', group: 'content', text: '发布自检', href: '/editor?panel=checks', icon: 'check', id: 'nav-checks' },
   { key: 'review', group: 'content', text: '投稿审核', href: '/admin/review', icon: 'check', id: 'nav-review' },
-  { key: 'cmts', group: 'content', text: '评论审核', href: '/admin/comments', icon: 'check', id: 'nav-cmts' },
+  { key: 'cmts', group: 'content', text: '评论审核', href: '/admin/comments', icon: 'check', id: 'nav-cmts', badge: 'pendingComments' },
   { key: 'series', group: 'content', text: '系列', href: '/editor?panel=series', icon: 'layers', id: 'nav-series' },
   { key: 'friends', group: 'content', text: '友链管理', href: '/admin/friends', icon: 'grid', id: 'nav-friends' },
-  { key: 'notify', group: 'system', text: '通知投递', href: '/admin/notify', icon: 'bell', id: 'nav-notify' },
+  { key: 'notify', group: 'system', text: '通知投递', href: '/admin/notify', icon: 'bell', id: 'nav-notify', badge: 'notifyFail7d' },
   { key: 'stats', group: 'system', text: '访问统计', href: '/admin/stats', icon: 'chart', id: 'nav-stats' },
   { key: 'health', group: 'system', text: '健康检查', href: '/admin/health', icon: 'shield', id: 'nav-health' },
   { key: 'queue', group: 'system', text: '定时队列', href: '/admin/queue', icon: 'clock', id: 'nav-queue' },
   { key: 'audit', group: 'system', text: '操作日志', href: '/admin/audit', icon: 'list', id: 'nav-audit' },
   { key: 'site', group: 'system', text: '站点设置', href: '/editor?panel=site', icon: 'gear', id: 'nav-site' },
-  { key: 'tools', group: 'tools', text: '工具与备份', href: '/admin/tools', icon: 'shield', id: 'nav-tools' },
+  { key: 'tools', group: 'tools', text: '工具与备份', href: '/admin/tools', icon: 'shield', id: 'nav-tools', hint: '低频、误触代价高；页面只读，动作在命令行' },
 ];
 
-/* 分组标题复用 .admin-nav-label：CSS 预算只剩 27B，不为分组新增规则。
+/* 徽章口径写在配置里，不散到各页面。侧栏与概览待办条读同一个 navCounts()，
+   数字物理同源 —— 「侧栏说 3、概览说 5」这种事在结构上就不可能发生。
+   window 非 null 的名字必须自带窗口后缀（notifyFail7d 而非 notifyFail）：
+   不设窗口的计数会变成永久欠账，几天后整条待办失去可信度。A-21 守着这条。 */
+export const BADGE_SOURCE = {
+  pendingComments: { tone: 'warn', window: null, label: '待审评论' },
+  notifyFail7d: { tone: 'bad', window: '7d', label: '近 7 天通知失败' },
+};
+
+/* tone 只认白名单，未知值退化成中性徽章。把配置里的值直接拼进 class 字符串，
+   等于让一份配置变成 HTML 注入面 —— 和 pill() 同一条纪律。 */
+const TONE_CLASS = { warn: 'sv-pill warn', bad: 'sv-pill bad', ok: 'sv-pill ok' };
+
+/** 侧栏徽章。0 / 负数 / 非数字一律不渲染：一排 0 会把「有没有事」重新变成阅读任务。 */
+function badge(counts, name) {
+  const src = BADGE_SOURCE[name];
+  if (!src) return '';
+  const n = Number(counts?.[name] ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const cls = TONE_CLASS[src.tone] || 'sv-pill';
+  return `<span class="${cls}" title="${esc(src.label)} ${n} 条">${Math.floor(n)}</span>`;
+}
+
+/* 待办条与侧栏徽章的唯一计数入口。两条 COUNT 各走各的索引，不扫全表。
+   调用方先拿 promise、最后再 await，省掉一个额外 RTT。
+   查询炸了返回 0（不是抛）：侧栏少一个数字比整页 500 好，但留一条日志。 */
+export async function navCounts(db) {
+  if (!db) return { pendingComments: 0, notifyFail7d: 0 };
+  const q = (sql) =>
+    db
+      .prepare(sql)
+      .first()
+      .then((r) => Number(r?.c) || 0)
+      .catch((e) => {
+        console.error('navCounts', e?.message || e);
+        return 0;
+      });
+  const [pendingComments, notifyFail7d] = await Promise.all([
+    q(`SELECT COUNT(*) c FROM comments WHERE status = 'pending'`),
+    q(
+      `SELECT COUNT(*) c FROM comments
+       WHERE notify_status = 'fail' AND notified_at >= datetime('now','-7 days')`
+    ),
+  ]);
+  return { pendingComments, notifyFail7d };
+}
+
+/* 分组标题复用 .admin-nav-label：CSS 预算只剩 199B，不为分组新增规则。
    一个 <nav> 里放四段 label + 链接，语义上仍是一张菜单（一组 aria-label），
    不拆成四个 nav —— 屏幕阅读器会把四个 nav 念成四块导航区。 */
-export function renderAdminNav(active = '') {
+export function renderAdminNav(active = '', counts = null) {
   const one = (it) => {
     const on = it.key === active;
-    return `<a${on ? ' class="on" aria-current="page"' : ''} href="${esc(it.href)}" id="${it.id}">${svg(
-      it.icon
-    )}<span>${esc(it.text)}</span></a>`;
+    return `<a${on ? ' class="on" aria-current="page"' : ''} href="${esc(it.href)}" id="${it.id}"${
+      it.hint ? ` title="${esc(it.hint)}"` : ''
+    }>${svg(it.icon)}<span>${esc(it.text)}</span>${it.badge ? badge(counts, it.badge) : ''}</a>`;
   };
   return `<nav class="admin-nav" aria-label="后台管理">${ADMIN_GROUPS.map(
     (g) =>
@@ -155,7 +202,9 @@ export function renderAdminNav(active = '') {
 /** 服务端页面统一外壳。body 是 <main> 里的内容，不在这里转义。
     头部只留 h1 + 一句说明，和写作页同一套（不再压一个「后台管理」小标签，
     那和侧栏的分组标题重复）。 */
-export function renderAdminShell({ site = {}, active = '', title, desc = '', body = '', bodyClass = '' }) {
+/* nav 是 navCounts() 的结果，只在有数字时渲染徽章；缺省不渲染，
+   不报错 —— 测试和局部渲染都不带 counts。 */
+export function renderAdminShell({ site = {}, active = '', title, desc = '', body = '', bodyClass = '', nav = null }) {
   const ava = site.avatar
     ? `<img class="admin-ava" src="${esc(avatarSrc(site.avatar, 96))}" alt="" width="48" height="48">`
     : '';
@@ -182,7 +231,7 @@ ${themeBoot(site)}
     </div>
     <input type="checkbox" id="nav-toggle" class="nav-cb" hidden>
     <div class="admin-nav-wrap">
-      ${renderAdminNav(active)}
+      ${renderAdminNav(active, nav)}
     </div>
   </aside>
   <main class="admin-main">

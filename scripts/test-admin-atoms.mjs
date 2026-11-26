@@ -184,7 +184,21 @@ t('A-19 [P-078] 待办条的数字要带可判定口径（通知失败不许全�
     /FROM comments WHERE notify_status = 'fail'`/,
     '通知失败还在全表统计，历史失败会永久占着待办'
   );
-  assert.match(dash, /notify_status = 'fail' AND notified_at >=/, '通知失败要带时间窗口');
+  /* 窗口的落点从 dashboard.js 搬到了 navCounts()（侧栏徽章与待办条共用同一条 SQL），
+     所以肯定断言跟着搬家 —— 但「dashboard 必须走 navCounts」这一条同时守住：
+     谁在 dashboard 里另起一条查询，数字就会和侧栏漂。 */
+  assert.match(
+    ui,
+    /notify_status = 'fail' AND notified_at >= datetime\('now','-7 days'\)/,
+    '通知失败要带时间窗口'
+  );
+  assert.match(dash, /navCounts\(db\)/, '待办条必须走 navCounts，不能自己另查一条');
+  assert.equal(
+    (ui.match(/notified_at >= datetime\('now','-7 days'\)/g) || []).length,
+    1,
+    '7 天窗口只能有一处定义，多出来的那份迟早会漂'
+  );
+  assert.doesNotMatch(dash, /notifyFail: notifyFail\?\.c/, 'notifyFail 还来自独立查询，两个数字会漂');
 });
 
 console.log(`\n后台原子层 ${pass} passed, ${fail} failed`);
