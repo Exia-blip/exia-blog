@@ -104,4 +104,76 @@ assert.doesNotMatch(
 );
 ok('T-04 基准 :root 的 --serif 是衬线栈（主题层改 sans 不在此列）');
 
+/* ---------- T-05 正文链接：只动下划线，不动字色 ---------- */
+
+const mdA = blocks.find((b) => b.sel === '.md a');
+assert.ok(mdA, '找不到 .md a 规则 —— 正文链接的判据失效了');
+assert.match(
+  mdA.body,
+  /color:\s*inherit/,
+  `正文链接又染字色了：${mdA.body.trim()} —— 一篇文章十个链接就会像十张小广告`
+);
+assert.match(
+  mdA.body,
+  /border-bottom:\s*1px solid var\(--line-strong\)/,
+  '下划线没用 --line-strong：--line 是给分隔线算的，在纸底上等于没画'
+);
+/* 全局 `a:hover { color: var(--accent) }` 会漏进正文链接：`.md a:hover` 只声明
+   border-color 的话，color 仍由那条全局规则生效 —— 悬停时字色还是变了。 */
+const mdAHover = blocks.find((b) => b.sel === '.md a:hover');
+assert.ok(mdAHover, '找不到 .md a:hover');
+assert.match(
+  mdAHover.body,
+  /color:\s*inherit/,
+  'hover 没把字色按回去：全局 a:hover 会把正文链接染成强调色，等于「只动下划线」没做到'
+);
+const rootTok = blocks.find((b) => b.sel === ':root');
+assert.ok(rootTok, '找不到基准 :root');
+assert.match(
+  rootTok.body,
+  /--line-strong\s*:\s*color-mix\(/,
+  '--line-strong 没从 fg/line 派生 —— 换皮肤（七套 fg/line 各不相同）会失配'
+);
+ok('T-05 正文链接只靠 --line-strong 下划线区分，字色继承');
+
+/* ---------- T-06 [P-089] 打印段唯一且四件事齐全 ---------- */
+
+const printCount = (CSS.match(/@media print\s*\{/g) || []).length;
+assert.equal(
+  printCount,
+  1,
+  `@media print 有 ${printCount} 段 —— 后一段会整体覆盖前一段，改一处等于没改`
+);
+const printCss = CSS.slice(CSS.indexOf('@media print'));
+assert.match(printCss, /@page\s*\{[^}]*margin:/, '打印没设页边距，正文会贴到纸边');
+assert.match(printCss, /attr\(href\)/, '打印没把链接地址印出来 —— 纸上点不了');
+assert.match(printCss, /\*\s*\{\s*box-shadow:\s*none\s*!important/, '打印没清阴影，纸面会多一圈脏灰');
+assert.match(printCss, /--fg:\s*#000/, '打印没洗 token：深色模式的 --fg 是浅灰，印在白纸上会看不见');
+ok('T-06 [P-089] 打印段唯一：页边距 / 黑字 / 去阴影 / 链接地址');
+
+/* ---------- T-07 [P-090] 侧栏目录只有缩进，没有左侧色条 ---------- */
+
+const tocOl = blocks.find((b) => b.sel === '.post-toc ol');
+assert.ok(tocOl, '找不到 .post-toc ol');
+assert.doesNotMatch(tocOl.body, /border-left|::before/, '目录容器还挂着左侧色条/进度条');
+const tocA = blocks.find((b) => b.sel === '.post-toc a');
+assert.ok(tocA, '找不到 .post-toc a');
+assert.doesNotMatch(tocA.body, /border-left/, '目录项还挂着左侧色条，应只靠缩进与颜色');
+ok('T-07 [P-090] 目录纯缩进：无 border-left、无进度条');
+
+/* ---------- T-08 [P-091] 行号行高必须按 px 对齐代码行 ---------- */
+
+const codeRule = blocks.find((b) => b.sel === '.md pre.code-block' && /font-size/.test(b.body));
+const gutRule = blocks.find((b) => b.sel === '.md pre.code-block > .gutter');
+assert.ok(codeRule && gutRule, '代码块或行号规则不见了');
+const cFs = Number((codeRule.body.match(/font-size:\s*([\d.]+)px/) || [])[1]);
+const cLh = Number((codeRule.body.match(/line-height:\s*([\d.]+)/) || [])[1]);
+const gLh = Number((gutRule.body.match(/line-height:\s*([\d.]+)px/) || [])[1]);
+assert.ok(cFs && cLh && gLh, `读不到字号/行高：code ${cFs}/${cLh}，gutter ${gLh}`);
+assert.ok(
+  Math.abs(gLh - cFs * cLh) < 0.01,
+  `行号行高 ${gLh}px ≠ 代码行高 ${cFs}×${cLh}=${(cFs * cLh).toFixed(1)}px —— 十几行后编号就跑到代码下面`
+);
+ok(`T-08 [P-091] 行号行高 ${gLh}px 与代码行 ${cFs}×${cLh} 对齐`);
+
 console.log(`\n[P-086] typography: ${pass} passed`);

@@ -462,7 +462,6 @@ function bindForm() {
    IO 在长段落里会同时命中两节，还得再加一套优先级逻辑，不如直接比位置。 */
 function bindTocSpy() {
   const desktop = document.querySelector('.post-toc');
-  const ol = desktop && desktop.querySelector('ol');
   const all = [...document.querySelectorAll('a[data-toc]')];
   if (!all.length) return;
 
@@ -514,18 +513,6 @@ function bindTocSpy() {
         // 同一标题在桌面与抽屉里各有一条链接，优先记可见的那条
         const links = all.filter((x) => x.dataset.toc === el.id);
         activeLink = links.find((x) => x.offsetParent !== null) || links[0] || a;
-      }
-    }
-
-    // 进度条：端点落在当前项的中点。给的是 0–1 的比例，CSS 那边用 scaleY 吃掉，
-    // 写百分比会让它退回 height 动画 —— 那是要重排的
-    if (ol) {
-      const li = activeLink.closest('li');
-      if (li) {
-        const oR = ol.getBoundingClientRect();
-        const lR = li.getBoundingClientRect();
-        const p = oR.height ? (lR.top + lR.height / 2 - oR.top) / oR.height : 0;
-        ol.style.setProperty('--toc-p', Math.max(0, Math.min(1, p)).toFixed(3));
       }
     }
 

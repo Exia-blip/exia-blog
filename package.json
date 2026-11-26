@@ -39,7 +39,6 @@
     "comment:sweep": "node scripts/comment-sweep.mjs",
     "comment:probe": "node scripts/comment-probe.mjs",
     "check:scroll": "node scripts/check-scroll-ui.mjs",
-    "check:toc": "node scripts/check-toc-bar.mjs",
     "check:images": "node scripts/check-images.mjs",
     "check:ux": "node scripts/check-ux.mjs",
     "check:sitemap": "node scripts/check-sitemap.mjs",

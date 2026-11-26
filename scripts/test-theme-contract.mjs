@@ -1394,7 +1394,7 @@ t('TC-39 [P-064] 契约 ↔ 消费侧双向对账：引用的变量要有来源�
   /* 定义：CSS 里任何位置的 `--x:`（组件块里的局部默认值也算来源，比如 .tag.tw-t0 的 --tw） */
   const defined = new Set([...css.matchAll(/(?:^|[\s;{])(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
   /* 引用：只取**不带 fallback** 的 var(--x)。带 fallback 的是有意给默认值
-     （`var(--border, #e3e5e8)` 是运行时可选项，`var(--toc-p, 0)` 由 JS 写），不算悬空。 */
+     （`var(--border, #e3e5e8)` 是运行时可选项），不算悬空。 */
   const bare = new Set([...css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/g)].map((m) => m[1]));
 
   assert.ok(defined.size >= 15 && bare.size >= 15,

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * CI 夹具：本地 D1 是空库，浏览器检查上去全是 404 —— 页面级断言没有靶子。
- * 这里造一组最小但够用的数据，让 check-ux / check-scroll-ui / check-toc-bar 有东西可测：
+ * 这里造一组最小但够用的数据，让 check-ux / check-scroll-ui / check-toc-sticky 有东西可测：
  *
  *   ci-fixture  有 5 个 h2（目录能出来）、含关键词「缓存」（搜索能命中）、
  *               有一个 240 字符的长代码行（横滚能触发）、正文够长（能滚、能出阅读百分比）

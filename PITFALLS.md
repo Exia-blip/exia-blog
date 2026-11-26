@@ -922,6 +922,39 @@
 
 ---
 
+## P-089 按「这块没有」的清单施工前，先 grep 一遍现状，否则会造出第二份
+
+- **现象**：视觉评审给出七条，其中第 6 条写「现在线上 `style.css` 里没有 print 段，等于打印出来是米白底 + 阴影 + 看不到链接」。实际 `public/style.css` 里 `@media print` 已经 44 行：白底黑字、隐藏导航、折叠代码展开、链接 `http` 地址印出、表格解除限高、`page-break-inside`，一样不少。照着清单直接追加，就会出现第二段 `@media print`，位置在原来那段之后，**整体覆盖**前一段里没重复的规则——原有 44 行里有一半会悄悄失效。
+- **根因**：需求清单描述的是「我以为的现状」，不是现状。清单越长、越像体检报告，这个偏差越贵：它同时给了方向和「已完成度」，而后者从没被核验。同类偏差这一轮还有两处——「删掉 hero SVG 能省 90px 首屏」不成立（那个节点是 `position:absolute` + `display:none`，本来就不占高度），「TOC 左侧色条没有脚本在推」也不成立（见 P-090，写入端在 `public/post.html`）。
+- **复现**：`grep -c "@media print" public/style.css`，修前是 2（一段主块 + 一行 mermaid）。把 mermaid 那行并进主块后是 1。不并的话，T-06 的 `printCount === 1` 直接红。
+- **断言**：`scripts/test-typography.mjs` T-06 先数 `@media print` 段数必须为 1，再在**那一段**里查四件事：`@page` 页边距、`attr(href)` 印链接、`box-shadow: none !important`、`--fg: #000` 洗 token（深色模式打印出来是 `#e9e6e1` 浅灰）。段数那条是主判据：它挡的不是「漏写」，是「写了两份」。
+- **边界**：`grep -c` 只能数到段，数不到「某条规则是否被后一段覆盖」。真正的覆盖关系要按源码顺序读。T-06 的 `printCss` 从第一段切到文件尾，若将来 print 段不在末尾，切片会带进别的规则——那时要改成按大括号配对截取。
+- **出处**：`public/style.css`（打印段）、`scripts/test-typography.mjs`（T-06）
+
+---
+
+## P-090 按扩展名搜代码，把活功能判成死代码：`--toc-p` 写在 `public/post.html` 里
+
+- **现象**：改侧栏目录时，我 grep 了 `public/*.js` 与 `src/*.js` 找 `--toc-p` / `setProperty` / `IntersectionObserver`，0 命中，于是当场判定「进度条从上线起就没亮过，JS 从来没写，`check-toc-bar.mjs` 守的是个不存在的功能」。真实情况正相反：`public/post.html:528` 就是 `ol.style.setProperty('--toc-p', …)`，`:534` 切换 `.on`，截图里当前小节是橙色的。差一步就把一个在跑的功能写进文档、还据此删掉一个有效的检查脚本。
+- **根因**：无构建静态站的脚本有三个落点——独立 `.js`、HTML 内联 `<script>`、以及 Worker 模板拼出来的字符串。只按扩展名 grep，漏掉的恰好是最大的一类（`public/post.html` 有 600+ 行内联脚本）。更根本的是：把「搜不到」当成「不存在」。否定结论没有第三来源（运行时读 DOM / 截图），而搜索只能证明「我搜的那几个文件里没有」。
+- **复现**：`grep -rn "toc-p" public/*.js src/*.js` → 0；`grep -n "toc-p" public/post.html` → 528。再用 puppeteer 读 `.post-toc a.on` 的 textContent，非空——两个来源不一致时，以运行时为准。
+- **断言**：色条这次确实要删（要求是「纯缩进」），删的时候三处一起清：CSS（`ol::before` + 两处 `border-left`）、写入端（`public/post.html` 的 `--toc-p` 块与只服务于它的 `ol` 变量）、守它的像素检查（`check-toc-bar.mjs` / `check:toc` / `ci-browser` 条目）。T-07 反向锁 CSS 侧；写入端与检查脚本的删除没有断言，属于已知未自动化。
+- **边界**：`.on` 的高亮必须保留（JS 仍在写，删掉它当前小节就不变色了）。所以「删色条」不等于「目录失效」——这也是本条与 P-089 的共同点：**先分清哪一半在跑，再决定删哪一半**。
+- **出处**：`public/style.css`（`.post-toc`）、`public/post.html`（`--toc-p` 写入端已删）、`scripts/test-typography.mjs`（T-07）、已删的 `scripts/check-toc-bar.mjs`
+
+---
+
+## P-091 行号与代码字号不同，却共用同一个无单位行高
+
+- **现象**：代码块行号 `.gutter` 是 12px，代码是 14px，两边都写 `line-height: 1.7`。无单位行高按**各自字号**换算：20.4px vs 23.8px，每行差 3.4px。十行之后编号就比代码低 34px，读者会以为行号标错了行。
+- **根因**：`1.7` 看起来是「同一个值」，实际是「同一个倍数」。行号是独立块（`white-space: pre` 的一串数字），它不继承代码的行盒，只能靠 px 对齐。这类错在短代码块（<5 行）里肉眼看不出来，而长代码块才加行号（`long` 判定），恰好是漂移最明显的地方。
+- **复现**：打开任意 40 行以上的代码块，量 `.gutter` 与 `code` 的第 1 行与第 20 行基线差；或直接算 `12×1.7` 与 `14×1.7`。
+- **断言**：`.md pre.code-block` 的 `font-size × line-height` 必须等于 `.gutter` 的 px 行高（容差 0.01）。`scripts/test-typography.mjs` T-08 读三个数现算，改字号不改行号会红。
+- **边界**：这条只管行高对齐，不管字体本身的 ascent/descent 差；等宽字体与数字混排若仍有 1px 视觉偏差，属于字体度量，断言管不到。
+- **出处**：`public/style.css`（`.md pre.code-block` / `.gutter`）、`scripts/test-typography.mjs`（T-08）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：
