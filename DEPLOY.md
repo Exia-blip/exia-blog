@@ -103,6 +103,13 @@ Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发�
 | 评论落库 → 触发 `notifyComment` | 本地已验 / **线上未验** | 2026-11-26 本地 dev 真发一条评论（`POST /api/comments` → `{ok:true,status:"pending"}`），本地 sink 收到 `[待办] 新评论待审…`，库里 `notify_status=ok / notify_note=待办提醒 / notified_at` 与 `created_at` 同秒。那一轮把 `TURNSTILE_SITE_KEY` 置空跑的，**只覆盖「落库 → 通知」这段，不含 Turnstile 那一跳**。线上仍待人工：`npm run verify:comment-e2e -- <slug>` 用唯一 nonce 同时查 D1 公开评论与 sink inbox 的 💬 payload，两边都命中才算过；判据自检 6/6 已进 `npm test`、两次注入（去形状判据 / 去回复递归）均先红后恢复 |
 | 浏览器真过 Turnstile → 提交评论 | **未验** | managed 模式在无头/有头自动化浏览器都拿不到 token，需真实人工点一次验证码；上面那个脚本不自动提交、只观察，token 从 `SINK_URL` 环境变量读且不回显 |
 
+**判据的强弱顺序（留痕按这个写）**：`群里真的跳出 💬` > `D1 + sink 双源命中同一个 nonce` > `脚本单侧命中`。
+理由不是「多查一处更硬」，而是覆盖面不同：双源守的是「落库了但通知没发」这条缝；消息真进群说明投递确实发生了，
+它把「`notifyComment` 被调用」和「sink 收到」两步一起覆盖，范围比两个接口都命中更大。所以留痕优先写「群里收到」。
+双源脚本（`verify:comment-e2e`）的价值主要在**排查定位**：群里没消息时跑一次，D1 缺 = 评论没落库，sink 缺 = 通知没发，
+一次分清哪半步断，不用两边猜。平时不必跑。
+`SINK_URL` 带 `token=` 查询参数，**它本身就是凭证**：只在 shell 里 `export`，别贴进对话、别写进文档、别进任何提交。
+
 冒烟守得住「写入动作没把地址弄坏 / token 在写入窗口被轮换 / sink 此刻可用」，**守不住「写进去的值和 sink 认的值不是同一个」**：CF secrets 只可写不可读（`wrangler secret list` 只列名字/类型，没有长度或哈希），回打用的还是本地 `url` 变量。补上本地断言后，代码链（写值 → 绑定名 → 真 `webhook.js` → sink 接受）已验；2026-11-26 的本地真发又把「评论落库 → 触发通知」这段补成了本地已验。**未验的只剩两条**：CF 线上实际存的值（要靠线上真发回打），和线上的评论提交链路（要人工点一次验证码）。不要把本地断言读成线上绑定已读回。
 
 **空值闸门的位置不能挪到回打里**：回打打的是本地 `url`，wrangler 把空值写进去时它照样 errcode 0；写进去之后 secrets 读不回，没有第二次机会。所以 `putSecret` 入口的 `if (!value || !String(value).trim()) die(...)` 是唯一能挡空 stdin 的地方。wrangler 的 `isTTY ? prompt() : readFromStdin()` 路径在 workers-sdk#16193 已确认，本机 `wrangler-dist/cli.js` 里也能读到同一分支。**不要用 `printf '' | wrangler secret put WEBHOOK_URL` 去线上复现**——那会真的把现役 secret 清空并触发部署；本地用假 wrangler（收到空 stdin 仍 exit 0）复现同一形状即可。冒烟失败不回滚 secret——回打失败可能是 sink 抖动，回滚会把「地址本身错」和「sink 短暂不可用」混成一件事。
