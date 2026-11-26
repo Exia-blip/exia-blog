@@ -855,7 +855,17 @@
 
 ---
 
+## P-083 进程根本没起来，报错却指向 SQL
+
+- **现象**：脚本里 `execFileSync('npx', ['wrangler', 'd1', 'execute', …])` 在 Windows 上直接抛 `spawnSync npx ENOENT`；退一步改成 `shell: true` 再把整条命令拼成字符串，带空格的 SQL 又被 shell 拆成十几个参数（`--command` 只吃到第一个词），wrangler 回一段 `near "AND": syntax error`。两种失败都会被读成「SQL 写错了」。
+- **根因**：Windows 上 `npx` 是 `npx.cmd`，`.cmd` 由 `cmd.exe` 解释，而 node 的 `spawn` 只认 PE 可执行文件 —— **进程根本没起来**，错误文案里却只有 `spawnSync`，没有一个字说「你的命令没跑」。`shell: true` 那条更远：故障在参数边界（一个 argv 被切成十几个），却由最下游的 SQL 解析器报出来，**报错指向错误的一端**。与 P-077 / P-082 同族：失败被翻译成一个能自圆其说的形状，于是修的人一直在错的地方改。
+- **复现**：`node -e "require('node:child_process').execFileSync('npx',['-v'])"` → `ENOENT`；任何把带空格 SQL 拼进 `shell: true` 命令串的写法 → wrangler 报 SQL 语法错而不是参数个数错。旧探针（临时脚本）两次都栽在这里。
+- **断言**：运行时报错没有断言能提前抓，这一条靠**单一入口**约束代替断言 —— **调用 wrangler 跑 D1 查询的唯一入口是 `scripts/lib/d1.mjs`，新增脚本不许内联 `spawn` / `execFileSync`**。那个模块用 `process.execPath` + `require.resolve('wrangler/package.json')` 推出的 `wrangler.js` 绝对路径，shell 全程不参与；`sqlStr()` 统一转义，不手拼引号。`comment-probe.mjs` 已走它 —— 而 `grep -l "lib/d1.mjs" scripts/*.mjs` 只命中一个文件，本身就是「这条约束还没普及」的证据。
+- **边界**：这条只覆盖 D1 查询。存量 **16 个脚本**里仍能 grep 到 wrangler（多数是 `deploy` / `secret put` / `d1 export`，`lib/d1.mjs` 没有对应封装），属**已知的第二份事实源**。按各自下次动到来迁，别单开一轮：每个脚本都带自己的幂等 UPDATE 逻辑，一次迁四个等于一次改四件事。真到那一步，判据是「同一个脚本改完，它自己的行为断言仍然全绿」，不是「全仓零 `execFileSync`」。
+- **出处**：`scripts/lib/d1.mjs` 头部注释（2026-11-26 抽公共入口时写下）；此前 `backfill-html` / `make-variants` / `gen-cards` / `setup` 各留过一段同义注释，四份互相独立
+
 ---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

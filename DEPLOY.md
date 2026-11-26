@@ -237,7 +237,10 @@ npx wrangler secret put ADMIN_LOGINS       # 输入: exia-blip
 
 **新脚本查 D1 一律走 `scripts/lib/d1.mjs`，不要写 `execFileSync('npx', …)`**：Windows 上 npx 是 `.cmd`，
 node 直接拉会报 `spawnSync npx ENOENT`；退化成 `shell: true` 则会把带空格的 SQL 拆成十几个参数，
-报出来的却是 SQL 语法错。两个坑在本仓已踩过四次（`backfill-html` / `make-variants` / `gen-cards` / `setup` 各留了一段注释）。
+报出来的却是 SQL 语法错。两个坑在本仓已踩过四次（`backfill-html` / `make-variants` / `gen-cards` / `setup` 各留了一段注释），
+写成 **P-083** —— 这一条比「怎么调 wrangler」重要：失败时你以为要改 SQL，其实是进程根本没起来。
+**存量 16 个脚本仍各自内联 wrangler**（多是 `deploy` / `secret put` / `d1 export`，`lib/d1.mjs` 没有对应封装），
+属已知的第二份事实源：按各自下次动到来迁，别单开一轮 —— 每个脚本都带自己的幂等逻辑，一次迁四个等于一次改四件事。
 
 - **两条命令筛的不是同一批**：`notify:resend` 是**点名重投**，不判断该不该补（那是你的判断），也不受补推冷却限制；
   `comment:sweep` 是**按条件筛**（6 小时内 + 距上一跳满 1 小时 + 打分 ≥ 4）并删除，与 cron 每 20 分钟跑的是同一套。

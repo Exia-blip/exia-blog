@@ -11,7 +11,12 @@
    ③ 造出来的行 `notify_status='ok'`，让每 20 分钟一轮的 cron 补推跳过它
       （补推只捞 ''/fail），免得探针往群里发消息。
 
-   默认 dry：只报当前基数，不写库。加 --apply 才真造（会短暂写一行，退出前必删）。 */
+   默认 dry：只报当前基数，不写库。加 --apply 才真造（会短暂写一行，退出前必删）。
+
+   D1 查询一律走 lib/d1.mjs（不内联 spawn）。理由不是洁癖：`execFileSync('npx')`
+   在 Windows 上进程根本起不来（npx 是 .cmd），而报错只写 spawnSync；退化成
+   `shell: true` 又把带空格的 SQL 拆成十几个参数，最后由 SQL 解析器报语法错 ——
+   两种情况都会把人送到错的地方去改（P-083）。 */
 import { adminCookie } from './lib/session.mjs';
 import { d1Query, sqlStr } from './lib/d1.mjs';
 
