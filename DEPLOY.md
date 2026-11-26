@@ -116,6 +116,7 @@ Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发�
 拒绝状态 409（补发是重投，不是翻案）、3 秒内重复 429（CLI 自动等一次再试）、原文章已删 404（宁可发不出去，也不发半条）。
 结果写回 `notify_status / notify_note`（前缀「补发」，事后能分清哪次是手工重投）/ `notified_at`，并进 `audit_log`。
 **退出码就是判据**：0 = 平台回执 ok；1 = fail（平台码 93000 会点名「地址失效」）；2 = skip（没配 `WEBHOOK_URL`）；3 = 鉴权 / 参数 / 条目不存在。
+**`ok` 已经排掉两类怀疑**：地址失效与机器人被移出群都回 `200 + errcode 93000`，`sendWebhook` 判 `fail`。所以「`notify_status=ok` 但群里没消息」只剩一种可能——`WEBHOOK_URL` 指向另一个同样有效的群（两个群都回 0，机器分不出来）。那一步去对机器人配置，不是查代码。
 不带 `--id` 时补发最新一条 —— 发完评论紧接着跑的那条命令就是它。
 
 **评论巡检（cron 每 20 分钟，与友链巡检同一个触发器）**：`src/cron.js` 的 `sweepComments` 做两件事。
