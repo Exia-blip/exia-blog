@@ -889,6 +889,17 @@
 
 ---
 
+## P-086 判据的正则被更宽的同类词命中：`/serif/i` 匹配 `sans-serif`
+
+- **现象**：给「基准 `--serif` 必须是衬线栈」写断言，用 `/Iowan|Palatino|Georgia|Songti|Noto Serif|serif/i` 判。把基准那一行改成 `"PingFang SC", "Microsoft YaHei", sans-serif` 做注入——**四条断言全绿**。断言声称守的是衬线，实际守的只是「这个字符串里出现过 serif 这六个字母」。
+- **根因**：`sans-serif` 包含 `serif`。用通用字体族名当判据，等于把「反面的名字」也算成正面证据。同族的还有 `\b` 写在中文边界上不生效、`_` 没进字符类、`indexOf` 命中注释里的示例——都是「判据的匹配面比它自称的宽」。
+- **复现**：把 `public/style.css` 基准 `:root` 的 `--serif` 换成 sans 栈，跑 `node scripts/test-typography.mjs`。修好前 4/4 绿，修好后 T-04 红并打出实际值。
+- **断言**：`scripts/test-typography.mjs` T-04 改成两条并存——必须点名一个具体衬线族（`Iowan|Palatino|Georgia|Songti|"Noto Serif"`）**且** 不得出现 `sans-serif`。另一条更根本的纪律：**判据里不写能被反面值命中的词**，写具体族名，不写通用类名。
+- **边界**：这条只管源码层（有人把正文改成 `font-family: var(--serif)` 会被 T-02 抓到）。主题层把 `--serif` 指向 sans（anzhiyu 就是这么做的）是**设计选择，不判红**——所以 T-04 只看基准 `:root`，不看 `:root[data-theme=...]`。真要判「渲染后标题是不是衬线」，得读计算样式，那层在截图里看，不在这个脚本里冒充。
+- **出处**：`scripts/test-typography.mjs`（T-01 正文宽 680–740、T-02 正文零处衬线、T-03 落点白名单、T-04 基准衬线栈）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：
