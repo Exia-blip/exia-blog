@@ -400,7 +400,7 @@ for (const [name, src] of Object.entries(BADGE_SOURCE)) {
 assert.ok(Object.keys(BADGE_SOURCE).includes('notifyFail7d'), '通知失败必须带 7d 窗口');
 ok('N-07 带窗口的计数，名字里必须带窗口后缀');
 
-/* N-11 —— N-07 的通用版。N-07 只守「带窗口的计数，名字要带后缀」，
+/* N-11 [P-081] —— N-07 的通用版。N-07 只守「带窗口的计数，名字要带后缀」，
    管不到另一种更常见的形状：**数字有窗口或没有，但名字和声明一个都没说**。
    待办条那次就是这么错的：`notifyFail` 取自 `nav.notifyFail7d`（7 天窗口），
    标签写的是「通知失败」——读者会当成历史累计，于是每天看见同一个数字也不动手。
