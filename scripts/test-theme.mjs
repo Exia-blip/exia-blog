@@ -10,10 +10,6 @@ t('纸韵不额外发 link（已编在 style.css 里）', () => {
   assert.equal(themeCssTag('paper', 'abc'), '');
 });
 
-t('安知鱼同理', () => {
-  assert.equal(themeCssTag('anzhiyu', 'abc'), '');
-});
-
 t('其它主题直出 link，版本号来自内容哈希', () => {
   const tag = themeCssTag('ink', 'mwi16y2e');
   // 传进来的部署版本号在有 manifest 时被忽略：URL 必须跟 integrity 同源
@@ -44,10 +40,10 @@ t('空值当作纸韵', () => {
   assert.equal(themeCssTag(undefined), '');
 });
 
-t('七套主题里只有两套不发 link', () => {
-  const all = ['anzhiyu', 'paper', 'ink', 'forest', 'ocean', 'plum', 'mono'];
+t('七套主题里只有纸韵不发 link', () => {
+  const all = ['paper', 'ink', 'forest', 'ocean', 'plum', 'mono', 'edge'];
   const withLink = all.filter((id) => themeCssTag(id) !== '');
-  assert.deepEqual(withLink, ['ink', 'forest', 'ocean', 'plum', 'mono']);
+  assert.deepEqual(withLink, ['ink', 'forest', 'ocean', 'plum', 'mono', 'edge']);
 });
 
 const cssText = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
@@ -56,7 +52,8 @@ t('回到顶部按钮七套通用：基础规则 display:grid，无主题限定�
   const rule = cssText.match(/\.back-top\s*\{[^}]*\}/);
   assert.ok(rule, '找不到 .back-top 基础规则');
   assert.match(rule[0], /display:\s*grid/);
-  assert.doesNotMatch(cssText, /\[data-theme="anzhiyu"\]\s*\.back-top/);
+  /* 任何主题的限定覆写都不许有：回到顶部是七套共用的功能件 */
+  assert.doesNotMatch(cssText, /\[data-theme="[a-z0-9-]+"\]\s*\.back-top/);
 });
 
 t('正文图片 figure 覆盖浏览器默认左右边距', () => {

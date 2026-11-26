@@ -99,15 +99,21 @@ export const TOK_EXCEPTION = Object.freeze({
     var: '--muted',
     /* style.css 里**含** `var(--muted)` 的声明条数。同一条声明写两次算一点 ——
        影响面的单位是「多少个地方依赖这个值」，一条声明是一个视觉决策。
-       加一处就改成 154 —— 那一下就是签字：「我确认把注释色的影响面又扩大了一格」。
+       加一处就改成 149 —— 那一下就是签字：「我确认把注释色的影响面又扩大了一格」。
        2026-11-26 从 153 降到 151：概览的入口墙拆了（`.dash-tile-d` / `.dash-tile-arrow`
-       两条用 --muted 的规则随之删除），影响面是缩小，不是扩大。 */
-    sites: 151,
+       两条用 --muted 的规则随之删除），影响面是缩小，不是扩大。
+       同日从 151 再降到 148：安知鱼整块下架（45 条规则里的 3 处 color: var(--muted)
+       随之消失），卡片 hover 的 border-color 也改用 --fg 派生 —— 拿辅助文字色当边框
+       本来就是语义错位。 */
+    sites: 148,
   },
 });
 
-/** 没有独立 CSS 文件的主题：变量与骨架都编在主样式表里。 */
-export const INLINE_THEMES = ['paper', 'anzhiyu'];
+/** 没有独立 CSS 文件的主题：变量与骨架都编在主样式表里。
+    只剩纸韵一套 —— 它是裸 `:root`，同时是脚本没跑起来时的兜底色。
+    安知鱼（anzhiyu）已下架：它的 45 条规则原本独占主表 400 行，
+    默认主题一换成纸韵，这些规则就成了每个读者都要下载、却没人命中的字节。 */
+export const INLINE_THEMES = ['paper'];
 
 /** 主题 id 的合法形态。这个值会拼进 /theme/<id>.css 的 href，也是 ?theme= 的白名单。 */
 export const THEME_ID_RE = /^[a-z0-9]{2,16}$/;
@@ -125,7 +131,6 @@ export function deriveThemeIds(hash) {
     .map((f) => f.slice('theme/'.length, -'.css'.length))
     .filter((id) => THEME_ID_RE.test(id))
     .sort();
-  /* 内联主题排前面：纸韵是基准（裸 :root），安知鱼在它后面 —— 两个都在主表里，
-     没有独立文件，所以不能靠扫描得到。 */
+  /* 内联主题排前面：纸韵是基准（裸 :root），在主表里，没有独立文件，所以不能靠扫描得到。 */
   return [...INLINE_THEMES, ...fromFiles];
 }

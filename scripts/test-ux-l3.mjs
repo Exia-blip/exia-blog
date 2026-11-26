@@ -65,10 +65,11 @@ assert.match(tagClass('x', 6), /tw-w3$/, '6 篇以上应最重档');
 assert.match(tagClass('x', 3), /tw-w2$/, '3 篇应中档');
 assert.match(tagClass('x', 0), /tw-w1$/, '0 篇应轻档');
 assert.equal(tagClass('同一标签', 5).split(' ')[1], tagClass('同一标签', 99).split(' ')[1], '同名标签色相恒定');
-// 十档色值齐全，且只在带 tw-t 的标签上生效，不污染文章卡片标签
-for (let i = 0; i < 10; i++) assert.ok(css.includes(`.tag.tw-t${i} {`), `缺 tw-t${i} 配色`);
-assert.match(css, /\.tag\[class\*="tw-t"\]/, '配色选择器应限定 tw-t 标签');
-ok('标签云配色复用头像哈希 + 三档权重，SSR 与前端同源');
+// [P-088] 标签云已单色：不再按名字上色（十档色板与 5 色轮换都删了）。
+// 反向断言 —— 只要有人往 CSS 里塞回一处 --tw 定义就会红。
+assert.ok(!/--tw\s*:/.test(css), '标签云已单色，不应再有 --tw 色相定义');
+assert.ok(!/\.tag\[class\*="tw-t"\]/.test(css), '不应再有按 tw-t 上色的选择器');
+ok('标签类名与头像哈希同源，但样式侧不再按名上色');
 
 // ---------- iframe 懒加载兜底：前端补钩子，不碰 SSR ----------
 // 消毒白名单不放行 iframe（clean.js 剥掉），站内正文尚无真实嵌入；

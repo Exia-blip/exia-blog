@@ -140,9 +140,17 @@ t('TC-05 主样式表里只许出现默认主题的 [data-theme] 规则', () => 
   }
 });
 
-t('TC-06 默认主题的骨架规则数有上限（防第二套主题往主表里长）', () => {
+t('TC-06 [P-087] 默认主题的骨架规则数有上限（防第二套主题往主表里长）', () => {
+  /* 默认主题有两种归宿：裸 :root（纸韵）或自己的 [data-theme] 块（安知鱼时代）。
+     裸 :root 时 ruleCount 恒为 0 —— 只写「>0」会把正确的结构判成坏，
+     只写「>0 或裸 :root」又会在两条都失效时静默通过。这里把下限挂到
+     「兜底底色存在」这个独立事实上，上限那条不动。 */
   const n = ruleCount(css, DEFAULT_THEME);
-  assert.ok(n > 0, `主表里找不到默认主题 ${DEFAULT_THEME} 的规则`);
+  const bareRoot = /:root\s*\{[^}]*--bg:/.test(css);
+  assert.ok(
+    n > 0 || (INLINE_THEMES.includes(DEFAULT_THEME) && bareRoot),
+    `默认主题 ${DEFAULT_THEME} 既没有 [data-theme] 块，也不是主表的裸 :root —— 脚本没跑起来时没有兜底底色`
+  );
   assert.ok(n <= 100, `主表里默认主题规则已有 ${n} 处，超过 100 说明它已经不是"骨架微调"了`);
 });
 

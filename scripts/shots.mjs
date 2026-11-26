@@ -6,17 +6,18 @@ import { resolveChrome } from './chrome.mjs';
 
 const CHROME = resolveChrome();
 
-const ORIGIN = 'https://miu.sryze.cc';
+/* 默认截线上；本地验收用 SHOT_ORIGIN=http://127.0.0.1:8787 node scripts/shots.mjs */
+const ORIGIN = process.env.SHOT_ORIGIN || 'https://miu.sryze.cc';
 const OUT = 'shots';
 fs.mkdirSync(OUT, { recursive: true });
 
 const shots = [
   ['dark-home', '/', { mode: 'dark' }],
   ['light-home', '/', { mode: 'light' }],
-  ['dark-post-adjacent', '/p/comment-anti-spam', { mode: 'dark', bottom: true }],
-  ['light-post-adjacent', '/p/comment-anti-spam', { mode: 'light', bottom: true }],
-  ['light-series', '/series', {}],
-  ['dark-series-post', '/p/editor-autosave', { mode: 'dark' }],
+  ['dark-post-adjacent', '/p/ci-fixture', { mode: 'dark', bottom: true }],
+  ['light-post-adjacent', '/p/ci-fixture', { mode: 'light', bottom: true }],
+  ['light-post-top', '/p/ci-fixture', { mode: 'light' }],
+  ['dark-series-post', '/p/ci-plain', { mode: 'dark' }],
 ];
 
 const browser = await puppeteer.launch({
@@ -32,7 +33,7 @@ for (const [name, path, opt] of shots) {
   await page.goto(ORIGIN + '/', { waitUntil: 'domcontentloaded' });
   await page.evaluate((mode) => {
     try {
-      localStorage.setItem('x_theme', 'anzhiyu');
+      localStorage.setItem('x_theme', 'paper');
       if (mode) localStorage.setItem('x_mode', mode);
       else localStorage.removeItem('x_mode');
     } catch {}
@@ -48,6 +49,11 @@ for (const [name, path, opt] of shots) {
   await new Promise((r) => setTimeout(r, 500));
   const file = `${OUT}/${name}.png`;
   await page.screenshot({ path: file });
+  /* 灰度版：层级若只靠配色撑着，去色后就会塌；立得住说明靠的是排版。
+     只用于验收，不进产物。 */
+  await page.evaluate(() => { document.documentElement.style.filter = 'grayscale(1)'; });
+  await page.screenshot({ path: file.replace(/\.png$/, '-gray.png') });
+  await page.evaluate(() => { document.documentElement.style.filter = ''; });
   const mode = await page.evaluate(() => document.documentElement.getAttribute('data-mode'));
   console.log(`${file}  mode=${mode}`);
   await page.close();

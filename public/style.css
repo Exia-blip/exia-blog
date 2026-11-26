@@ -7,18 +7,19 @@
 
 :root {
   --bg: #faf9f7;
-  --bg-soft: #f3f1ec;
+  --bg-soft: #f4f2ee;
   --card: #ffffff;
   --fg: #1c1b19;
   --fg-soft: #4a4741;
-  --muted: #6f6a63;
+  --muted: #736c64;
   --line: #e7e3db;
   --accent: #a8501f;
   --accent-soft: #fdf0e7;
   --green: #2f9e5f;
   --red: #c8483d;
-  --radius: 14px;
-  --shadow: 0 1px 2px rgba(28, 27, 25, 0.04), 0 8px 24px -16px rgba(28, 27, 25, 0.18);
+  --radius: 10px;
+  /* 单层、只在 hover 用：常驻阴影在浅底纸上是一层灰雾，不是层次 */
+  --shadow: 0 1px 2px rgba(28, 27, 25, 0.04);
   --tok-k: #a626a4;
   --tok-s: #2f8a4f;
   --tok-n: #b45309;
@@ -44,7 +45,7 @@
   --accent-soft: #2a1f16;
   --green: #4fc47f;
   --red: #e57368;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -16px rgba(0, 0, 0, 0.6);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   --tok-k: #d6a4e0;
   --tok-s: #8ed49a;
   --tok-n: #e0b57a;
@@ -65,7 +66,7 @@
     --accent-soft: #2a1f16;
     --green: #4fc47f;
     --red: #e57368;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -16px rgba(0, 0, 0, 0.6);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
     color-scheme: dark;
   }
 }
@@ -101,7 +102,8 @@ button, input, textarea, select {
 ::selection { background: var(--accent-soft); color: var(--accent); }
 
 /* ============ 布局 ============ */
-.wrap { max-width: 760px; margin: 0 auto; padding: 0 22px; }
+/* 764 - 2×22 = 720 正文宽：17px 中文一行约 42 字，超 45 字回行会丢行 */
+.wrap { max-width: 764px; margin: 0 auto; padding: 0 22px; }
 .wrap-wide { max-width: 1180px; margin: 0 auto; padding: 0 22px; }
 
 header.site {
@@ -285,7 +287,7 @@ main:focus { outline: none; }
   gap: 6px;
   padding: 2px 9px;
   border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
-  border-radius: 999px;
+  border-radius: 6px;
   background: transparent;
   color: var(--muted);
   font-size: 12px;
@@ -357,55 +359,16 @@ main:focus { outline: none; }
 .cat-chip { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 a.cat-chip:hover { filter: brightness(0.96); }
 
-/* 标签云配色：色相复用评论头像那十色（同一哈希函数），文章越多字号越重。
-   色相只落在一个 5px 圆点上，胶囊本身是中性描边 —— 二十多个标签同时上色时，
-   满屏彩色胶囊会互相抢注意力（而且色相是按名字哈希来的，本身没有语义），
-   缩成小圆点既能一眼分辨「这是不同的标签」，又不至于把正文压下去。
-   选中态是行内 style，优先级高于这里，仍是强调色。 */
-.tag.tw-t0 { --tw: #6b8fb5; }
-.tag.tw-t1 { --tw: #7f9e86; }
-.tag.tw-t2 { --tw: #b58a6b; }
-.tag.tw-t3 { --tw: #9b7fb5; }
-.tag.tw-t4 { --tw: #b57f92; }
-.tag.tw-t5 { --tw: #6fa39b; }
-.tag.tw-t6 { --tw: #b3a06b; }
-.tag.tw-t7 { --tw: #8794b5; }
-.tag.tw-t8 { --tw: #a08a7f; }
-.tag.tw-t9 { --tw: #7fa0b5; }
-.tag[class*="tw-t"] {
-  color: var(--muted);
-  background: transparent;
-  border-color: color-mix(in srgb, var(--line) 90%, transparent);
-}
-.tag[class*="tw-t"]::before {
-  content: '';
-  flex: 0 0 auto;
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: var(--tw);
-}
-.tag[class*="tw-t"]:hover {
-  background: color-mix(in srgb, var(--tw) 12%, var(--card));
-  border-color: color-mix(in srgb, var(--tw) 42%, var(--line));
-  color: var(--fg);
-}
+/* 标签云不再上色。
+   早先按标签名哈希取十色（复用评论头像那套函数），色相落在一个 5px 圆点上 ——
+   但一排彩色圆点彼此抵消，等于没有强调色；色相按名字哈希也没有语义，
+   读者无法从中读出任何东西。按「去掉一个元素信息没少就去掉」，
+   色板、圆点、按色 hover 全部删除，只剩字重分档：
+   文章越多字号越重，这是这条栏里唯一真实的信息。
+   avatar.js 仍会输出 tw-tN 类名（与 ava-tN 同名色相），CSS 侧不再消费，
+   要恢复按名着色时从这里往上加，不要另起一份。 */
 .tag.tw-w2 { font-size: 12.5px; font-weight: 500; }
 .tag.tw-w3 { font-size: 13px; font-weight: 600; }
-/* 暗色下同一组色相要提亮一档：原色是给浅底算的，压在 #141518 上会灰成一团，
-   圆点就失去「能分辨不同标签」的意义了。 */
-:root[data-mode="dark"] .tag.tw-t0 { --tw: #93b6da; }
-:root[data-mode="dark"] .tag.tw-t1 { --tw: #9cc4a5; }
-:root[data-mode="dark"] .tag.tw-t2 { --tw: #d9ab86; }
-:root[data-mode="dark"] .tag.tw-t3 { --tw: #bda2d6; }
-:root[data-mode="dark"] .tag.tw-t4 { --tw: #d69db0; }
-:root[data-mode="dark"] .tag.tw-t5 { --tw: #8ec7bd; }
-:root[data-mode="dark"] .tag.tw-t6 { --tw: #d6c186; }
-:root[data-mode="dark"] .tag.tw-t7 { --tw: #a7b4d6; }
-:root[data-mode="dark"] .tag.tw-t8 { --tw: #c2a99c; }
-:root[data-mode="dark"] .tag.tw-t9 { --tw: #9cc2d9; }
-/* 字号变了圆点也跟着长一点，重标签才压得住 */
-.tag.tw-w2[class*="tw-t"]::before { width: 5.5px; height: 5.5px; }
-.tag.tw-w3[class*="tw-t"]::before { width: 6px; height: 6px; }
 
 /* 栏目页 */
 .tax-section { margin-bottom: 40px; }
@@ -422,7 +385,7 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .tax-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tax-count {
   flex: 0 0 auto; font-size: 12px; color: var(--muted);
-  background: var(--bg-soft); border-radius: 999px; padding: 1px 8px;
+  background: var(--bg-soft); border-radius: 6px; padding: 1px 8px;
 }
 .tax-cell:hover .tax-count { background: transparent; color: inherit; }
 
@@ -439,7 +402,8 @@ a.cat-chip:hover { filter: brightness(0.96); }
   transition: 0.18s;
   align-items: flex-start;
 }
-.post-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); }
+/* 位移在纸面上显「抖」：hover 只加深边框，不挪位置 */
+.post-card:hover { border-color: color-mix(in srgb, var(--fg) 18%, var(--line)); box-shadow: 0 2px 6px rgba(28, 27, 25, 0.06); }
 /* <picture> 只是给浏览器挑格式用的，不该在 flex 里多出一个盒子：
    display:contents 让它彻底透明，.thumb 跟以前一样直接是 .post-card 的子项，
    所有按 `flex: 0 0 108px` 写的断点都不用动。 */
@@ -517,23 +481,28 @@ a.cat-chip:hover { filter: brightness(0.96); }
   color: var(--accent); margin-bottom: 5px;
 }
 .post-lead p { margin: 0; font-size: 16px; line-height: 1.75; color: var(--fg-soft); }
-.post-body { font-size: 18px; line-height: 1.85; color: var(--fg-soft); font-feature-settings: "kern" 1, "liga" 1; }
+/* 17 / 1.75：720px 里一行约 42 个汉字，再大就回行丢行，再小就显挤。 */
+.post-body { font-size: 17px; line-height: 1.75; color: var(--fg-soft); font-feature-settings: "kern" 1, "liga" 1; }
 .post-body > *:first-child { margin-top: 0; }
 
 /* markdown 排版 */
 /* text-wrap 只改换行决策，不改字号/盒模型：标题两行等长，正文/列表避免末尾孤字。
    中英混排时 kern/liga 交给 .post-body 的 font-feature-settings，数字等宽继续用 tabular-nums。 */
-.md h1, .md h2, .md h3, .md h4 { font-family: var(--serif); color: var(--fg); letter-spacing: -0.01em; line-height: 1.4; text-wrap: balance; }
+.md h1, .md h2, .md h3, .md h4 { font-family: var(--serif); color: var(--fg); font-weight: 600; letter-spacing: -0.01em; line-height: 1.4; text-wrap: balance; }
 .md h1 { font-size: 28px; margin: 2em 0 0.7em; }
-.md h2 { font-size: 23px; margin: 1.9em 0 0.6em; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+/* 标题只靠字重和上留白分层：2.5em 的上边距就是「这里换了一层」的全部信号，
+   不用分割线、不用左侧色条 —— 装饰线一多，扫读时每根线都要判断一次「这线是什么意思」。 */
+.md h2 { font-size: 23px; margin: 2.5em 0 0.6em; }
 .md h3 { font-size: 19.5px; margin: 1.6em 0 0.5em; }
 .md h4 { font-size: 17px; margin: 1.4em 0 0.4em; }
-.md p { margin: 0 0 1.15em; text-wrap: pretty; }
+/* 段落 1.2em / 列表项 0.4em：删掉装饰后留白顶上来，
+   少了这两个数就会从「简约」掉进「简陋」—— 段落挤在一起，层级全靠猜。 */
+.md p { margin: 0 0 1.2em; text-wrap: pretty; }
 .md a { color: var(--accent); border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
 .md a:hover { border-bottom-color: var(--accent); }
-.md ul, .md ol { margin: 0 0 1.15em; padding-left: 1.5em; }
-.md li { margin: 0.3em 0; text-wrap: pretty; }
-.md li > ul, .md li > ol { margin: 0.3em 0; }
+.md ul, .md ol { margin: 0 0 1.2em; padding-left: 1.5em; }
+.md li { margin: 0.4em 0; text-wrap: pretty; }
+.md li > ul, .md li > ol { margin: 0.4em 0; }
 .md blockquote {
   margin: 1.4em 0; padding: 2px 0 2px 18px;
   border-left: 3px solid color-mix(in srgb, var(--accent) 45%, var(--line));
@@ -1067,7 +1036,7 @@ input.invalid, textarea.invalid {
 .form-sec:first-child { margin-top: 0; }
 /* 视图头右侧的小标签（如「仅管理员」） */
 .view-tag {
-  flex: 0 0 auto; padding: 2px 9px; border-radius: 999px;
+  flex: 0 0 auto; padding: 2px 9px; border-radius: 6px;
   border: 1px solid var(--line); color: var(--muted);
   font-size: 11px; font-weight: 500;
 }
@@ -1083,7 +1052,7 @@ input.invalid, textarea.invalid {
 .view .series-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .series-chip {
   display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
-  padding: 7px 13px; border: 1px solid var(--line); border-radius: 999px;
+  padding: 7px 13px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--card); color: var(--fg); font-size: 12.5px;
   transition: border-color .15s, color .15s, background .15s;
 }
@@ -1136,7 +1105,7 @@ body.stat-page { height: 100vh; display: flex; flex-direction: column; overflow:
 .stat-page .kv-v.bad { color: var(--red); }
 /* 状态徽章：文字色走主题变量，底色用 color-mix 派生，七套主题自动适配 */
 .stat-page .sv-pill {
-  display: inline-block; padding: 2px 10px; border-radius: 999px;
+  display: inline-block; padding: 2px 10px; border-radius: 6px;
   font-size: 11.5px; line-height: 1.6; font-family: var(--sans);
 }
 .stat-page .sv-pill.ok { color: var(--green); background: color-mix(in srgb, var(--green) 13%, transparent); }
@@ -1308,7 +1277,7 @@ body.editor-page, body.stat-page {
 .stat-page .adm-fr-row:last-child { border-bottom: 0; }
 .stat-page .adm-fr-main { min-width: 0; flex: 1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .stat-page .adm-fr-badge {
-  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  display: inline-block; padding: 2px 9px; border-radius: 6px;
   font-size: 11.5px; line-height: 1.6; border: 1px solid var(--line); color: var(--muted);
 }
 .stat-page .adm-fr-badge.ok {
@@ -1398,7 +1367,7 @@ body.editor-page, body.stat-page {
 .cat-item.active .ci-sub { color: color-mix(in srgb, var(--accent) 65%, var(--muted)); }
 .cat-item .flag {
   font-size: 10px; color: var(--muted); flex: 0 0 auto;
-  border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px;
+  border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px;
 }
 /* 投稿审核状态：待审暖色、驳回红、过审绿，都走主题变量，亮暗自动适配 */
 .cat-item .flag-review { color: var(--tok-n); border-color: color-mix(in srgb, var(--tok-n) 45%, transparent); }
@@ -1467,7 +1436,7 @@ body.editor-page, body.stat-page {
   display: flex; gap: 12px; padding: 14px; border: 1px solid var(--line);
   border-radius: var(--radius); background: var(--card); align-items: center; transition: 0.18s;
 }
-.friend-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.friend-card:hover { border-color: color-mix(in srgb, var(--fg) 18%, var(--line)); }
 .friend-card .fav { width: 38px; height: 38px; border-radius: 10px; object-fit: cover; flex: 0 0 38px; background: var(--bg-soft); }
 .friend-card .fav.ph {
   display: grid; place-items: center;
@@ -1577,7 +1546,7 @@ body.editor-page, body.stat-page {
   .nav-toggle { display: grid; margin-left: auto; flex: 0 0 auto; }
 
   /* 抽屉：贴顶栏下沿向下展开，一条一行。
-     绝对定位挂在 .inner 上，不用去算各主题 header 的实际高度（anzhiyu 多 16px padding）。 */
+     绝对定位挂在 .inner 上，不用去算各主题 header 的实际高度。 */
   nav.top {
     position: absolute; top: 100%; left: 0; right: 0; z-index: 120;
     display: flex; flex-direction: column; align-items: stretch; gap: 2px;
@@ -1635,7 +1604,7 @@ button.lnk:hover { border-bottom-color: var(--accent); }
 
 /* 公共小 chip */
 .chi {
-  font-size: 11px; padding: 1px 6px; border-radius: 999px;
+  font-size: 11px; padding: 1px 6px; border-radius: 6px;
   background: var(--bg-soft); color: var(--muted); line-height: 1.6;
 }
 .chi.cat { background: var(--accent-soft); color: var(--accent); }
@@ -1851,318 +1820,14 @@ html.theme-transition, html.theme-transition * {
 .ava-btns { display: flex; gap: 6px; }
 .ava-btns .btn { flex: 1; justify-content: center; }
 
-/* ============================================================
-   安知鱼（anzhiyu）：蓝紫主色 · 悬浮胶囊导航 · 大圆角卡片
-   只作用于 data-theme="anzhiyu"，其余六套主题完全不受影响
-   ============================================================ */
-:root[data-theme="anzhiyu"] {
-  --bg: #f7f9fe;
-  --bg-soft: #eef2fd;
-  --card: #ffffff;
-  --fg: #292a2d;
-  --fg-soft: #4c4d57;
-  --muted: #676d7f;
-  --line: #e3e8f4;
-  --accent: #425aef;
-  --accent-soft: #eaf0ff;
-  --green: #17a673;
-  --red: #e35d6a;
-  --radius: 16px;
-  --shadow: 0 2px 6px rgba(60, 80, 160, .06), 0 14px 34px -20px rgba(66, 90, 239, .32);
-  --tok-k: #8b5cf6;
-  --tok-s: #0f9d70;
-  --tok-n: #d97706;
-  --tok-f: #2f6fe0;
-  --hero-space: -0.03em;
-  --sans: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
-    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --serif: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
-    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  color-scheme: light;
-}
-:root[data-theme="anzhiyu"][data-mode="dark"] {
-  --bg: #18171d;
-  --bg-soft: #201f27;
-  --card: #262530;
-  --fg: #eaeaf0;
-  --fg-soft: #c2c2cc;
-  --muted: #8d8d99;
-  --line: #34333f;
-  --accent: #7b8df8;
-  --accent-soft: #242539;
-  --green: #4ecb9b;
-  --red: #f07b86;
-  --shadow: 0 2px 8px rgba(0, 0, 0, .35), 0 16px 38px -22px rgba(0, 0, 0, .8);
-  --tok-k: #bda6f8;
-  --tok-s: #5fd6a8;
-  --tok-n: #f0b976;
-  --tok-f: #93b8ff;
-  color-scheme: dark;
-}
-
-/* 背景：顶部两层柔光，像贴了一层雾 */
-:root[data-theme="anzhiyu"] body {
-  background:
-    radial-gradient(1100px 520px at 8% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
-    radial-gradient(900px 460px at 96% -4%, color-mix(in srgb, #a26bff 11%, transparent), transparent 64%),
-    var(--bg);
-  background-attachment: fixed;
-}
-
-/* 首页放宽，卡片才有安知鱼那种横向大图的余地 */
-:root[data-theme="anzhiyu"] .wrap.home { max-width: 1080px; }
-
-/* 宽屏双列：1080 单列时 1920 屏幕两侧各空 420px，整页像一条窄带。
-   拆成两列后内容铺满 1240，同一屏多看一篇，左右也不再空荡。
-   只放宽首页 —— 归档/分类页是一行一条的时间线，双列会读串行。 */
-@media (min-width: 1180px) {
-  :root[data-theme="anzhiyu"] .wrap.home { max-width: 1240px; }
-  main.wrap.home .post-list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px;
-  }
-  /* 空态/分页/精选块在 grid 里会被挤成一格，统一横跨整行 */
-  main.wrap.home .post-list > :not(.post-card) { grid-column: 1 / -1; }
-  main.wrap.home .post-card { height: 100%; }
-  main.wrap.home .post-card .body { display: flex; flex-direction: column; }
-  main.wrap.home .post-card .meta { margin-top: auto; }
-  /* 两列后卡片只剩 589 宽，232 的封面会把正文压到 309 —— 标题两行都放不下。
-     缩到 176×132，正文回到 ~370，标题与摘要都能正常舒展。 */
-  main.wrap.home .post-card .thumb { width: 176px; height: 132px; flex: 0 0 176px; }
-  main.wrap.home .post-card:not(:has(.thumb))::before {
-    width: 176px; height: 132px; flex: 0 0 176px;
-  }
-}
-@media (min-width: 1500px) {
-  :root[data-theme="anzhiyu"] .wrap.home { max-width: 1340px; }
-  main.wrap.home .post-list { gap: 22px; }
-}
-
-/* 导航：悬浮胶囊 */
-:root[data-theme="anzhiyu"] header.site {
-  background: transparent;
-  border-bottom: 0;
-  backdrop-filter: none;
-  padding: 12px 0 4px;
-}
-:root[data-theme="anzhiyu"] header.site .inner {
-  height: 56px;
-  padding: 0 10px 0 16px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--card) 76%, transparent);
-  backdrop-filter: saturate(180%) blur(14px);
-  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
-  box-shadow: 0 8px 28px -18px rgba(30, 50, 120, .45);
-}
-:root[data-theme="anzhiyu"] nav.top a,
-:root[data-theme="anzhiyu"] nav.top button { border-radius: 999px; }
-:root[data-theme="anzhiyu"] nav.top a.active {
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
-}
-:root[data-theme="anzhiyu"] .brand { font-family: var(--sans); font-size: 16.5px; }
-:root[data-theme="anzhiyu"] .brand .dot { display: none; }
-
-/* 首页横幅 */
-:root[data-theme="anzhiyu"] .hero {
-  position: relative;
-  margin: 14px 0 26px;
-  padding: 58px 34px 52px;
-  border-radius: 26px;
-  text-align: center;
-  overflow: hidden;
-  background:
-    radial-gradient(520px 220px at 18% 0%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 72%),
-    radial-gradient(460px 200px at 88% 10%, color-mix(in srgb, #b06bff 22%, transparent), transparent 74%),
-    linear-gradient(168deg, color-mix(in srgb, var(--accent) 9%, var(--card)), var(--card) 62%);
-  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--line));
-  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .65);
-}
-:root[data-theme="anzhiyu"] .hero::after {
-  content: '';
-  position: absolute;
-  inset: auto -60px -120px auto;
-  width: 260px; height: 260px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  filter: blur(46px);
-  pointer-events: none;
-}
-:root[data-theme="anzhiyu"] .hero h1 {
-  position: relative;
-  font-family: var(--sans);
-  font-size: 38px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  margin: 0 0 12px;
-}
-:root[data-theme="anzhiyu"] .hero p {
-  position: relative;
-  font-size: 15px;
-  color: var(--muted);
-  max-width: 620px;
-  margin: 0 auto;
-}
-
-/* 首页横幅：SVG 装饰层（光斑 + 细线圆环 + 点阵 + 星点）
-   中间留空 —— 文字区域不能有纹理，否则小字号会糊 */
+/* 首页横幅的 SVG 装饰层（光斑 + 圆环 + 点阵 + 星点）已下架：
+   零信息，只让首屏「看起来热闹」；纸面上多一层纹理，小字号会先糊掉。
+   模板里仍有这个节点，保留 display:none 兜底。 */
 .hero-deco { display: none; }
-:root[data-theme="anzhiyu"] .hero-deco {
-  display: block;
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: .95;
-  color: #3f4f88; /* 点阵用 currentColor，深色模式换浅色 */
-}
-.hero-deco svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  animation: hero-deco-drift 16s ease-in-out infinite;
-  will-change: transform;
-}
-@keyframes hero-deco-drift {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50%      { transform: translate3d(0, -7px, 0) scale(1.012); }
-}
-:root[data-theme="anzhiyu"] .hero h1,
-:root[data-theme="anzhiyu"] .hero p { z-index: 1; }
-:root[data-theme="anzhiyu"] .hero::after { z-index: 0; }
-/* 深色底上同一组浅色光斑会发光，压到六成，点阵换成浅蓝才看得见 */
-:root[data-theme="anzhiyu"][data-mode="dark"] .hero-deco { opacity: .6; color: #a8bcff; }
-:root[data-theme="anzhiyu"][data-mode="dark"] .hero {
-  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .05);
-}
 
 @media (prefers-reduced-motion: reduce) {
   .hero-deco svg { animation: none; }
 }
-
-/* 搜索框 + 按钮 */
-:root[data-theme="anzhiyu"] .toolbar .search input {
-  border-radius: 999px;
-  border-color: color-mix(in srgb, var(--line) 90%, transparent);
-  background: var(--card);
-  box-shadow: 0 4px 16px -12px rgba(30, 50, 120, .4);
-  height: 40px;
-}
-:root[data-theme="anzhiyu"] .btn { border-radius: 999px; }
-:root[data-theme="anzhiyu"] .btn.primary {
-  background: linear-gradient(135deg, #425aef, #6f8dff);
-  border-color: transparent;
-  color: #fff;
-  box-shadow: 0 8px 18px -10px rgba(66, 90, 239, .8);
-}
-:root[data-theme="anzhiyu"] .btn.primary:hover { opacity: 1; filter: brightness(1.05); }
-
-/* 标签：中性胶囊 + 色相圆点。原来这里是 5 色轮换的实心胶囊，二十多个标签
-   排在一起像撒了一把彩色纸屑；色相只留作圆点后，整片标签云才读得出「一组」
-   而不是「一堆」。选中项仍由行内 style 染成强调色，圆点跟着隐去。 */
-:root[data-theme="anzhiyu"] .tag {
-  border-radius: 999px;
-  padding: 3px 11px;
-  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
-  background: transparent;
-  color: var(--muted);
-}
-:root[data-theme="anzhiyu"] .tag:hover {
-  background: color-mix(in srgb, var(--accent) 9%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
-  color: var(--accent);
-}
-:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+2) { --tw: #12946a; }
-:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+3) { --tw: #c47a00; }
-:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+4) { --tw: #d23f74; }
-:root[data-theme="anzhiyu"] .tagbar .tag:nth-child(5n+5) { --tw: #6d4ee0; }
-:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+2) { --tw: #5fd6a8; }
-:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+3) { --tw: #f0b976; }
-:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+4) { --tw: #f58bb1; }
-:root[data-theme="anzhiyu"][data-mode="dark"] .tagbar .tag:nth-child(5n+5) { --tw: #bda6f8; }
-/* 行内选中态会盖掉颜色，圆点这时只会跟强调色打架，去掉 */
-:root[data-theme="anzhiyu"] .tagbar .tag[style*="--accent-soft"]::before { display: none; }
-:root[data-theme="anzhiyu"] .cat-chip {
-  background: color-mix(in srgb, var(--accent) 13%, transparent);
-  color: var(--accent);
-}
-
-/* 文章卡片：横向大图 + 悬停上浮 */
-:root[data-theme="anzhiyu"] .post-list { gap: 18px; }
-:root[data-theme="anzhiyu"] .post-card {
-  padding: 14px;
-  gap: 20px;
-  align-items: center;
-  border: 0;
-  border-radius: 20px;
-  background: var(--card);
-  box-shadow: 0 1px 2px rgba(20, 30, 80, .04), 0 10px 28px -22px rgba(20, 30, 80, .55);
-  overflow: hidden;
-  transition: transform .24s cubic-bezier(.4, 0, .2, 1), box-shadow .24s;
-}
-:root[data-theme="anzhiyu"] .post-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 8px 20px -10px rgba(66, 90, 239, .22), 0 26px 46px -28px rgba(66, 90, 239, .55);
-}
-:root[data-theme="anzhiyu"] .post-card .thumb {
-  width: 232px; height: 148px; flex: 0 0 232px;
-  border-radius: 14px;
-  transition: transform .4s cubic-bezier(.4, 0, .2, 1);
-}
-/* 没封面的文章补一块渐变占位，卡片高度与封面卡对齐 */
-:root[data-theme="anzhiyu"] .post-card:not(:has(.thumb))::before {
-  content: '';
-  flex: 0 0 232px;
-  height: 148px;
-  border-radius: 14px;
-  background:
-    radial-gradient(120px 90px at 30% 20%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%),
-    linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--card)), color-mix(in srgb, #b06bff 16%, var(--card)));
-}
-:root[data-theme="anzhiyu"] .post-card:hover .thumb { transform: scale(1.045); }
-/* 自动生成的封面是一层浅色渐变，直接放在深色卡片上会发白发飘。
-   压一档亮度、补一道极淡的内描边，让它落回卡片里而不是浮在上面。 */
-:root[data-theme="anzhiyu"][data-mode="dark"] .post-card .thumb,
-:root[data-theme="anzhiyu"][data-mode="dark"] .post-card:not(:has(.thumb))::before {
-  filter: brightness(.9) saturate(.96);
-  outline: 1px solid rgba(255, 255, 255, .07);
-  outline-offset: -1px;
-}
-:root[data-theme="anzhiyu"] .post-card h2 { font-size: 18.5px; letter-spacing: -0.015em; }
-:root[data-theme="anzhiyu"] .post-card .excerpt { font-size: 14.5px; }
-:root[data-theme="anzhiyu"] .pagination .btn { border-radius: 999px; }
-
-/* 文章页：整篇装进卡片 */
-:root[data-theme="anzhiyu"] article {
-  background: var(--card);
-  border-radius: 22px;
-  padding: 6px 34px 34px;
-  margin: 22px 0 34px;
-  box-shadow: 0 1px 2px rgba(20, 30, 80, .04), 0 18px 40px -30px rgba(20, 30, 80, .6);
-}
-:root[data-theme="anzhiyu"] .post-head {
-  padding: 34px 0 22px;
-  border-bottom: 0;
-  margin-bottom: 18px;
-  text-align: center;
-}
-:root[data-theme="anzhiyu"] .post-head h1 {
-  font-family: var(--sans);
-  font-size: 30px;
-  letter-spacing: -0.025em;
-}
-:root[data-theme="anzhiyu"] .post-head .meta { justify-content: center; }
-:root[data-theme="anzhiyu"] .post-head .meta > span[style] { margin-left: 0 !important; }
-:root[data-theme="anzhiyu"] .post-lead {
-  background: color-mix(in srgb, var(--accent) 6%, var(--card));
-  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--line));
-  border-radius: 16px;
-  padding: 16px 18px;
-}
-:root[data-theme="anzhiyu"] .post-body { font-size: 18px; line-height: 1.9; }
-:root[data-theme="anzhiyu"] .post-foot { border-top: 0; padding-top: 6px; }
 
 /* 回到顶部：圆形悬浮按钮，七套主题共用 */
 .back-top {
@@ -2183,71 +1848,19 @@ html.theme-transition, html.theme-transition * {
 .back-top svg { width: 17px; height: 17px; }
 
 @media (max-width: 860px) {
-  :root[data-theme="anzhiyu"] header.site { padding: 8px 0 2px; }
   /* 粘性导航的毛玻璃是滚动时最贵的一项：每帧都要重新采样背景模糊。
      手机上换成近乎实色，肉眼几乎看不出，掉帧明显减少。 */
-  :root[data-theme="anzhiyu"] header.site .inner {
-    height: 50px; padding: 0 44px 0 16px;
-    backdrop-filter: none;
-    background: color-mix(in srgb, var(--card) 97%, transparent);
-  }
   .back-top { backdrop-filter: none; background: var(--card); }
-  /* 首屏每一像素都算数：横幅只放站名与一句描述，没必要占掉 150px 才让第一篇文章露头 */
-  :root[data-theme="anzhiyu"] .hero { padding: 34px 22px 30px; border-radius: 20px; margin: 10px 0 20px; }
-  :root[data-theme="anzhiyu"] .hero h1 { font-size: 27px; margin: 0 0 8px; }
-  :root[data-theme="anzhiyu"] header.site .inner::after { display: none; }
 }
 @media (max-width: 640px) {
-  :root[data-theme="anzhiyu"] .post-card .thumb {
-    width: 104px; height: 84px; flex: 0 0 104px; border-radius: 11px;
-  }
-  :root[data-theme="anzhiyu"] .post-card:not(:has(.thumb))::before {
-    flex: 0 0 104px; width: 104px; height: 84px; border-radius: 11px;
-  }
-  :root[data-theme="anzhiyu"] .post-card { padding: 12px; gap: 13px; border-radius: 16px; }
-  :root[data-theme="anzhiyu"] .post-card:hover { transform: none; }
-  :root[data-theme="anzhiyu"] article { padding: 4px 20px 26px; border-radius: 18px; }
-  :root[data-theme="anzhiyu"] .post-head h1 { font-size: 26px; }
-  :root[data-theme="anzhiyu"] .post-body { font-size: 17px; }
   .back-top { right: 14px; bottom: 18px; }
-}
-
-/* 安知鱼：标题左侧渐变竖条、评论区也是卡片 */
-:root[data-theme="anzhiyu"] .md h2 {
-  border-bottom: 0;
-  padding-left: 14px;
-  position: relative;
-}
-:root[data-theme="anzhiyu"] .md h2::before {
-  content: '';
-  position: absolute;
-  left: 0; top: .18em; bottom: .18em;
-  width: 4px;
-  border-radius: 4px;
-  background: linear-gradient(180deg, var(--accent), #b06bff);
-}
-:root[data-theme="anzhiyu"] .md blockquote {
-  border-left: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-  border-radius: 0 12px 12px 0;
-  padding: 12px 16px;
-}
-:root[data-theme="anzhiyu"] .comments {
-  background: var(--card);
-  border-radius: 20px;
-  padding: 22px 26px 26px;
-  box-shadow: 0 1px 2px rgba(20, 30, 80, .04), 0 16px 36px -30px rgba(20, 30, 80, .6);
-}
-:root[data-theme="anzhiyu"] .cmt-form { border-radius: 14px; background: var(--bg-soft); border-color: transparent; }
-@media (max-width: 640px) {
-  :root[data-theme="anzhiyu"] .comments { padding: 18px 16px 20px; border-radius: 18px; }
 }
 
 /* ============ 阅读进度条 ============ */
 .read-bar {
   position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 120;
   transform: scaleX(0); transform-origin: 0 50%;
-  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 40%, #b06bff));
+  background: var(--accent);
   pointer-events: none;
   will-change: transform;
   opacity: 0;
@@ -2389,8 +2002,8 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
   transition: 0.18s;
 }
 .post-adjacent .adj:hover {
-  transform: translateY(-2px); box-shadow: var(--shadow);
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-color: color-mix(in srgb, var(--fg) 18%, var(--line));
+  box-shadow: 0 2px 6px rgba(28, 27, 25, 0.06);
 }
 /* 相关推荐：三列卡片，排在上下篇之上。空了整块不渲染（见 renderRelated）。 */
 .post-related {
@@ -2411,8 +2024,8 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
   transition: transform .18s, box-shadow .18s, border-color .18s;
 }
 .post-related .rel:hover {
-  transform: translateY(-2px); box-shadow: var(--shadow);
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-color: color-mix(in srgb, var(--fg) 18%, var(--line));
+  box-shadow: 0 2px 6px rgba(28, 27, 25, 0.06);
 }
 .post-related .rel-t {
   font-size: 14px; line-height: 1.5;
@@ -2459,7 +2072,7 @@ html[data-mode="dark"] .checklist li.todo .ck { background: rgba(230, 150, 90, .
 .nav-prog {
   position: fixed; top: 0; left: 0; right: 0; height: 2.5px; z-index: 300;
   transform: scaleX(0); transform-origin: 0 50%;
-  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 42%, #b06bff));
+  background: var(--accent);
   border-radius: 0 2px 2px 0;
   box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent);
   opacity: 0; pointer-events: none; will-change: transform, opacity;
@@ -2547,24 +2160,24 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   .post-article > .post-main { grid-column: 2; min-width: 0; }
 }
 
-/* 宽屏再放一档：容器跟着屏幕长，目录与正文之间拉开到 110px。
-   1920 视口下正文从 754 变 800、左右留白从 422 降到 ~250，
-   再宽就没意义了 —— 中文正文超过 50 字一行，眼睛回行会丢串。 */
+/* 宽屏只放宽容器，不再放宽正文。
+   正文固定 720：17px 中文一行约 42 字，到 800 就是 47 字，
+   眼睛回行会丢串 —— 这条在窄屏守住了，宽屏放开等于白守。 */
 @media (min-width: 1440px) {
-  main.wrap-post { max-width: 1360px; }
-  .post-article { grid-template-columns: 232px minmax(0, 800px); gap: 110px; }
+  main.wrap-post { max-width: 1280px; }
+  .post-article { grid-template-columns: 232px minmax(0, 720px); gap: 110px; }
 }
 
 /* 大屏补上第三列：两列时正文会被目录顶到视口右侧（1920 下偏 165px），
    加一列同宽的留白，正文才回到正中 —— 目录仍在左边，间距不打折。
    第三列没有内容，纯占位，所以结构不用改。 */
 @media (min-width: 1600px) {
-  /* 1548 = 正文800 + 两翼232×2 + 间隙86×2 + 卡片内边距68 + 容器内边距44；
+  /* 1468 = 正文720 + 两翼232×2 + 间隙86×2 + 卡片内边距68 + 容器内边距44；
      两翼跟着目录走（232），目录才不会贴死在卡片边缘上，也不会因为只有 200px
      把「数据集：邮箱和 IP 只进不出」硬折成两行。 */
-  main.wrap-post { max-width: 1548px; }
+  main.wrap-post { max-width: 1468px; }
   .post-article {
-    grid-template-columns: 232px minmax(0, 800px) 232px;
+    grid-template-columns: 232px minmax(0, 720px) 232px;
     gap: 86px;
     justify-content: center;
   }
@@ -2691,7 +2304,6 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 @media (max-width: 480px) {
   /* 「共 17 篇 · 2026.10 — 2026.11 · 跨越 1 个年份」在 390 屏正好差一点点，
      断在「个年份」中间最难看；降半号字整句就能落在一行 */
-  :root[data-theme="anzhiyu"] .hero p { font-size: 13px; }
   .site-foot { margin-top: 48px; }
   .site-foot .sf-inner { padding: 24px 20px 28px; gap: 12px; }
 }
@@ -2792,7 +2404,6 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   .post-card:hover,
   .friend-card:hover,
   .pick:hover { transform: none; }
-  :root[data-theme="anzhiyu"] .post-card:hover .thumb { transform: none; }
   .tl-item:hover::before { transform: none; }
 }
 

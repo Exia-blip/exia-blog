@@ -84,7 +84,7 @@ for (const sel of ['.md h1, .md h2, .md h3, .md h4', '.post-head h1']) {
 ok(`T-03 衬线落点 ${withSerif.length} 处，全在标题/界面白名单内`);
 
 /* ---------- T-04 基准 --serif 必须真的是衬线栈 ----------
-   默认主题 anzhiyu 把 --serif 指成 sans（它的设计选择，主题层豁免）；
+   其余皮肤把 --serif 指成 sans 是主题层的设计选择，豁免；
    基准 :root 不行 —— 那是 paper，标题的衬线质感全靠这一行。 */
 
 const base = blocks.find((b) => b.sel === ':root');

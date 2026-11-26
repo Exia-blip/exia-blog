@@ -900,6 +900,28 @@
 
 ---
 
+## P-087 默认主题换皮，会把「默认主题存在」这条判据的前提整个反转
+
+- **现象**：把 `wrangler.jsonc` 的 `SITE_THEME` 从 `anzhiyu` 换成 `paper` 之后，主题契约测试两条红：TC-05 报「style.css 里出现了非默认主题 anzhiyu 的规则（46 处）」，TC-06 报「主表里找不到默认主题 paper 的规则」。TC-05 是对的——那 45 条规则确实该随默认主题一起下架；TC-06 是错的——paper 的规则就在主表最上面的裸 `:root` 里，只是它没有 `[data-theme="paper"]` 这个名字。
+- **根因**：TC-06 写的是 `ruleCount(css, 'paper') > 0`，把「默认主题存在」等价成了「有一个带 `[data-theme]` 前缀的块」。默认主题原来恰好是块形态（anzhiyu），所以这条隐式前提从没被检验过；换成裸 `:root` 形态（paper）后，正确结构被判成坏。同类判据都吃这一刀：只要它把「某个东西存在」写成「某种实现形态的特征」，换形态时要么误报，要么改成 `||` 之后恒真。
+- **复现**：`wrangler.jsonc` 里 `SITE_THEME: "anzhiyu"` 改 `"paper"`，`node scripts/test-theme-contract.mjs`。修前 TC-06 红，修后 TC-05 仍然红到 `INLINE_THEMES` 与主表规则一起清干净为止——两条红里只有一条是真问题，这正是坑：**报错文本会把人指向错误的方向**。
+- **断言**：TC-06 的下限改成 `n > 0 || (INLINE_THEMES.includes(DEFAULT_THEME) && bareRoot)`，`bareRoot = /:root\s*\{[^}]*--bg:/`，把「存在」挂到「兜底底色存在」这个独立事实上；上限 `n <= 100` 不动。`INLINE_THEMES` 从 `['paper','anzhiyu']` 收到 `['paper']`，`assets.gen.js` 的 `THEME_BG` 由 `build:sri` 重生成（anzhiyu 那条自动消失）。
+- **边界**：这条只管「默认主题是块还是裸 `:root`」。第三种形态（既无块也无裸 `:root`）由 TC-01 先红。另外 `build:sri` 之后必须重启 dev server —— 旧进程继续下发旧哈希，浏览器按 `integrity` 拦掉新 CSS，症状是「页面完全没样式」，别当成 CSS 写坏了查。
+- **出处**：`scripts/test-theme-contract.mjs`（TC-05 / TC-06）、`src/theme-contract.js`（`INLINE_THEMES`）
+
+---
+
+## P-088 同一个视觉问题有两份实现，改掉带主题前缀的那份等于没改
+
+- **现象**：视觉评审列了「首页双列」「标签五色轮换」要删。照字面去 anzhiyu 层删——双列的 grid 在 `@media (min-width: 1180px)` 里，选择器是 `main.wrap.home .post-list`，**没有 `[data-theme]` 前缀**，注释却写着「只放宽首页」。它写在 anzhiyu 段落中间，所以读代码的人默认它只属于 anzhiyu；实际八套主题全中。标签也一样：anzhiyu 层是 `nth-child(5n+2..5n+5)` 四色，基准层还有一份 `.tag.tw-t0..t9` 十色——**问题的主份在基准层**。
+- **根因**：主题相关的样式只有一半带前缀。带前缀的那半在 review 时看得见（`grep anzhiyu` 能搜到），不带前缀的那半是隐形的——它在 anzhiyu 段落里，但 CSS 不看段落上下文。于是「在 anzhiyu 层删掉六项」这个动作在语法上完成了，在效果上一项没删。
+- **复现**：`grep -n "main.wrap.home" public/style.css`，看它在哪个注释块下、有没有 `[data-theme]` 前缀。切换主题到 ink，宽屏下首页仍是双列——这就是泄漏的证据。
+- **断言**：删双列时把整段（grid、`> :not(.post-card)`、`.thumb` 的 176 尺寸）一起删，不留半段；标签侧把基准层十色 + 暗色十档 + 5px 圆点 + `::before` 全部删掉，然后**反向**断言 `!/--tw\s*:/.test(css)` 与 `!/\.tag\[class\*="tw-t"\]/.test(css)`（`scripts/test-ux-l3.mjs`），注入任何一处都会红。正向断言「十档色值齐全」这一刻起必须翻面，否则它守的就是已经删掉的东西。
+- **边界**：反向断言只能证明「没有 `--tw` 定义」，不能证明「标签云看起来是单色」——配色若改由行内 style 注入，这条抓不到。渲染层靠灰度截图看（`scripts/shots.mjs` 每张图额外输出 `-gray.png`）。
+- **出处**：`public/style.css`（`.post-list` 双列段已删、`.tag.tw-t*` 已删）、`scripts/test-ux-l3.mjs`（标签单色反向断言）、`scripts/shots.mjs`（灰度截图）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

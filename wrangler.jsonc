@@ -54,7 +54,7 @@
     // 后台「站点设置 → 作者署名」的优先级更高（改完立即生效，不用重新部署）
     "SITE_AUTHOR": "Exia",
     // 默认风格：anzhiyu | paper | ink | forest | ocean | plum | mono
-    "SITE_THEME": "anzhiyu",
+    "SITE_THEME": "paper",
     // 默认外观：auto（跟随系统）| light | dark
     "SITE_MODE": "auto",
     // 站点主域（只写 scheme + host，不要带路径和斜杠）。
