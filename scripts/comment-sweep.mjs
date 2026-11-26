@@ -68,7 +68,10 @@ if (out.skipped === 'no-webhook') {
 
 /* 垃圾 */
 if (!out.deleted?.length) {
-  console.log(`\n垃圾：0 条命中（保留 ${out.kept} 条已过打分线）`);
+  const ex = Number(out.exempt || 0);
+  console.log(
+    `\n垃圾：0 条命中（保留 ${out.kept} 条已过打分线${ex ? `，免检跳过 ${ex} 条（管理员/有回复/已拒绝）` : ''}）`
+  );
 } else {
   console.log(`\n${out.dry ? '待删' : '已删'} ${out.deleted.length} 条：`);
   for (const d of out.deleted) {

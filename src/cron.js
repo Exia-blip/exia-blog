@@ -225,7 +225,7 @@ export async function checkFriends(env) {
    动作都进 audit_log：自动删除必须留下「为什么删」的字符串，否则第二次误删时
    没人敢再开这个定时任务。 */
 export async function sweepComments(env, { dry = false, limit = 20 } = {}) {
-  const out = { retried: [], deleted: [], kept: 0, skipped: '', dry: !!dry };
+  const out = { retried: [], deleted: [], kept: 0, skipped: '', dry: !!dry, exempt: 0 };
 
   /* ---- ① 补推 ---- */
   if (!env.WEBHOOK_URL) {
@@ -287,9 +287,9 @@ export async function sweepComments(env, { dry = false, limit = 20 } = {}) {
     /* 三条免检线在 JS 里再过一次，不只依赖 SQL 的 WHERE：
        SQL 条件被谁改松了、或者将来换查询，这里仍然拦得住 —— 而且这样
        「管理员的不删」是能被单元测试直接观测的行为，不是一句注释。 */
-    if (!['approved', 'pending'].includes(String(row.status))) continue;
-    if (Number(row.is_admin) === 1) continue; // 自己发的永不动
-    if (Number(row.kids) > 0) continue; // 删父会连坐子回复
+    if (!['approved', 'pending'].includes(String(row.status))) { out.exempt++; continue; }
+    if (Number(row.is_admin) === 1) { out.exempt++; continue; } // 自己发的永不动
+    if (Number(row.kids) > 0) { out.exempt++; continue; } // 删父会连坐子回复
     const { score, reasons } = spamScore(row);
     if (score < SPAM_MIN_SCORE) {
       out.kept++;

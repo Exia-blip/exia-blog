@@ -118,6 +118,7 @@ t('SW-07 管理员自己发的：分数再高也不删', async () => {
   const db = fakeDb({ spam: [row({ id: 5, is_admin: 1, content: 'https://t.me/x https://t.me/y' })] });
   const out = await sweepComments({ DB: db, WEBHOOK_URL: 'https://qyapi.weixin.qq.com/x' }, { dry: false });
   assert.equal(out.deleted.length, 0);
+  assert.equal(out.exempt, 1, '免检的要被计数，否则「0 命中」会掩盖「其实扫到了但跳过了」');
   assert.equal(db.calls.filter((c) => c.kind === 'run' && /DELETE FROM comments/.test(c.sql)).length, 0);
 });
 
