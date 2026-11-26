@@ -141,6 +141,29 @@ t('404 有 skip-link 且指向可用的 #main', () => {
   assert.match(notFound, /<main class="g404" id="main"/, 'skip-link 目标应是主内容区');
 });
 
+/* ---------- RSS 自动发现：一份实现、三个出口 ----------
+
+   漏一个出口的症状是「某类页面没有 feed 声明」，线上只有真去抓那一页才看得见
+   —— 静态页、系列页、文章页是三个不同的 head 生成路径，谁都不会因为别人有就自动有。
+   反过来，把这一行再硬写进静态壳，首页就会出现两条同名 link（渲染一条、壳里一条），
+   浏览器和阅读器不报错，只是重复。两个方向都盯住。 */
+t('RSS 声明只有一份实现', () => {
+  const defs = src.match(/^function rssAlternate\(/gm) || [];
+  assert.equal(defs.length, 1, `定义 ${defs.length} 处`);
+});
+
+t('RSS 声明被三个 head 出口引用', () => {
+  const uses = src.match(/^\s*(?:\$\{)?rssAlternate\(origin\)/gm) || [];
+  assert.equal(uses.length, 3, `引用 ${uses.length} 处（静态页 / 系列页 / 文章页）`);
+});
+
+t('静态壳里不再硬写 RSS 声明', () => {
+  for (const f of ['index', 'archive', 'categories']) {
+    const html = readFileSync(new URL(`../public/${f}.html`, import.meta.url), 'utf8');
+    assert.equal((html.match(/rel="alternate"/g) || []).length, 0, `${f}.html 里还有硬写的那行`);
+  }
+});
+
 let bad = 0;
 for (const [name, fn, id] of cases) {
   try {

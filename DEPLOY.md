@@ -59,10 +59,16 @@ sitemap / OAuth 回调 / 友链自环 全部从它派生。但它管不到下面
 | **GitHub OAuth App → Authorization callback URL** | 改成 `https://miu.sryze.cc/auth/callback`（GitHub 只认登记值，而且往往只能登记一条；改之前旧域那条要换掉） | 点登录跳回 GitHub 报 `redirect_uri MUST match` |
 | **Turnstile widget → Hostname** | 2026-11-25 已建 widget `miu-blog-comments`（managed，domain `miu.sryze.cc`）；sitekey 在 `wrangler.jsonc` vars、secret 走线上密钥。`npm run preflight` 两项均「已配」 | 配了一半时前端照常弹框，服务端 `siteverify` 永远验不过 → 评论全量拒收 |
 | **Cloudflare Zone 级规则** | 新域是独立 active zone（`miu.sryze.cc`），不是根域 `sryze.cc`。Transform Rules / WAF / 缓存规则按 zone 归属，不会跟 Worker 自动迁移；需要时跑 `node scripts/apply-edge-headers.mjs` 前先确认 `CF_ZONE=miu.sryze.cc` | Worker 侧 CSP 仍生效（每个响应都带），但 zone 级 `X-Content-Type-Options` 之类少一层 |
+| **旧域整站 301** | Worker 侧已实现：`src/utils.js` 的 `hostRedirect()`，在 `handleFetch()` 里位于 HTTPS 之后、边缘缓存之前、路径规范化之前。配了 `SITE_ORIGIN` 即生效，不用改代码；想省掉每次旧域请求唤起 Worker 的开销，可在旧域那个 zone 加一条 Redirect Rule（`Hostname equals 旧域` → 301 → `SITE_ORIGIN`，保留 path 与 query），规则先命中、代码当兜底，两者不冲突 | 旧域照样 200 并吐同一份全站内容：同一页面被两个域名各抓一遍（抓取配额翻倍）、两个 zone 各算一份统计、指向旧域的外链只能靠 canonical 归并、从旧域点内链跳新域（半个跳转） |
 | **DNS** | 已就绪：`miu.sryze.cc` 有 A 记录且路由到同一 Worker，无需动作 | — |
 
 旧域 `exia.de5.net` 保留在 `src/cron.js` 的 `LEGACY_SELF_HOSTS` 里：它仍绑着同一 Worker，
 不屏蔽就会被友链巡检当成外部站探测一次（实测 522）。这一段不是兼容层，是自环保护。
+对访客和爬虫，它现在由 `hostRedirect()` 整站 301 到主域 —— 那才是兼容层，两件事别混。
+
+**判据**：`curl -sI https://exia.de5.net/ | head -1` 必须是 `301`、`Location` 是主域。
+`200` 就是没生效，**别把「打得开」当成正常**（P-085）。GET/HEAD 给 301，其余方法给 308：
+301 会让浏览器把 POST 降级成 GET 并丢掉 body，评论提交和 OAuth 回调都会静默变成读请求。
 
 ### 审核态匿名可见性（有 pending 样本时做）
 

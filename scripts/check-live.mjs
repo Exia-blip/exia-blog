@@ -785,6 +785,68 @@ console.log(`\n${ORIGIN}\n`);
     unstamped.map((r) => r.p).join(' | '));
 }
 
+/* ---------- 17. 主域归一与 RSS 自动发现（2026-11-27）
+
+   两件事都只有线上看得见：
+
+   1. **旧域必须整站 301 到主域。** 换主域时只改 SITE_ORIGIN 只做了一半：
+      canonical / sitemap / RSS 全指向新域，旧域照样 200 并吐同一份内容。
+      后果不是「不好看」，是同一页面被两个域名各抓一遍（抓取配额翻倍）、
+      两个 CF zone 各算一份统计、外链只能靠 canonical 归并。
+      判据看 Location 与状态码，不看「能不能打开」—— 能打开正是 bug 本身。
+
+   2. **每个页面都要有 RSS 自动发现的 link。** 以前只有首页那三个静态壳里
+      硬写了这一行，/p/*、/series、/friends 全没有，阅读器只能靠用户手猜地址。
+      判据是「正好一条」：多一条就是硬写的那份和渲染出来的那份同时存在。
+
+   旧域那条只在打主域时跑：换成别的 ORIGIN（预览部署）时那台 Worker 不该被
+   要求把 exia.de5.net 跳过来，硬跑必假红。 */
+{
+  const RSS = (html) => (html.match(/<link rel="alternate" type="application\/rss\+xml"[^>]*>/g) || []);
+
+  const home = await page('/');
+  /* 文章 slug 与标签从首页里取，避免把某个 slug 写死在体检里 —— 文章改名就假红 */
+  const firstPost = (home.body.match(/href="\/p\/([^"?#]+)"/) || [])[1] || '';
+  const firstTag = (home.body.match(/href="\/tag\/([^"?#]+)"/) || [])[1] || '';
+
+  const targets = [
+    ['/', home],
+    ['/archive', await page('/archive')],
+    ['/categories', await page('/categories')],
+    ['/friends', await page('/friends')],
+    ['/series', await page('/series')],
+    firstPost ? [`/p/${firstPost}`, await page(`/p/${firstPost}`)] : null,
+    firstTag ? [`/tag/${firstTag}`, await page(`/tag/${firstTag}`)] : null,
+  ].filter(Boolean);
+
+  const noRss = targets.filter(([, r]) => r.res.status === 200 && RSS(r.body).length !== 1);
+  ok('[RSS] 每类页面正好一条 rel=alternate', noRss.length === 0,
+    noRss.map(([p, r]) => `${p}(${r.res.status}) ${RSS(r.body).length} 条`).join(' | '));
+
+  const badHref = targets
+    .filter(([, r]) => r.res.status === 200)
+    .filter(([, r]) => { const m = RSS(r.body)[0]; return m && !m.includes(`href="${ORIGIN}/rss.xml"`); });
+  ok('[RSS] 声明一律是主域的绝对地址', badHref.length === 0,
+    badHref.map(([p]) => p).join(' | '));
+
+  if (ORIGIN === 'https://miu.sryze.cc') {
+    const legacy = 'https://exia.de5.net';
+    const res = await fetch(`${legacy}/p/${firstPost || ''}?utm_source=live-check`, {
+      redirect: 'manual',
+      headers: { 'cache-control': 'no-cache' },
+    });
+    const loc = res.headers.get('location') || '';
+    ok('[HOST] 旧域整站 301 到主域', res.status === 301, `status ${res.status}`);
+    ok('[HOST] 旧域跳转保留 path 与 query',
+      loc === `${ORIGIN}/p/${firstPost}?utm_source=live-check` || (!firstPost && loc === `${ORIGIN}/?utm_source=live-check`),
+      loc || '(没有 Location)');
+    const api = await fetch(`${legacy}/api/posts?size=1`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json' } });
+    ok('[HOST] 旧域写请求用 308 保方法', api.status === 308, `status ${api.status}`);
+  } else {
+    console.log(`  --  [HOST] 跳过旧域 301（本机 ORIGIN=${ORIGIN}，不是主域）`);
+  }
+}
+
 /* 体检有几十条，失败夹在中间的 ok 里很容易漏读。末尾把失败项单独列一遍。 */
 if (failed.length) {
   console.log('\n失败项：');

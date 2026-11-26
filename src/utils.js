@@ -57,6 +57,27 @@ export function html(body, status = 200, headers = {}) {
   });
 }
 
+/* 本机 host 白名单只此一份：HTTPS 强跳与主域归一都要放行它，
+   写两处的结果是只改一处 —— 本地开发突然被自己的线上规则踢走。 */
+export function isLocalHost(host) {
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+}
+
+/* SITE_ORIGIN 的解析只有这一份：配了才返回 URL，没配或配错返回 null。
+   siteOrigin（生成对外地址）与 hostRedirect（判断要不要跳）共用它，
+   避免出现「canonical 认了新域、301 还不认」这种两处口径分叉。 */
+export function configuredOrigin(env) {
+  const raw = String(env?.SITE_ORIGIN || '').trim().replace(/\s+/g, '');
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if ((u.protocol === 'https:' || u.protocol === 'http:') && u.hostname) return u;
+  } catch {
+    // 配错就当没配：不让一篇 500 拖垮全站，也不让整站跳到一个不存在的域
+  }
+  return null;
+}
+
 /* 对外绝对 URL（canonical / og:url / sitemap / RSS / robots）必须用的可信源。
    不能用 new URL(request.url).origin —— 那个 host 直接来自请求 Host 头：
    zone 配了 wildcard、或有人带伪造 Host 打进来时，canonical 和 sitemap 会输出
@@ -64,16 +85,33 @@ export function html(body, status = 200, headers = {}) {
    没配（本地 wrangler dev）才回落到请求 origin，保证开发照常跑。
    清洗规则与 auth.js 的 OAuth 回调用 origin 一致，避免两处口径走偏。 */
 export function siteOrigin(env, request) {
-  const reqOrigin = new URL(request.url).origin;
-  const raw = String(env?.SITE_ORIGIN || '').trim().replace(/\s+/g, '');
-  if (!raw) return reqOrigin;
-  try {
-    const u = new URL(raw);
-    if ((u.protocol === 'https:' || u.protocol === 'http:') && u.hostname) return u.origin;
-  } catch {
-    // 配错就回落，不让一篇 500 拖垮全站
-  }
-  return reqOrigin;
+  const u = configuredOrigin(env);
+  return u ? u.origin : new URL(request.url).origin;
+}
+
+/* 主域归一：旧域整站 301 到 SITE_ORIGIN。
+   为什么要有这道 —— 换主域时只改 SITE_ORIGIN 只迁移了一半：canonical / sitemap /
+   RSS 都指向新域了，旧域照样 200 并吐同一份全站内容。后果是四份账各自错：
+   同一页面被两个域名各抓一遍（抓取配额翻倍）、两个 CF zone 各算一份访问统计、
+   指向旧域的外链只能靠 canonical 归并、比 301 弱一档，从旧域进来点任意内链
+   又会跳到新域（半个跳转）。
+   · 只在配了 SITE_ORIGIN 时生效。没配时「主域」就是请求自己，
+     照此判断会把本地和预览域名全部跳走。
+   · 本地 host 放行，否则 wrangler dev 第一跳就飞出本机。
+   · GET/HEAD 用 301（明确、可缓存、搜索引擎认永久迁移）；其余方法用 308 ——
+     301 会让浏览器把 POST 降级成 GET 并丢掉 body，评论提交与 OAuth 回调
+     都会静默变成读请求。
+   · path + query 原样带走：/?page=2 在旧域上是合法地址，压成首页等于把分页吞了。 */
+export function hostRedirect(env, url, method = 'GET') {
+  const canon = configuredOrigin(env);
+  if (!canon) return null;
+  if (isLocalHost(url.hostname)) return null;
+  if (url.hostname === canon.hostname) return null;
+  const target = new URL(url.pathname + url.search, canon.origin);
+  return {
+    status: method === 'GET' || method === 'HEAD' ? 301 : 308,
+    location: target.toString(),
+  };
 }
 
 export function err(message, status = 400) {

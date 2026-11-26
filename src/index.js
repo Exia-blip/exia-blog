@@ -1,6 +1,6 @@
 import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql, tagHasLivePosts } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser, ownerOrAdmin } from './auth.js';
-import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin, wordCount, pageParams } from './utils.js';
+import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin, hostRedirect, isLocalHost, wordCount, pageParams } from './utils.js';
 import { checkFriends, checkSelfHealth, sweepComments } from './cron.js';
 import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { themeBootTag } from './themeboot.js';
@@ -682,6 +682,7 @@ function seriesShell({ site, origin, title, kicker, desc, canonical, ld, sub, li
 <meta name="theme-color" content="${THEME_COLOR[site.theme] || '#faf9f7'}">
 <meta name="color-scheme" content="light dark">
 <link rel="canonical" href="${esc(canonical)}">
+${rssAlternate(origin)}
 <link rel="manifest" href="/manifest.webmanifest">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="${esc(site.name || 'Blog')}">
@@ -1270,6 +1271,7 @@ async function servePostPage(env, request, slug) {
     `<meta name="theme-color" content="${THEME_COLOR[site.theme] || '#f7f9fe'}">`,
     `<meta name="color-scheme" content="light dark">`,
     `<link rel="canonical" href="${esc(canonical)}">`,
+    rssAlternate(origin),
     `<link rel="manifest" href="/manifest.webmanifest">`,
     `<meta property="og:type" content="article">`,
     `<meta property="og:site_name" content="${esc(siteName)}">`,
@@ -1700,6 +1702,16 @@ function renderCats(body, counts, tags) {
   return out;
 }
 
+/* RSS 自动发现声明只有这一份实现：静态页（fillSeo）、系列页、文章页共用。
+   以前只有首页那三个静态壳里硬写了这一行，于是 /p/*、/series、/about、/friends
+   全都没有 —— 阅读器只能靠用户手贴 /rss.xml，而多数人不会去猜。
+   href 用绝对地址：/p/slug 这类深路径下，不认 <base> 的阅读器会把相对地址
+   拼到 /p/ 上，拿回来是个 404 的「feed」。 */
+function rssAlternate(origin) {
+  if (!origin) return '';
+  return `<link rel="alternate" type="application/rss+xml" title="RSS" href="${origin}/rss.xml">`;
+}
+
 /* ---------- 静态页 SEO：站点名进标签页标题、站点描述进 meta ----------
    文章页的 <!--SEO--> 已在 servePostPage 里换掉，这里只兜静态页（首页/归档/栏目/友链…） */
 /* 规范地址的唯一实现。
@@ -1724,7 +1736,6 @@ export function canonicalOf(url) {
 
 function fillSeo(body, site, url) {
   if (!body.includes('<!--SEO-->')) return body;
-
   const m = body.match(/<title>([\s\S]*?)<\/title>/i);
   let label = (m?.[1] || '').replace(/\s+/g, ' ').trim();
   let cat = null;
@@ -1765,6 +1776,7 @@ function fillSeo(body, site, url) {
     `<meta name="theme-color" content="${THEME_COLOR[site.theme] || '#f7f9fe'}">`,
     `<meta name="color-scheme" content="light dark">`,
     canonical ? `<link rel="canonical" href="${esc(canonical)}">` : '',
+    rssAlternate(origin),
     `<link rel="manifest" href="/manifest.webmanifest">`,
     `<meta property="og:type" content="website">`,
     `<meta property="og:site_name" content="${esc(site.name)}">`,
@@ -2795,7 +2807,7 @@ export default {
          用 308 不用 301：POST/PUT 跟随重定向时不能把方法改成 GET。
          本地 wrangler dev 是 http://127.0.0.1:8788，必须放行，否则本地没法开发。 */
       const host = url.hostname;
-      const LOCAL = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+      const LOCAL = isLocalHost(host);
       const fwdProto = (request.headers.get('x-forwarded-proto') || '').toLowerCase();
       if (!LOCAL && (url.protocol === 'http:' || fwdProto === 'http')) {
         const target = new URL(request.url);
@@ -2805,6 +2817,23 @@ export default {
           status: 308,
           headers: securityHeaders(
             new Headers({ location: target.toString(), 'cache-control': 'public, max-age=3600' }),
+            null
+          ),
+        });
+      }
+
+      /* 旧域整站 301 到主域。放在这里的三条理由：
+         1) 必须在 HTTPS 之后 —— 先跳协议再跳域，浏览器只吃一次重定向；
+         2) 必须在边缘缓存之前 —— 否则旧域的页面会先进 caches.default，
+            缓存键是完整 URL，两个域名两套副本，bust 也只清得掉一套；
+         3) 必须在路径规范化之前 —— 那是 301 到本站内部地址，跨域了顺序就反了。
+         规则本体在 utils.js 的 hostRedirect()，这里只负责发响应。 */
+      const hostJump = hostRedirect(env, url, request.method);
+      if (hostJump) {
+        return new Response(null, {
+          status: hostJump.status,
+          headers: securityHeaders(
+            new Headers({ location: hostJump.location, 'cache-control': 'public, max-age=3600' }),
             null
           ),
         });

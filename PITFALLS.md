@@ -877,6 +877,17 @@
 
 ---
 
+## P-085 换主域只改 SITE_ORIGIN，等于只迁移了一半
+
+- **现象**：全站 URL 口径已经统一到新域 —— canonical、`og:url`、sitemap 53 条 `<loc>`、robots 的 `Sitemap:`、RSS 的 channel link 与 guid 全是 `miu.sryze.cc`；但旧域 `exia.de5.net` 仍然 **200 并提供同一份全站内容**（首页 38441B 对 38441B，逐行比对只差一行 Analytics beacon token，说明两个域名是两个独立 CF zone，各自在跑统计）。站内一切"正确"，所以任何只查站内产物的检查都发现不了。
+- **根因**：`SITE_ORIGIN` 只决定**输出**里写哪个域名，不决定**接受**哪个 host。旧域还绑着同一个 Worker，请求照样进来、照样渲染、照样进边缘缓存（缓存键是完整 URL，两个域名两套副本，`bust` 只清得掉一套）。四份账因此同时出错：同一页面被两个域名各抓一遍（抓取配额翻倍）、两个 zone 各算一份访问统计（来源无法合计）、指向旧域的外链只能靠 canonical 归并（比 301 弱一档）、从旧域进来点任意内链又跳到新域（半个跳转）。
+- **复现**：`curl -sI https://旧域/ | head -1` → `200`。判据看状态码和 `Location`，**不看"能不能打开"** —— 能打开正是 bug 本身。换成旧域的 `/p/<slug>?utm=x` 也必须给 301 且 query 原样保留。
+- **断言**：`scripts/test-host-redirect.mjs` U-01..U-10（跳/不跳、301 vs 308、query 保留、本地放行、`SITE_ORIGIN` 未配与配错都不动作）；线上 `check-live.mjs` 第 17 段查旧域 301/308 与每类页面正好一条 RSS 声明。注入三处各自只红自己那一对：删本地放行 → 只 U-06 红；301 改 302 → U-01/U-05/U-09 红；不回 query → U-02/U-03 红。
+- **边界**：Worker 侧 301 每次旧域请求都要唤起一次 Worker（计费、有 CPU 开销）；换成 CF Redirect Rule 更便宜，但那是面板状态、进不了版本库 —— 与 HTTPS 强跳同一取舍。两边都上也不冲突：规则先命中，代码成为兜底。另外 `*.workers.dev` 预览域也会被跳走，`wrangler versions upload` 的预览验证需要带 `SITE_ORIGIN` 覆盖。
+- **出处**：`src/utils.js` 的 `hostRedirect()`（规则本体）、`src/index.js` 的 `handleFetch()`（发响应，位置在 HTTPS 之后、缓存之前、路径规范化之前）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：
