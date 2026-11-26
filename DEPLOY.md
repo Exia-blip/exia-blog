@@ -218,6 +218,11 @@ npx wrangler secret put ADMIN_LOGINS       # 输入: exia-blip
 | 看清会删谁（**不发不删**） | `npm run comment:sweep` | 输出 `补推 / 垃圾 / 免检跳过` 三段，结尾自报「什么都没动」 |
 | 立刻补推 + 删垃圾 | `npm run comment:sweep -- --apply` | 同上，改动落库；补推的 `notify_note` 带「补推」前缀 |
 | 打本地 dev（不碰线上） | 上面任一条加 `--origin=http://127.0.0.1:8788` | 需 dev server 在跑；`--uid=<管理员 id>` 可换身份 |
+| 验「待审渲染」三处联动 | `npm run comment:probe -- --apply` | 造一条 pending → 侧栏徽章 / 待办条 / 评论页三处都要 +1 → 自动删 → 再验回零；任一不符退出码 1 |
+
+**新脚本查 D1 一律走 `scripts/lib/d1.mjs`，不要写 `execFileSync('npx', …)`**：Windows 上 npx 是 `.cmd`，
+node 直接拉会报 `spawnSync npx ENOENT`；退化成 `shell: true` 则会把带空格的 SQL 拆成十几个参数，
+报出来的却是 SQL 语法错。两个坑在本仓已踩过四次（`backfill-html` / `make-variants` / `gen-cards` / `setup` 各留了一段注释）。
 
 - **两条命令筛的不是同一批**：`notify:resend` 是**点名重投**，不判断该不该补（那是你的判断），也不受补推冷却限制；
   `comment:sweep` 是**按条件筛**（6 小时内 + 距上一跳满 1 小时 + 打分 ≥ 4）并删除，与 cron 每 20 分钟跑的是同一套。

@@ -37,6 +37,7 @@
     "verify:comment-e2e": "node scripts/verify-comment-e2e.mjs",
     "notify:resend": "node scripts/notify-resend.mjs",
     "comment:sweep": "node scripts/comment-sweep.mjs",
+    "comment:probe": "node scripts/comment-probe.mjs",
     "check:scroll": "node scripts/check-scroll-ui.mjs",
     "check:toc": "node scripts/check-toc-bar.mjs",
     "check:images": "node scripts/check-images.mjs",
