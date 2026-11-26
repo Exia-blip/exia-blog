@@ -289,6 +289,9 @@ npx wrangler secret put BOOTSTRAP_TOKEN     # 输入一个 32 位随机串
 2. CF Dashboard 给 Worker 绑新域名
 3. GitHub OAuth App 的 Callback URL 改成 `新域名/auth/callback`
 
+**旧域别急着解绑**：301 是 Worker 打的，解绑之后旧域既没有内容也没有跳转，历史外链全断。
+留着绑定即可，它在 `src/cron.js` 的 `LEGACY_SELF_HOSTS` 里已被排除友链自检。
+
 运行时代码已从 `SITE_ORIGIN` / canonical 派生域名——友链自检的 UA 与自环判定、友链申请示例、复制声明都不用手动改。唯一要动的是 D1 里指向旧域名的**本站友链数据**（后台改，属数据不属代码）。`npm run migrate:plan` 会打印这份清单。
 
 **换账号 / 灾备重建**才要搬数据：
@@ -419,7 +422,17 @@ export function liveSql(a = 'p') {
 1. **GitHub OAuth App** 的 Authorization callback URL 改成 `https://新域名/auth/callback` —— 这一步只能手动做，GitHub 只认登记的地址，不一致会返回 `redirect_uri MUST match` 错误页
 2. 旧域名的会话 cookie 是 host-only 的，换域后必须重新登录一次，属正常现象
 
-其它域名（旧 workers.dev、备用域）访问登录页会自动 302 到 `SITE_ORIGIN`，保证会话 cookie 落在同一个 host，不会出现"授权成功但后台还是未登录"。
+其它域名（旧域、备用域、旧 workers.dev）**整站** 301 到 `SITE_ORIGIN` —— 不只是登录页。
+规则在 `src/utils.js` 的 `hostRedirect()`，位置在 HTTPS 之后、边缘缓存之前：GET/HEAD 给 301，
+写请求给 308（301 会把 POST 降级成 GET 并丢掉 body）。判断是否生效只看一行：
+
+```bash
+curl -sI https://旧域名/ | head -1   # 必须是 301，200 就是没生效
+```
+
+**「打得开」不是正常，是 bug 本身** —— 两个域名同时提供全站内容会让同一页面被抓两遍、
+两个 zone 各算一份统计（P-085）。想省掉旧域每次请求唤起 Worker 的开销，可以在旧域那个
+zone 加一条 Redirect Rule；规则先命中、代码当兜底，两者不冲突。
 
 卡住了打开 `https://你的域名/auth/status`，会直接告诉你当前算出来的回调地址：
 
