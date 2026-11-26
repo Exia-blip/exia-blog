@@ -34,10 +34,14 @@ export function renderDashboard({ site = {}, user = {}, kpi = {}, recent = [], s
      友链在本仓库没有「申请 / 审核」流程（后台直接增删改），所以这一项是「探测失败」
      而不是「待审友链」—— 摆一个不存在的数字比不放更误导。
      数字全来自真实查询，失败就显示「—」，不补 0。
-     四格是上限：格子越多，越容易有一格永远不变，整条就没可信度了。 */
+     四格是上限：格子越多，越容易有一格永远不变，整条就没可信度了。
+
+     「预排未发」用 24 小时窗口而不是队列全量：线上实测 20 篇预排、最远排到次年二月，
+     全量塞进待办条会显示「今天要做的 20 件」，而那 20 件今天一件都不用动。
+     队列全量仍在 KPI 卡片「待发布」里 —— 它回答的是「队列有多长」，两个问题不同。 */
   const todos = [
     { label: '待审评论', v: kpi.cmtPending, href: '/admin/comments' },
-    { label: '预排未发', v: kpi.queue, href: '/admin/queue' },
+    { label: '24h 内待发', v: kpi.queueToday, href: '/admin/queue' },
     { label: '友链异常', v: sys.friendDown, href: '/admin/friends' },
     { label: '通知失败', v: kpi.notifyFail, href: '/admin/notify' },
   ];
@@ -142,7 +146,11 @@ export async function dashboardPage(env, request) {
     safe(
       () =>
         one(
-          `SELECT COUNT(*) c FROM posts WHERE is_private=0 AND hidden=0 AND review_status='approved' AND published_at!='' AND published_at>datetime('now')`
+          `SELECT COUNT(*) c,
+                  SUM(CASE WHEN published_at <= datetime('now','+1 day') THEN 1 ELSE 0 END) today
+           FROM posts
+           WHERE is_private=0 AND hidden=0 AND review_status='approved'
+             AND published_at!='' AND published_at>datetime('now')`
         ),
       {}
     ),
@@ -189,6 +197,7 @@ export async function dashboardPage(env, request) {
         posts: postStat?.published,
         pending: pendingStat?.c,
         queue: queueStat?.c,
+        queueToday: queueStat?.today,
         cmtPending: nav.pendingComments,
         notifyFail: nav.notifyFail7d,
         pv: pv?.pv,

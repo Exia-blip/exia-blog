@@ -99,11 +99,14 @@ assert.ok(cm2.includes('已送达 9 · 失败 2 · 跳过 4 · 未尝试 1'), '�
 assert.ok(!/undefined|NaN/.test(cm2), '缺字段不许漏 NaN/undefined');
 ok('评论管理：四态过滤、层级、通知三态与汇总数字');
 
-/* 概览待办条：四条可判定数字 + 直达链接；全零时不能写成「要做的 0 件」。 */
-const dashTodo = renderDashboard({ site: {}, kpi: { cmtPending: 3, queue: 2, notifyFail: 1 }, sys: { friendDown: 1 } });
-assert.ok(dashTodo.includes('今天要做的 7 件'), '四个数字要相加');
+/* 概览待办条：四条可判定数字 + 直达链接；全零时不能写成「要做的 0 件」。
+   队列故意给两个值：全量 20、24h 内 2。待办条只能吃后者 —— 若实现回退成 queue，
+   总数会变 25，这条直接红。线上实测过 20 篇预排排到次年二月，挤进待办条就是误报。 */
+const dashTodo = renderDashboard({ site: {}, kpi: { cmtPending: 3, queue: 20, queueToday: 2, notifyFail: 1 }, sys: { friendDown: 1 } });
+assert.ok(dashTodo.includes('今天要做的 7 件'), '四个数字要相加，且队列只算 24h 内（20 不计入）');
+assert.ok(!dashTodo.includes('要做的 25 件'), '待办条不能吃队列全量');
 assert.ok(dashTodo.includes('/admin/comments') && dashTodo.includes('/admin/queue') && dashTodo.includes('/admin/friends'));
-const dashClean = renderDashboard({ site: {}, kpi: { cmtPending: 0, queue: 0, notifyFail: 0 }, sys: { friendDown: 0 } });
+const dashClean = renderDashboard({ site: {}, kpi: { cmtPending: 0, queue: 0, queueToday: 0, notifyFail: 0 }, sys: { friendDown: 0 } });
 assert.ok(dashClean.includes('今天没有待办'), '全零要明确说没有待办');
 assert.ok(!dashClean.includes('要做的 0 件'));
 assert.ok(!/undefined|NaN/.test(renderDashboard({})), '缺数据不许漏脏值');

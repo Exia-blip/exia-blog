@@ -261,12 +261,21 @@ assert.ok(dash.includes('sv-pill bad') && dash.includes('驳回'), '驳回稿要
 assert.ok(dash.includes('11-22 09:00'), '最近编辑时间要按北京时间显示（库里 01:00 → 09:00）');
 assert.ok(!dash.includes('会话'), '运行状态不能写没查过的会话结论');
 // 数据口径：KPI SQL 与公开闸门同口径，否则待审稿会混进「已发布」
+// 判据按空白规范化后比对，不锁死换行/缩进 —— 否则给 SQL 加一个换行就会
+// 「红，但错的是断言」：上一轮那条 renderAdminNav('stats') 全字面量就是这么坏掉的。
+// 注入验证：删掉 queueStat 里的 review_status='approved' → 本条先红。
 const dashSrc = readFileSync('src/dashboard.js', 'utf8');
-assert.ok(dashSrc.includes("review_status='approved' AND published_at!='' AND published_at<=datetime('now')"),
+const dashFlat = dashSrc.replace(/\s+/g, ' ');
+assert.ok(dashFlat.includes("review_status='approved' AND published_at!='' AND published_at<=datetime('now')"),
   '已发布 KPI 缺审核闸门');
-assert.ok(dashSrc.includes("review_status='approved' AND published_at!='' AND published_at>datetime('now')"),
+assert.ok(dashFlat.includes("review_status='approved' AND published_at!='' AND published_at>datetime('now')"),
   '待发布 KPI 缺审核闸门');
 assert.ok(dashSrc.includes('is_private, hidden, review_status'), '最近编辑查询没带审核态');
+/* 待办条「24h 内待发」必须真有窗口。线上实测：20 篇预排最远排到次年二月，
+   用全量 → 概览写「今天要做的 20 件」，而那 20 件今天一件都不用动。
+   队列全量该留在 KPI 卡片「待发布」里，两个问题不同。 */
+assert.ok(dashSrc.includes('queueToday'), '待办条应使用 24h 窗口计数，不是队列全量');
+assert.ok(dashFlat.includes("datetime('now','+1 day')"), '24h 窗口缺失：预排会按全量计入「今天要做」');
 // 缺值：所有 KPI 给「—」，不出现 undefined / NaN
 const dashEmpty = renderDashboard({});
 assert.ok(!/undefined|NaN/.test(dashEmpty), '缺值不应渲染成 undefined/NaN');
