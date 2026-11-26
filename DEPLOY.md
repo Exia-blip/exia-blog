@@ -90,7 +90,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://miu.sryze.cc/p/<slug>
 
 ### 评论通知链路的验证边界（2026-11-25）
 
-Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发真收；但覆盖的是通知链路本身，不是评论提交全链路。和上面那组「已实测 / 读码结论」并排记，别把两行未验读成已验：
+Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发真收；但覆盖的是通知链路本身，不是评论提交全链路。和上面那组「已实测 / 读码结论」并排记，别把未验那行读成已验：
 
 | 环节 | 结论 | 依据 |
 |---|---|---|
@@ -100,7 +100,7 @@ Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发�
 | 写入前自检 / 写入后回打（冒烟） | 已验（脚本内；**只到写入与传输**） | `setup:webhook` 在 `putSecret` 前后各走一次同一个 `smokeWebhook`（带 label），复用 `webhookPayload`；93000 → die，写入前失败时现役 secret 未被覆盖；`--dry` / `--no-smoke` 显式打印跳过；**注入验证均先红后恢复**。这行验的是配置写入与平台码传输，**不是评论触发**——别读成「通知链路全验过了」 |
 | wrangler 空 stdin 静默成功（workers-sdk#16193） | 已验（闸门在调用前） | `putSecret` 入口拦空值：非 TTY 下 `wrangler secret put` 会上传空值、打印 `Success`、exit 0，`preflight` 还把空串报成「已配」。注入去掉闸门 + 传空值 → 假 wrangler 静默通过且体检给出「WEBHOOK_URL 已配」；装回闸门 → die 且不进体检 |
 | 写入值 → `env.WEBHOOK_URL` 绑定 → Worker 真发（代码链） | 已验（本地断言） | `test-setup.mjs` 用假 wrangler 捕获真正写进去的 name/value，再喂给真 `notifyComment` 打到 mock sink；四处注入（读错键 / 写错名 / 写入值被包装 / payload 形状被改）均先红后恢复 |
-| 评论落库 → 触发 `notifyComment` | 本地已验 / **线上未验** | 2026-11-26 本地 dev 真发一条评论（`POST /api/comments` → `{ok:true,status:"pending"}`），本地 sink 收到 `[待办] 新评论待审…`，库里 `notify_status=ok / notify_note=待办提醒 / notified_at` 与 `created_at` 同秒。那一轮把 `TURNSTILE_SITE_KEY` 置空跑的，**只覆盖「落库 → 通知」这段，不含 Turnstile 那一跳**。线上仍待人工：`npm run verify:comment-e2e -- <slug>` 用唯一 nonce 同时查 D1 公开评论与 sink inbox 的 💬 payload，两边都命中才算过；判据自检 6/6 已进 `npm test`、两次注入（去形状判据 / 去回复递归）均先红后恢复 |
+| 评论落库 → 触发 `notifyComment` | **本地已验 + 线上已验（管理员身份）** | 2026-11-26 本地 dev 真发一条评论（`POST /api/comments` → `{ok:true,status:"pending"}`），本地 sink 收到 `[待办] 新评论待审…`，库里 `notify_status=ok / notify_note=待办提醒 / notified_at` 与 `created_at` 同秒。那一轮把 `TURNSTILE_SITE_KEY` 置空跑的，**只覆盖「落库 → 通知」这段，不含 Turnstile 那一跳**。线上同一段 2026-11-26 23:57 也已验：管理员 cookie 走 `POST /api/comments` 真发 #18（`status=approved` / `is_admin=1` / `notify_status=ok` / `notify_note` 为空＝首次投递而非「补发」），与访客共用 `notifyForComment`。**未覆盖的只剩真人过 Turnstile 那一跳**（管理员豁免）。没有管理员态时仍可跑 `npm run verify:comment-e2e -- <slug>`：用唯一 nonce 同时查 D1 公开评论与 sink inbox 的 💬 payload，两边都命中才算过；判据自检 6/6 已进 `npm test`、两次注入（去形状判据 / 去回复递归）均先红后恢复 |
 | 浏览器真过 Turnstile → 提交评论 | **未验** | managed 模式在无头/有头自动化浏览器都拿不到 token，需真实人工点一次验证码；上面那个脚本不自动提交、只观察，token 从 `SINK_URL` 环境变量读且不回显 |
 
 **判据的强弱顺序（留痕按这个写）**：`群里真的跳出 💬` > `D1 + sink 双源命中同一个 nonce` > `脚本单侧命中`。
@@ -142,7 +142,7 @@ Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发�
 手动入口 `npm run comment:sweep`，**默认 dry**（只列会删谁、不发不删），`--apply` 才动手。
 误删过就调 `SPAM_MIN_SCORE`，别去删规则 —— 规则表在 `spam.js` 文件头，每条都注明了它的误杀面。
 
-冒烟守得住「写入动作没把地址弄坏 / token 在写入窗口被轮换 / sink 此刻可用」，**守不住「写进去的值和 sink 认的值不是同一个」**：CF secrets 只可写不可读（`wrangler secret list` 只列名字/类型，没有长度或哈希），回打用的还是本地 `url` 变量。补上本地断言后，代码链（写值 → 绑定名 → 真 `webhook.js` → sink 接受）已验；2026-11-26 的本地真发又把「评论落库 → 触发通知」这段补成了本地已验。**未验的只剩两条**：CF 线上实际存的值（要靠线上真发回打），和线上的评论提交链路（要人工点一次验证码）。不要把本地断言读成线上绑定已读回。
+冒烟守得住「写入动作没把地址弄坏 / token 在写入窗口被轮换 / sink 此刻可用」，**守不住「写进去的值和 sink 认的值不是同一个」**：CF secrets 只可写不可读（`wrangler secret list` 只列名字/类型，没有长度或哈希），回打用的还是本地 `url` 变量。补上本地断言后，代码链（写值 → 绑定名 → 真 `webhook.js` → sink 接受）已验；2026-11-26 的本地真发把「评论落库 → 触发通知」补成了本地已验，同日的线上真发 #18（`notify_status=ok`）把它补成了线上已验。**未验的只剩一条**：真人过 Turnstile 那一跳（managed 模式拿不到 token，见本节末）。CF 线上实际存的值已由那次线上回打证实，不要再读成「线上绑定未读回」。
 
 **空值闸门的位置不能挪到回打里**：回打打的是本地 `url`，wrangler 把空值写进去时它照样 errcode 0；写进去之后 secrets 读不回，没有第二次机会。所以 `putSecret` 入口的 `if (!value || !String(value).trim()) die(...)` 是唯一能挡空 stdin 的地方。wrangler 的 `isTTY ? prompt() : readFromStdin()` 路径在 workers-sdk#16193 已确认，本机 `wrangler-dist/cli.js` 里也能读到同一分支。**不要用 `printf '' | wrangler secret put WEBHOOK_URL` 去线上复现**——那会真的把现役 secret 清空并触发部署；本地用假 wrangler（收到空 stdin 仍 exit 0）复现同一形状即可。冒烟失败不回滚 secret——回打失败可能是 sink 抖动，回滚会把「地址本身错」和「sink 短暂不可用」混成一件事。
 
