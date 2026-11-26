@@ -62,7 +62,10 @@ for (const html of [nav, editor]) {
 ok('四栏：顺序固定、每项归属正确、栏数锁在 4');
 
 // 3. stats.js 不再内联自己的菜单，避免两边漂移
-assert.ok(stats.includes('renderAdminNav(\'stats\')'), 'stats.js 应复用共享菜单');
+// 只判「用了共享菜单、active 落在 stats」，不锁死参数个数 ——
+// 参数完整性是 N-10 的职责。这里写全字面量的话，N-10 想修的那类改动
+// （给调用点补 counts）会先被这条挡下来，报的错还指向错误的方向。
+assert.match(stats, /renderAdminNav\('stats'[,)]/, 'stats.js 应复用共享菜单');
 assert.ok(!stats.includes('<span>返回首页</span>'), 'stats.js 仍有旧的内联菜单');
 ok('统计页复用共享菜单');
 
@@ -420,5 +423,28 @@ for (const a of actives) {
 }
 assert.ok(renderAdminNav('cmts').includes('class="on" aria-current="page"'), '评论页高亮必须落在 cmts 上');
 ok('N-09 active 值全部对得上导航 key');
+
+// N-10 每个 renderAdminNav 调用点都必须传 counts。
+// 抓的是刚修的一处静默降级：访问统计页只写了 renderAdminNav('stats')，
+// 于是那一页侧栏永远没有徽章，不报错、不 500、肉眼要跨页对比才看得出来。
+// 判据是参数串里必须出现 nav 或 counts；定义行（counts = null）同样通过。
+const CALL = /renderAdminNav\(([^)]*)\)/g;
+const callSites = [];
+for (const f of readdirSync('src')) {
+  if (!f.endsWith('.js')) continue;
+  for (const m of readFileSync(`src/${f}`, 'utf8').matchAll(CALL)) {
+    callSites.push({ file: f, args: m[1].trim() });
+  }
+}
+// 空集恒真防护：定义 1 处 + 调用点至少 2 处（页面外壳与 stats 各自一条路径）
+assert.ok(callSites.length >= 3, `只扫到 ${callSites.length} 处 renderAdminNav，判据的输入可疑`);
+for (const c of callSites) {
+  assert.match(
+    c.args,
+    /\b(nav|counts)\b/,
+    `${c.file}: renderAdminNav(${c.args}) 没传 counts，那一页侧栏会静默失去全部徽章`
+  );
+}
+ok('N-10 renderAdminNav 调用点全部传入 counts');
 
 console.log(`\nadmin nav: ${pass} passed`);

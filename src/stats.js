@@ -12,7 +12,7 @@ import { html, umamiOn, readJsonLimited, clientIp } from './utils.js';
 import { requireAdmin } from './auth.js';
 import { postCacheStats } from './postcache.js';
 import { getSite } from './settings.js';
-import { renderAdminNav, themeBoot } from './admin-ui.js';
+import { renderAdminNav, navCounts, themeBoot } from './admin-ui.js';
 import { avatarSrc } from '../public/avatar.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -247,6 +247,10 @@ export async function statsPage(env, request) {
   // 进程内文章缓存的自检数字：这个实例自己的，不跨实例
   const pc = postCacheStats();
 
+  /* 侧栏徽章：和概览、评论页同一份 navCounts，先拿 promise 最后再 await。
+     这一页曾经漏传 —— 侧栏在这页静默变成没有数字，不报错也不断言到。 */
+  const navP = navCounts(db);
+
   const q = (sql, ...args) => db.prepare(sql).bind(...args).all();
   const one = (sql, ...args) => db.prepare(sql).bind(...args).first();
 
@@ -308,6 +312,7 @@ export async function statsPage(env, request) {
       total,
       ev: { counts: evCounts, imgs: evImgs, words: evWords, views: evViews },
       pc,
+      nav: await navP,
     }),
     200,
     { 'cache-control': 'no-store' }
@@ -315,7 +320,7 @@ export async function statsPage(env, request) {
 }
 
 /** 纯渲染：只吃数据、不碰数据库。单测喂假数据就能验这一页没写错。 */
-export function renderStats({ user, site = {}, t1, t7, t30, dailyRows = [], top, refs, kinds, total, ev = {}, pc = {} }) {
+export function renderStats({ user, site = {}, t1, t7, t30, dailyRows = [], top, refs, kinds, total, ev = {}, pc = {}, nav = null }) {
   const sum = (r) => r?.pv ?? 0;
   const uv = (r) => r?.uv ?? 0;
 
@@ -387,7 +392,7 @@ td.p,td.mono{font-family:var(--mono);font-size:12.5px;word-break:break-all}
     </div>
     <input type="checkbox" id="nav-toggle" class="nav-cb" hidden>
     <div class="admin-nav-wrap">
-      ${renderAdminNav('stats')}
+      ${renderAdminNav('stats', nav)}
     </div>
   </aside>
   <main class="admin-main">
