@@ -2227,13 +2227,25 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
    token 洗白（深色模式下打印出来是浅灰字）、阴影清零、链接地址全量印出、
    以及把剩下的界面件（搜索框/标签栏/分页/评论/相关推荐）藏掉。 */
 @media print {
-  /* 白纸黑字直接用 token 换，比逐条 !important 少一半规则；
-     从深色模式打印时 --fg 是 #e9e6e1，不换 token 就是浅灰印在白纸上。 */
-  :root, :root[data-mode="dark"] {
-    --bg: #fff; --bg-soft: #fff; --card: #fff;
-    --fg: #000; --fg-soft: #111; --muted: #444;
-    --line: #bbb; --line-strong: #999; --accent: #000;
-    color-scheme: light;
+  /* 白纸黑字直接用 token 换，比逐条改选择器省一半规则。
+     这里必须 !important：六套皮肤是独立文件（/theme/ink.css 等），
+     它们的选择器是 :root[data-theme="ink"][data-mode="dark"]，权重 (0,3,0)，
+     高于本段 :root[data-mode="dark"] 的 (0,2,0)。不加 !important 的话，
+     洗白只在纸韵下成立；ink + 深色打印出来仍是 #0e0e10 的深底浅字（实测过）。
+     另外，加了 !important 之后「皮肤文件先加载还是后加载」也不再决定结果 ——
+     打印产物不该由加载顺序决定。 */
+  :root {
+    --bg: #fff !important; --bg-soft: #fff !important; --card: #fff !important;
+    --fg: #000 !important; --fg-soft: #111 !important; --muted: #444 !important;
+    --line: #bbb !important; --line-strong: #999 !important;
+    --accent: #000 !important; --accent-soft: #f2f2f2 !important;
+    --green: #1a6b3c !important; --red: #8a2620 !important;
+    /* 代码高亮原来漏在这里：深色模式那组是给深底算的亮色，
+       #d6a4e0 印在白纸上对比度约 1.9:1，关键字、字符串基本看不见。
+       沿用浅色基准那组深色，不另造第四套配色。 */
+    --tok-k: #a626a4 !important; --tok-s: #2f8a4f !important;
+    --tok-n: #b45309 !important; --tok-f: #2563a8 !important;
+    color-scheme: light !important;
   }
   @page { margin: 16mm 14mm; }
   /* 纸上没有悬浮层，阴影只会印成一圈脏灰 */

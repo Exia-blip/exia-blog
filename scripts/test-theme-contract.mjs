@@ -71,8 +71,12 @@ function rules(cssText) {
   return out.filter((sel) => sel && !sel.startsWith('@'));
 }
 
+/* 剥注释再数：注释里引用一条选择器是正常的说明手段，不该被算成
+   「主表里有这套主题的规则」。2026-11-27 就踩了一次 —— print 段的注释
+   写了皮肤的选择器原形态，TC-05 当场报 ink 有 1 条规则（而 ink 的规则
+   只在 theme/ink.css 里）。剥注释只会减少误报，不会放过真规则。 */
 const ruleCount = (cssText, id) =>
-  cssText.split(`[data-theme="${id}"]`).length - 1;
+  cssText.replace(/\/\*[\s\S]*?\*\//g, '').split(`[data-theme="${id}"]`).length - 1;
 
 /* ---------- 主题文件边界 ---------- */
 

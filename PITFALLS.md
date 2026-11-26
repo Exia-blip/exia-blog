@@ -955,6 +955,18 @@
 
 ---
 
+## P-092 打印段的 token 洗白输给皮肤文件：`(0,3,0)` 压 `(0,2,0)`
+
+- **现象**：`@media print` 里用 `:root, :root[data-mode="dark"]` 把 `--bg/--fg` 洗成白纸黑字，纸韵（裸 `:root`）下完全正常；换成 `ink` + 深色再打印，computed 是 `--bg #0e0e10`、`--fg #efeee9`、代码块 `rgb(23,23,26)` —— 存 PDF 得到一张**深色纸**。同一段还漏了代码高亮：`--tok-*` 从来没洗过，纸韵深色下 `--tok-k #d6a4e0` 印在白纸上对比度约 **1.9:1**，关键字与字符串基本只剩字形轮廓。
+- **根因**：六套皮肤是独立 CSS（`/theme/ink.css`），最强的一条是 `:root[data-theme="ink"][data-mode="dark"]`，权重 `(0,3,0)`；print 段只有 `:root (0,1,0)` 与 `:root[data-mode="dark"] (0,2,0)`。**权重先于顺序**，print 段写在样式表最后也没用。更根本的是分层错觉：「打印样式属于全站」让人只想到页面，没想到还有六份皮肤文件在改同一批变量 —— token 属于主题层，print 段却按页面层去写。
+- **复现**：按真实加载顺序注两份 CSS（`<!--THEME-->` 在 `<link style.css>` 之前，即皮肤先到），`emulateMediaType('print')` 后读 `getComputedStyle(document.documentElement).getPropertyValue('--bg')`。实测四组（修前）：paper/light `#fff`、paper/dark `#fff`、ink/light `#fdfcfa`、**ink/dark `#0e0e10`**。修后四组统一 `#fff` / `#000` / tok `#a626a4` / codeBg 白。
+- **断言**：`scripts/test-typography.mjs` T-09 枚举 13 个 token（`--bg…--accent-soft` 含 `--tok-k/s/n/f`），要求 print 段内**恰好声明一次且带 `!important`**。唯一计数是防「别处补一条同名声明把断言凑绿」。两次注入都验过：去掉 `--bg` 的 `!important` → 红（「皮肤 (0,3,0) 会整条压过它」）；把 `--tok-f` 复制成两条 → 红（「声明了 2 次」）。
+- **边界**：`!important` 只压 token 声明，不压皮肤里的非 token 规则（如 ink 的 `.back-top` 覆写）——那些靠 print 段 `display:none` 与 `* { box-shadow: none !important }` 处理。自包含页面不适用：`serverErrorPage()`（`src/index.js`）与 `auth.js` 的提示页注释里就写明不引 `/style.css`，样式全内联，天然白底黑字；`stats.js` 后台页引 `/style.css`，自动继承本段。
+- **副产品**：TC-05 的 `ruleCount` 是 `cssText.split('\[data-theme="id"\]')` 的字面量计数，被 print 段注释里引用的选择器原形态命中，一度报「ink 在主表里有 1 条规则」。同轮改为**剥注释再数**（`replace(/\/\*[\s\S]*?\*\//g, '')`）—— 注释里引用选择器是正常说明手段，不该算成规则。
+- **出处**：`public/style.css`（`@media print` 的 token 块）、`scripts/test-typography.mjs`（T-09）、`scripts/test-theme-contract.mjs`（`ruleCount`）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

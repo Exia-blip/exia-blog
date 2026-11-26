@@ -176,4 +176,31 @@ assert.ok(
 );
 ok(`T-08 [P-091] 行号行高 ${gLh}px 与代码行 ${cFs}×${cLh} 对齐`);
 
+/* ---------- T-09 [P-092] 打印态 token 必须压过皮肤文件 ---------- */
+
+/* 六套皮肤是独立 CSS，最强的一条是 :root[data-theme="x"][data-mode="dark"]，
+   权重 (0,3,0)；print 段只有 :root (0,1,0) / :root[data-mode="dark"] (0,2,0)。
+   不写 !important 就压不住：ink + 深色打印出来是 #0e0e10 深底浅字（浏览器实测）。
+   判据锚在「print 段内每个必需 token 恰好声明一次且带 !important」——
+   唯一计数是为了防「别处补一条同名声明把断言凑绿」。 */
+const printStart = CSS.indexOf('@media print');
+const printEnd = CSS.indexOf('\n.md .code-meta', printStart);
+assert.ok(printStart > 0 && printEnd > printStart, 'print 段的起止锚点失效了');
+const printBlock = CSS.slice(printStart, printEnd);
+const FLATTEN = [
+  '--bg', '--bg-soft', '--fg', '--fg-soft', '--muted',
+  '--line', '--line-strong', '--accent', '--accent-soft',
+  '--tok-k', '--tok-s', '--tok-n', '--tok-f',
+];
+for (const tok of FLATTEN) {
+  const decls = printBlock.match(new RegExp(`${tok}:[^;]*;`, 'g')) || [];
+  assert.equal(decls.length, 1, `print 段里 ${tok} 声明了 ${decls.length} 次，应当恰好 1 次`);
+  assert.match(
+    decls[0],
+    /!important/,
+    `print 段的 ${tok} 没写 !important —— 皮肤 :root[data-theme][data-mode] 权重 (0,3,0) 会整条压过它`
+  );
+}
+ok(`T-09 [P-092] 打印态 ${FLATTEN.length} 个 token 全部 !important，压过皮肤文件`);
+
 console.log(`\n[P-086] typography: ${pass} passed`);
