@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { ADMIN_NAV, ADMIN_GROUPS, BADGE_SOURCE, navCounts, renderAdminNav, renderAdminShell, THEME_BOOT_JS } from '../src/admin-ui.js';
 import { renderHealth, renderQueue, webhookCheck, renderNotify, renderTools } from '../src/admin-pages.js';
-import { renderDashboard } from '../src/dashboard.js';
+import { renderDashboard, TODOS } from '../src/dashboard.js';
 import { renderReview } from '../src/review.js';
 import { liveSql, timeGateSql } from '../src/api.js';
 
@@ -399,6 +399,61 @@ for (const [name, src] of Object.entries(BADGE_SOURCE)) {
 }
 assert.ok(Object.keys(BADGE_SOURCE).includes('notifyFail7d'), '通知失败必须带 7d 窗口');
 ok('N-07 带窗口的计数，名字里必须带窗口后缀');
+
+/* N-11 —— N-07 的通用版。N-07 只守「带窗口的计数，名字要带后缀」，
+   管不到另一种更常见的形状：**数字有窗口或没有，但名字和声明一个都没说**。
+   待办条那次就是这么错的：`notifyFail` 取自 `nav.notifyFail7d`（7 天窗口），
+   标签写的是「通知失败」——读者会当成历史累计，于是每天看见同一个数字也不动手。
+
+   规则双出口，每一条计数必须落在其中一个，`window` 键不许缺：
+   - `window` 非 null → 名字必须含该字面量（自证，不用回去翻查询）
+   - `window` 为 null → 必须有 `total` 说明这是什么全量（≥6 字，只防「忘了写」，
+     挡不住敷衍），且名字不得含窗口字样（自相矛盾）
+
+   「名字」取哪个字段按渲染位置定：徽章显示的是链接上的数字，它的名字是 key
+   （`notifyFail7d` 里的人能看见日期感）；待办条显示的是 label，名字就是 label。
+   混用一个字段会让 badge 那条恒真（它的 label 是中文自然语言：「近 7 天通知失败」）。 */
+const countSources = [
+  ...TODOS.map((t) => ({ where: '待办条', name: t.key, checkText: t.label, label: t.label, ...t })),
+  ...Object.entries(BADGE_SOURCE).map(([k, v]) => ({ where: '侧栏徽章', name: k, checkText: k, ...v })),
+];
+assert.ok(TODOS.length >= 4, '待办条项被删过头了');
+assert.ok(Object.keys(BADGE_SOURCE).length >= 2, '徽章源被删过头了');
+/* 窗口的「可接受写法」是张显式的表，不是一个模糊的「含数字就算」。
+   中文界面写「7 天」比写「7d」自然，但两者都必须是这个窗口本身 ——
+   表外的新窗口按字面量兜底，谁加窗口谁负责同时加一行。 */
+const WINDOW_WORDS = { '24h': ['24h', '24 小时'], '7d': ['7d', '7 天'], '30d': ['30d', '30 天'] };
+const windowedBy = new Map();
+for (const c of countSources) {
+  assert.ok('window' in c, `${c.where}「${c.name}」没有口径声明（window 键缺失）`);
+  if (c.window != null) {
+    windowedBy.set(c.where, (windowedBy.get(c.where) || 0) + 1);
+    const words = WINDOW_WORDS[c.window] || [c.window];
+    assert.ok(
+      words.some((w) => String(c.checkText).includes(w)),
+      `${c.where}「${c.name}」声明 window=${c.window}，名字「${c.checkText}」里没有这个窗口（可写 ${words.join(' / ')}）`
+    );
+  } else {
+    assert.ok(
+      typeof c.total === 'string' && c.total.length >= 6,
+      `${c.where}「${c.name}」是全量计数，必须用 total 写明它是什么全量（否则它会悄悄混进「今天做什么」）`
+    );
+    assert.ok(
+      !/\d+\s*[dhw]/.test(c.label),
+      `${c.where}「${c.name}」声明全量，名字「${c.label}」里却带窗口字样`
+    );
+  }
+}
+/* 空转防护按来源分别查，不合并成一个总数：
+   待办条全变成全量、而徽章仍有一条带窗口时，合并计数照样 ≥1，
+   待办条那半的窗口检查就成了空转 —— 这正是「空集恒真」的变体，
+   只是空集被另一半掩盖了。 */
+const wheres = [...new Set(countSources.map((c) => c.where))];
+assert.ok(wheres.length >= 2, '计数来源只剩一处，分来源的空转防护失去意义');
+for (const w of wheres) {
+  assert.ok((windowedBy.get(w) || 0) >= 1, `${w}里一条带窗口的计数都没有 —— 这一侧的窗口检查成了空集`);
+}
+ok('N-11 每个计数都声明口径（窗口 / 全量说明），名字与声明一致');
 
 // N-08 源码结构不变量：侧栏容器只能由 renderAdminNav 产出。
 // 用「除 admin-ui.js 外命中 0 次」+「admin-ui.js 命中恰好 1 次」两个独立计数，

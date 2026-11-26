@@ -139,8 +139,12 @@ export const ADMIN_NAV = [
    数字物理同源 —— 「侧栏说 3、概览说 5」这种事在结构上就不可能发生。
    window 非 null 的名字必须自带窗口后缀（notifyFail7d 而非 notifyFail）：
    不设窗口的计数会变成永久欠账，几天后整条待办失去可信度。A-21 守着这条。 */
+/* 侧栏徽章的计数口径。与 dashboard.js 的 TODOS 受同一条规则约束（N-11）：
+   `window` 非 null 时名字必须带该窗口后缀；`window` 为 null 时必须用 `total`
+   说明这是哪种全量 —— 不写就等于「没人知道这个数字为什么永远不降」。
+   两个字段都不是注释，是断言要读的输入：删掉一个，N-11 直接红。 */
 export const BADGE_SOURCE = {
-  pendingComments: { tone: 'warn', window: null, label: '待审评论' },
+  pendingComments: { tone: 'warn', window: null, total: '待审队列全量：不处理就一直挂着', label: '待审评论' },
   notifyFail7d: { tone: 'bad', window: '7d', label: '近 7 天通知失败' },
 };
 
