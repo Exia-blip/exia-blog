@@ -118,6 +118,15 @@ Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发�
 **退出码就是判据**：0 = 平台回执 ok；1 = fail（平台码 93000 会点名「地址失效」）；2 = skip（没配 `WEBHOOK_URL`）；3 = 鉴权 / 参数 / 条目不存在。
 不带 `--id` 时补发最新一条 —— 发完评论紧接着跑的那条命令就是它。
 
+**评论巡检（cron 每 20 分钟，与友链巡检同一个触发器）**：`src/cron.js` 的 `sweepComments` 做两件事。
+① 补推：`notify_status` 为空（没尝试过）或 `fail`、且 `created_at` 在 6 小时内、`notified_at` 距上一跳满 1 小时的，
+按 `notifyForComment` 重投一次（待审的仍走待办提醒）。冷却写在 SQL 里 —— Worker 每次冷启都是新进程，内存计数等于没有。
+② 清垃圾：`src/spam.js` 按可机械判定的形状打分，`SPAM_MIN_SCORE=4` 才删。**三条免检线**：管理员自己发的、
+有回复的（删父会连坐子回复）、已拒绝的 —— 任一成立直接跳过，且这三条在 JS 里再过一次，不只依赖 SQL 的 WHERE。
+删除是**硬删**，所以 `audit_log`（`comment.spam.purge`）里那段「分数 + 命中规则 + 原文片段」是唯一的溯源材料。
+手动入口 `npm run comment:sweep`，**默认 dry**（只列会删谁、不发不删），`--apply` 才动手。
+误删过就调 `SPAM_MIN_SCORE`，别去删规则 —— 规则表在 `spam.js` 文件头，每条都注明了它的误杀面。
+
 冒烟守得住「写入动作没把地址弄坏 / token 在写入窗口被轮换 / sink 此刻可用」，**守不住「写进去的值和 sink 认的值不是同一个」**：CF secrets 只可写不可读（`wrangler secret list` 只列名字/类型，没有长度或哈希），回打用的还是本地 `url` 变量。补上本地断言后，代码链（写值 → 绑定名 → 真 `webhook.js` → sink 接受）已验；2026-11-26 的本地真发又把「评论落库 → 触发通知」这段补成了本地已验。**未验的只剩两条**：CF 线上实际存的值（要靠线上真发回打），和线上的评论提交链路（要人工点一次验证码）。不要把本地断言读成线上绑定已读回。
 
 **空值闸门的位置不能挪到回打里**：回打打的是本地 `url`，wrangler 把空值写进去时它照样 errcode 0；写进去之后 secrets 读不回，没有第二次机会。所以 `putSecret` 入口的 `if (!value || !String(value).trim()) die(...)` 是唯一能挡空 stdin 的地方。wrangler 的 `isTTY ? prompt() : readFromStdin()` 路径在 workers-sdk#16193 已确认，本机 `wrangler-dist/cli.js` 里也能读到同一分支。**不要用 `printf '' | wrangler secret put WEBHOOK_URL` 去线上复现**——那会真的把现役 secret 清空并触发部署；本地用假 wrangler（收到空 stdin 仍 exit 0）复现同一形状即可。冒烟失败不回滚 secret——回打失败可能是 sink 抖动，回滚会把「地址本身错」和「sink 短暂不可用」混成一件事。

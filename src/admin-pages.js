@@ -1042,6 +1042,13 @@ ${item('重配群机器人', 'npm run setup:webhook', '写入前后各探一次�
   </div></div>
 </div>
 <div class="admin-view-card">
+  <div class="admin-view-head"><span>评论巡检</span><span class="view-tag">每 20 分钟自动</span></div>
+  <div class="admin-view-body"><div class="kv-list">
+${item('看会删谁（只报告）', 'npm run comment:sweep', '默认 dry：不发消息、不删行，先看命中理由')}
+${item('立刻真跑一次', 'npm run comment:sweep -- --apply', '与 cron 同一个函数；删除理由进 audit_log')}
+  </div></div>
+</div>
+<div class="admin-view-card">
   <div class="admin-view-head"><span>MCP 接入</span><span class="view-tag">本机</span></div>
   <div class="admin-view-body"><div class="kv-list">
 ${item('配置文件', '~/.workbuddy/mcp.json', '不进仓库：里面是该机器的凭据')}

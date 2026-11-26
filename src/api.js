@@ -1279,6 +1279,20 @@ export async function handleApi(env, request, url, ctx) {
     return json({ ok: true, id: info.meta.last_row_id, status }, 200, headers);
   }
 
+  /* ---- 评论巡检的手动入口（仅管理员）----
+     cron 每 20 分钟跑同一个 sweepComments；这里只是「现在就看一眼」。
+     dry 默认不删也不发，先看命中理由再决定 —— 自动删除最怕的是没有二审。 */
+  if (path === '/comments/sweep' && method === 'POST') {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+    const rb = await readBody(request, path, { lenient: true });
+    if (rb.res) return rb.res;
+    /* 动态 import：cron.js 静态引了本文件的 liveSql，静态反向引会成环。 */
+    const { sweepComments } = await import('./cron.js');
+    const r = await sweepComments(env, { dry: rb.body.dry !== false });
+    return json({ ok: true, ...r });
+  }
+
   /* ---- 补发通知：把一条评论的推送重投一次（仅管理员 · 独立端点）----
      为什么不放后台按钮：/admin/notify 是只读明细页，通知又没有幂等性，
      在那一页加按钮就是给「重发」开一条随手可点的写路径。所以补发单独成路由，

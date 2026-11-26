@@ -1,7 +1,7 @@
 import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql, tagHasLivePosts } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser, ownerOrAdmin } from './auth.js';
 import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin, wordCount, pageParams } from './utils.js';
-import { checkFriends, checkSelfHealth } from './cron.js';
+import { checkFriends, checkSelfHealth, sweepComments } from './cron.js';
 import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { themeBootTag } from './themeboot.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
@@ -2885,6 +2885,9 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(checkFriends(env));
+    /* 评论巡检：补推没送到的、删机械可判定的垃圾。失败只记日志不进群 ——
+       巡检自己坏了就发待办提醒，等于用坏掉的那根线去报修。 */
+    ctx.waitUntil(sweepComments(env).catch((e) => console.error('sweepComments', e?.message || e)));
     ctx.waitUntil(
       checkSelfHealth(env).then((r) => {
         if (!r.ok) return notifyTodo(env, `自站内容源异常：公开文章 ${r.live} 篇，最新 slug=${r.latest || '空'}`);

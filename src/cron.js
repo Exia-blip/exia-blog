@@ -1,6 +1,8 @@
 import { nowISO } from './utils.js';
-import { notifyTodo } from './webhook.js';
+import { notifyForComment, notifyTodo } from './webhook.js';
 import { liveSql } from './api.js';
+import { logAudit } from './audit.js';
+import { spamScore, SPAM_MIN_SCORE } from './spam.js';
 
 /* 自站存活断言：不 fetch 自己域名 —— 文件头第 4 条实测过会绕回本 Worker 拿 522。
    改成直接查 D1：能查出「公开文章存在 + 关键字可命中」就等于首页/文章页的数据源活着。
@@ -205,4 +207,102 @@ export async function checkFriends(env) {
   }
 
   return { checked: done };
+}
+
+/* ---------------- 评论巡检：补推 + 清垃圾 ----------------
+   每 20 分钟一轮（与友链巡检同一个 cron）。两件事：
+
+   ① 补推：发评论时那一次投递没成功（notify_status 为空 = 没尝试过 / 'fail' = 平台拒了），
+      这里按冷却补一次。冷却写在 SQL 里而不是内存里 —— Worker 每次冷启都是新进程，
+      内存计数等于没有。created_at 只回看 6 小时：一天的失败堆积不该在三天后突然炸进群。
+      不带 notified_at 的行（0006 之前的老数据）也会被补，但同样受 6 小时窗限制，
+      老评论不会被突然翻出来推送 —— 那才叫「半夜群里跳出一条两年前的评论」。
+
+   ② 清垃圾：只删「机械可判定」的形状（见 spam.js 的每条规则与权重）。
+      四条免检线写在代码里，不靠 SQL：管理员自己发的、已拒绝的、有回复的、分数不够的。
+      前三条任意一条成立就不删 —— 删父评论会连坐子回复（见 /api 的 DELETE 分支）。
+
+   动作都进 audit_log：自动删除必须留下「为什么删」的字符串，否则第二次误删时
+   没人敢再开这个定时任务。 */
+export async function sweepComments(env, { dry = false, limit = 20 } = {}) {
+  const out = { retried: [], deleted: [], kept: 0, skipped: '', dry: !!dry };
+
+  /* ---- ① 补推 ---- */
+  if (!env.WEBHOOK_URL) {
+    out.skipped = 'no-webhook';
+  } else {
+    const { results = [] } = await env.DB.prepare(
+      `SELECT c.id, c.name, c.content, c.status, c.notify_status, c.notified_at, p.slug, p.title
+         FROM comments c LEFT JOIN posts p ON p.id = c.post_id
+        WHERE c.is_admin = 0
+          AND c.notify_status IN ('', 'fail')
+          AND c.created_at <= datetime('now','-2 minutes')
+          AND c.created_at >= datetime('now','-6 hours')
+          AND (c.notified_at IS NULL OR c.notified_at = '' OR c.notified_at <= datetime('now','-1 hour'))
+        ORDER BY c.id
+        LIMIT 10`
+    ).all();
+
+    const origin = originOf(env);
+    for (const row of results) {
+      if (!row.title) {
+        if (!dry) {
+          await env.DB.prepare("UPDATE comments SET notify_status='fail', notify_note='原文已删，无法补推' WHERE id=?")
+            .bind(row.id)
+            .run();
+        }
+        out.retried.push({ id: row.id, status: 'fail', note: '原文已删' });
+        continue;
+      }
+      if (dry) {
+        out.retried.push({ id: row.id, status: `dry:${row.notify_status || 'none'}` });
+        continue;
+      }
+      const r = await notifyForComment(env, {
+        status: row.status,
+        postTitle: row.title,
+        postUrl: `${origin}/p/${row.slug}`,
+        adminUrl: `${origin}/admin/comments`,
+        name: row.name,
+        content: row.content,
+      });
+      await env.DB.prepare('UPDATE comments SET notify_status=?, notify_note=?, notified_at=? WHERE id=?')
+        .bind(r.status, `${r.note ? `补推 · ${r.note}` : '补推'}`.slice(0, 120), nowISO(), row.id)
+        .run();
+      out.retried.push({ id: row.id, status: r.status, note: r.note || '' });
+    }
+  }
+
+  /* ---- ② 清垃圾 ---- */
+  const { results = [] } = await env.DB.prepare(
+    `SELECT c.id, c.name, c.content, c.is_admin, c.status,
+            (SELECT COUNT(*) FROM comments k WHERE k.parent_id = c.id) AS kids
+       FROM comments c
+      WHERE c.status IN ('approved','pending')
+      ORDER BY c.id DESC
+      LIMIT 200`
+  ).all();
+
+  for (const row of results) {
+    /* 三条免检线在 JS 里再过一次，不只依赖 SQL 的 WHERE：
+       SQL 条件被谁改松了、或者将来换查询，这里仍然拦得住 —— 而且这样
+       「管理员的不删」是能被单元测试直接观测的行为，不是一句注释。 */
+    if (!['approved', 'pending'].includes(String(row.status))) continue;
+    if (Number(row.is_admin) === 1) continue; // 自己发的永不动
+    if (Number(row.kids) > 0) continue; // 删父会连坐子回复
+    const { score, reasons } = spamScore(row);
+    if (score < SPAM_MIN_SCORE) {
+      out.kept++;
+      continue;
+    }
+    if (out.deleted.length >= limit) break;
+    if (!dry) {
+      await env.DB.prepare('DELETE FROM comments WHERE id = ?').bind(row.id).run();
+      await logAudit(env, null, 'comment.spam.purge', 'comment', String(row.id),
+        `score=${score} ${reasons.join(',')} name=${String(row.name).slice(0, 30)} text=${String(row.content).slice(0, 120)}`);
+    }
+    out.deleted.push({ id: row.id, score, reasons, name: row.name, dry });
+  }
+
+  return out;
 }
