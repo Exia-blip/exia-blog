@@ -110,6 +110,14 @@ Webhook 用自建 sink（`webhook-sink/`，CF Worker + 专用 KV）验过真发�
 一次分清哪半步断，不用两边猜。平时不必跑。
 `SINK_URL` 带 `token=` 查询参数，**它本身就是凭证**：只在 shell 里 `export`，别贴进对话、别写进文档、别进任何提交。
 
+**补发（`npm run notify:resend`）是独立端点，不是后台按钮**：`POST /api/comments/notify`（仅管理员、`no-store`）+ 本机 CLI
+（`scripts/notify-resend.mjs`）。`/admin/notify` 保持只读 —— 通知没有幂等键，在只读页放按钮等于给每次误点开一条写路径。
+补发语义与首次推送**同源**（都走 `webhook.js` 的 `notifyForComment`：待审发待办提醒，其余发 💬），所以重投不会变成另一种消息。
+拒绝状态 409（补发是重投，不是翻案）、3 秒内重复 429（CLI 自动等一次再试）、原文章已删 404（宁可发不出去，也不发半条）。
+结果写回 `notify_status / notify_note`（前缀「补发」，事后能分清哪次是手工重投）/ `notified_at`，并进 `audit_log`。
+**退出码就是判据**：0 = 平台回执 ok；1 = fail（平台码 93000 会点名「地址失效」）；2 = skip（没配 `WEBHOOK_URL`）；3 = 鉴权 / 参数 / 条目不存在。
+不带 `--id` 时补发最新一条 —— 发完评论紧接着跑的那条命令就是它。
+
 冒烟守得住「写入动作没把地址弄坏 / token 在写入窗口被轮换 / sink 此刻可用」，**守不住「写进去的值和 sink 认的值不是同一个」**：CF secrets 只可写不可读（`wrangler secret list` 只列名字/类型，没有长度或哈希），回打用的还是本地 `url` 变量。补上本地断言后，代码链（写值 → 绑定名 → 真 `webhook.js` → sink 接受）已验；2026-11-26 的本地真发又把「评论落库 → 触发通知」这段补成了本地已验。**未验的只剩两条**：CF 线上实际存的值（要靠线上真发回打），和线上的评论提交链路（要人工点一次验证码）。不要把本地断言读成线上绑定已读回。
 
 **空值闸门的位置不能挪到回打里**：回打打的是本地 `url`，wrangler 把空值写进去时它照样 errcode 0；写进去之后 secrets 读不回，没有第二次机会。所以 `putSecret` 入口的 `if (!value || !String(value).trim()) die(...)` 是唯一能挡空 stdin 的地方。wrangler 的 `isTTY ? prompt() : readFromStdin()` 路径在 workers-sdk#16193 已确认，本机 `wrangler-dist/cli.js` 里也能读到同一分支。**不要用 `printf '' | wrangler secret put WEBHOOK_URL` 去线上复现**——那会真的把现役 secret 清空并触发部署；本地用假 wrangler（收到空 stdin 仍 exit 0）复现同一形状即可。冒烟失败不回滚 secret——回打失败可能是 sink 抖动，回滚会把「地址本身错」和「sink 短暂不可用」混成一件事。

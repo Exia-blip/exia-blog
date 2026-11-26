@@ -887,7 +887,9 @@ export async function commentsAdminPage(env, request) {
    以前「通知到底发出去没有」只存在于评论页顶部一行汇总和 wrangler tail 里。
    汇总回答「一共几条」，回答不了「哪一条、发给谁、平台回了什么」——
    而排障要的正是后者。这一页只做只读明细，不提供任何重发按钮：
-   通知没有重放语义，加一个「重发」就是新增一条没有断言守的写路径（P-075）。 */
+   通知没有重放语义，加一个按钮就是一条随手可点、没有幂等的写路径。
+   补发能力是有的，但走独立端点 + 本机命令（`npm run notify:resend`），
+   后台页面保持只读 —— 见 src/api.js 的 POST /api/comments/notify。 */
 
 /** 纯渲染：rows 是 comments 里带投递记录的行。 */
 export function renderNotify({ site = {}, rows = [], stats = {}, hook = '', nav = null }) {
@@ -1029,6 +1031,14 @@ ${item('整站搬迁', 'node scripts/migrate.mjs export|import', '换账号/灾�
 ${item('回填正文 HTML', 'npm run backfill:html -- --all', '改了渲染函数才需要；只补空行，不覆盖已有')}
 ${item('结构迁移', 'npm run schema:apply', '只走 migrations/；先跑 schema:apply:local 验幂等')}
 ${item('发布前闸门', 'npm run deploy', '内置 npm test + 结构校验，失败即停')}
+  </div></div>
+</div>
+<div class="admin-view-card">
+  <div class="admin-view-head"><span>通知</span><span class="view-tag">会发到群里</span></div>
+  <div class="admin-view-body"><div class="kv-list">
+${item('补发一条评论的通知', 'npm run notify:resend', '不带参数取最新一条；退出码 0 只在平台回执为 ok 时给')}
+${item('指定某条', 'npm run notify:resend -- --id=57', '3 秒内刚投递过会拒发，防连按两次灌两条')}
+${item('重配群机器人', 'npm run setup:webhook', '写入前后各探一次，平台码非 0 自己报错退出')}
   </div></div>
 </div>
 <div class="admin-view-card">

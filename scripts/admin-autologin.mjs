@@ -30,10 +30,11 @@
  *   npm run check:admin:live                                     # 线上版：miu.sryze.cc + LIVE_SESSION_SECRET
  *   node scripts/admin-autologin.mjs --origin=https://miu.sryze.cc [--uid=1] [--ttl=300]
  */
-import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+/* dev/live 取密钥的规则只有一份，在 lib/session.mjs —— 补发脚本用的是同一个。 */
+import { isLocalHost, loadKv, pickSecret } from './lib/session.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const die = (msg) => {
@@ -158,41 +159,8 @@ async function selfCheck() {
 
 /* ---------------- 线上/本地自动登录 + 验收 ---------------- */
 
-/* 目标环境决定用哪一版密钥：本地只认 SESSION_SECRET，线上只认 LIVE_SESSION_SECRET。
-   不做「缺一版就回退另一版」—— 那会让「配错环境」与「登录失败」长成同一个症状，
-   而这两件事的修法完全相反。 */
-const isLocalHost = (origin) => {
-  try {
-    const h = new URL(origin).hostname;
-    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
-  } catch {
-    return false;
-  }
-};
-
-const loadKv = () => {
-  const p = join(ROOT, '.dev.vars');
-  if (!existsSync(p)) return {};
-  return Object.fromEntries(
-    readFileSync(p, 'utf8')
-      .split(/\r?\n/)
-      .filter((l) => l && !l.startsWith('#') && l.includes('='))
-      .map((l) => {
-        const i = l.indexOf('=');
-        return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
-      })
-  );
-};
-
-/* env 优先于文件：临时换一版不用改文件。want 一并返回，报错时能说清缺的是哪一版。 */
-const pickSecret = (local, env, kv) => {
-  const want = local ? 'SESSION_SECRET' : 'LIVE_SESSION_SECRET';
-  const fromEnv = String((env && env[want]) || '').trim();
-  if (fromEnv) return { secret: fromEnv, from: `env ${want}`, want };
-  const fromFile = String((kv && kv[want]) || '').trim();
-  if (fromFile) return { secret: fromFile, from: `.dev.vars ${want}`, want };
-  return { secret: '', from: '', want };
-};
+/* 目标环境决定用哪一版密钥：规则在 lib/session.mjs（isLocalHost / pickSecret），
+   这里不再留第二份 —— 抄一份的下场是「一处认错版本」，症状 401 会被读成签名坏了。 */
 
 async function run() {
   const ORIGIN = (arg('origin', 'https://miu.sryze.cc')).replace(/\/$/, '');

@@ -64,11 +64,27 @@ async function sendWebhook(env, plain) {
   }
 }
 
-export async function notifyComment(env, { postTitle, postUrl, name, content }) {
-  const plain = [`💬 新评论 · ${postTitle}`, `${name}：${String(content).slice(0, 300)}`, postUrl ? `🔗 ${postUrl}` : '']
+/* 新评论的文案只有这一份。补发（/api/comments/notify）走的是同一个函数，
+   所以「重投一次」和「第一次推送」内容必然一致 —— 两份模板的结果是
+   补发出去的消息缺一截，而两条路径都不会报错。 */
+export function commentNotice({ postTitle, postUrl, name, content }) {
+  return [`💬 新评论 · ${postTitle}`, `${name}：${String(content).slice(0, 300)}`, postUrl ? `🔗 ${postUrl}` : '']
     .filter(Boolean)
     .join('\n');
-  return await sendWebhook(env, plain);
+}
+
+export async function notifyComment(env, { postTitle, postUrl, name, content }) {
+  return await sendWebhook(env, commentNotice({ postTitle, postUrl, name, content }));
+}
+
+/* 一条评论该发哪种通知：待审走待办提醒，其余走新评论推送。
+   发评论与补发都必须经过这里 —— 补发时若自己判断状态，pending 的评论会被
+   当成「已发布的新评论」推进群，等于把没通过的稿子预告出去。 */
+export async function notifyForComment(env, { status, postTitle, postUrl, adminUrl, name, content }) {
+  if (status === 'pending') {
+    return await notifyTodo(env, `新评论待审：${name} 在《${postTitle}》\n${adminUrl}`);
+  }
+  return await notifyComment(env, { postTitle, postUrl, name, content });
 }
 
 /** 后台待办提醒：待审稿、友链挂掉。复用评论通知的同一个 webhook 与平台适配。 */

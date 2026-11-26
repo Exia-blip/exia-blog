@@ -22,7 +22,7 @@ import { coverOf, thumbOf, bodyCoverFor } from './cover.js';
 import { bustPaths, pageCacheControl } from './cache.js';
 import { presignPut, makeKey, IMAGE_TYPES } from './s3.js';
 import { imageSize, withSize } from './img-size.js';
-import { notifyComment, notifyTodo } from './webhook.js';
+import { notifyForComment } from './webhook.js';
 import { logAudit } from './audit.js';
 import { checkFriends } from './cron.js';
 import { getSite, setSite, THEME_IDS, MODE_IDS } from './settings.js';
@@ -1252,16 +1252,15 @@ export async function handleApi(env, request, url, ctx) {
 
     const origin = siteOrigin(env, request);
     /* 通知结果落库：后台那一列显示的就是这里写下的值，不再是「读码结论」。
-       待审评论走的是待办提醒（不是新评论推送），note 里标明，免得把两种投递混成一种。 */
-    const notify =
-      status === 'pending'
-        ? await notifyTodo(env, `新评论待审：${name} 在《${p.title}》\n${origin}/admin/comments`)
-        : await notifyComment(env, {
-            postTitle: p.title,
-            postUrl: `${origin}/p/${p.slug}`,
-            name,
-            content,
-          });
+       发哪种通知由 notifyForComment 统一决定（待审走待办提醒），补发用的是同一个函数。 */
+    const notify = await notifyForComment(env, {
+      status,
+      postTitle: p.title,
+      postUrl: `${origin}/p/${p.slug}`,
+      adminUrl: `${origin}/admin/comments`,
+      name,
+      content,
+    });
     try {
       await db
         .prepare('UPDATE comments SET notify_status=?, notify_note=?, notified_at=? WHERE id=?')
@@ -1278,6 +1277,61 @@ export async function handleApi(env, request, url, ctx) {
     }
 
     return json({ ok: true, id: info.meta.last_row_id, status }, 200, headers);
+  }
+
+  /* ---- 补发通知：把一条评论的推送重投一次（仅管理员 · 独立端点）----
+     为什么不放后台按钮：/admin/notify 是只读明细页，通知又没有幂等性，
+     在那一页加按钮就是给「重发」开一条随手可点的写路径。所以补发单独成路由，
+     由本机 CLI（scripts/notify-resend.mjs）驱动，后台页面保持只读。
+     内容必须与首次推送一致：走 notifyForComment，不另拼一份文案。 */
+  if (path === '/comments/notify' && method === 'POST') {
+    const { user, res } = await requireAdmin(env, request);
+    if (res) return res;
+    const rb = await readBody(request, path, { lenient: true });
+    if (rb.res) return rb.res;
+    const wantId = parseInt(rb.body.id, 10);
+    const COLS = 'id, post_id, name, content, status, notify_status, notified_at';
+
+    const c = Number.isInteger(wantId) && wantId > 0
+      ? await db.prepare(`SELECT ${COLS} FROM comments WHERE id = ?`).bind(wantId).first()
+      : await db.prepare(`SELECT ${COLS} FROM comments ORDER BY id DESC LIMIT 1`).first();
+    if (!c) return err(wantId ? '评论不存在' : '库里没有可补发的评论', 404);
+    /* 已拒绝的评论不该再推送：补发是「重投」，不是「翻案」。 */
+    if (c.status === 'rejected') return err('这条评论是拒绝状态，补发会把没通过的内容推进群', 409);
+
+    /* 3 秒内刚投递过就不重发：连按两次命令是最常见的误操作，而群里看不出
+       「这条是重复的」。窗口不设长，是为了不让真实排障卡在这里。 */
+    const raw = String(c.notified_at || '').trim();
+    const lastAt = raw ? Date.parse(/[zZ]$|[+-]\d\d:\d\d$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`) : NaN;
+    if (Number.isFinite(lastAt) && Date.now() - lastAt < 3000) {
+      return json({ ok: false, error: '3 秒内刚投递过，稍等再试（防重复推送）', retry: 3 }, 429, {
+        'retry-after': '3',
+        'cache-control': 'no-store',
+      });
+    }
+
+    const p = await db.prepare('SELECT slug, title FROM posts WHERE id = ?').bind(c.post_id).first();
+    if (!p) return err('原文章已删除，通知内容重建不出来', 404);
+
+    const origin = siteOrigin(env, request);
+    const notify = await notifyForComment(env, {
+      status: c.status,
+      postTitle: p.title,
+      postUrl: `${origin}/p/${p.slug}`,
+      adminUrl: `${origin}/admin/comments`,
+      name: c.name,
+      content: c.content,
+    });
+
+    /* 写回同一组字段：后台那一列显示的就是这次的结果，不用翻 wrangler tail。
+       note 带「补发」，事后看明细能分清哪次是手工重投的。 */
+    const note = `${notify.note ? `补发 · ${notify.note}` : '补发'}`.slice(0, 120);
+    await db
+      .prepare('UPDATE comments SET notify_status=?, notify_note=?, notified_at=? WHERE id=?')
+      .bind(notify.status, note, nowISO(), c.id)
+      .run();
+    await logAudit(env, user, 'comment.notify.resend', 'comment', String(c.id), `status=${notify.status}`);
+    return json({ ok: true, id: c.id, status: c.status, notify });
   }
 
   /* ---- 评论先审后发：开关与单条处置（仅管理员）---- */
