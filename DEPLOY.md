@@ -206,6 +206,29 @@ npx wrangler secret put ADMIN_LOGINS       # 输入: exia-blip
 `LIVE_SESSION_SECRET`，**互不回退**（AL-21 守着）。回退会把「配错了」伪装成「登录失败」。
 `--key=dev|live` 可强制覆盖，仅调试用。
 
+## 新评论：手动补推与清垃圾（速查）
+
+两条命令都靠 `.dev.vars` 的 `LIVE_SESSION_SECRET` 自签短效票（见上一节），
+401 只有一种含义：两版密钥不同源（AL-21 拦着，不会回退）。
+
+| 想做的事 | 命令 | 判据 |
+|---|---|---|
+| 补推**最新一条**（刚发完评论就用它） | `npm run notify:resend` | 退出码 0=ok / 1=fail / 2=skip / 3=鉴权或条目不存在 |
+| 补推**指定一条** | `npm run notify:resend -- --id=57` | 同上；`--id` 非正整数直接 die |
+| 看清会删谁（**不发不删**） | `npm run comment:sweep` | 输出 `补推 / 垃圾 / 免检跳过` 三段，结尾自报「什么都没动」 |
+| 立刻补推 + 删垃圾 | `npm run comment:sweep -- --apply` | 同上，改动落库；补推的 `notify_note` 带「补推」前缀 |
+| 打本地 dev（不碰线上） | 上面任一条加 `--origin=http://127.0.0.1:8788` | 需 dev server 在跑；`--uid=<管理员 id>` 可换身份 |
+
+- **两条命令筛的不是同一批**：`notify:resend` 是**点名重投**，不判断该不该补（那是你的判断），也不受补推冷却限制；
+  `comment:sweep` 是**按条件筛**（6 小时内 + 距上一跳满 1 小时 + 打分 ≥ 4）并删除，与 cron 每 20 分钟跑的是同一套。
+  所以「刚发完、群里没消息」→ 直接 `notify:resend`，别等 cron。
+- **不手动也是自动的**：cron 每 20 分钟已经在跑这两件事。手动入口只有两个用途 —— 想立刻看结果、想看会删谁。
+- **删是硬删**：`--apply` 之前先不带 `--apply` 跑一遍，看 `垃圾` 那段的分数与命中规则。
+  误删过调 `SPAM_MIN_SCORE`，不要删规则（规则表在 `spam.js` 文件头，每条都注明了误杀面）。
+- **`垃圾` 那行的三个数字加起来才是扫描量**：`保留 N`（打了分但不够 4）× `免检跳过 N`（管理员/有回复/已拒绝，
+  为 0 时不显示）× `待删/已删 N`。三者全 0 说明**扫描范围是空的**（没有 approved/pending 评论），
+  不是「一条垃圾都没有」——这两个结论长得一样，只差这一个加法。
+
 ## 运维兜底
 - **D1 备份**：`node node_modules/wrangler/bin/wrangler.js d1 export blog-db --remote --output backups/d1-$(date +%Y%m%d).sql --skip-confirmation`
   （`backups/*.sql` 已 gitignore，含全文不进仓库）
