@@ -44,6 +44,8 @@ if (sc.status === 2) {
   console.log('\n[deploy] ⚠️ 结构体检没跑成（连不上 D1），继续部署 —— 上线后留意 no such column 报错。');
 }
 
+// asset version 取时间戳，不读 package.json 的 version（P-106）：
+// 语义版本在 git tag / GitHub Release，package.json 的 1.2.6 与线上无关。
 const version = Date.now().toString(36);
 console.log(`[deploy] asset version = ${version}`);
 execSync(`npx wrangler deploy --var SITE_VERSION:${version}`, { stdio: 'inherit' });

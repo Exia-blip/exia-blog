@@ -1109,6 +1109,17 @@
 
 ---
 
+## P-106 `package.json` 的 version 不是版本真源 —— 别把它列成发版硬前提
+
+- **现象**：`package.json` 停在 `1.2.6`，而线上已发到 v1.2.8。不了解链路的人会以为版本没对齐，要求先改 `package.json` 才准发版。
+- **根因**：`scripts/deploy.mjs` 用 `Date.now().toString(36)` 生成 asset version 并注入 `SITE_VERSION`，从不读 `package.json`；语义版本只存在于 git tag + GitHub Release。两条版本号各管各的，本来就不该相等。
+- **复现**：2026-11-27 发 v1.2.8 前，老板据 `1.2.6` 把它列为"发版前必须先解决"；核实 deploy 链路后确认是抬高权重，按既有惯例直接发，tag/Release 打 v1.2.8 即可。
+- **断言**：无断言，也不加 —— 这是部署链路的约定而不是可测性质。唯一约束是 `deploy.mjs` 里 asset version 的来源保持 `Date.now().toString(36)`，改动它要单独评估 103 Early Hints 的 preload 哈希配对。
+- **边界**：`package.json` 的 `version` 可以随便改，对线上产物零影响；反过来，看到它不是当前 tag 号也不代表漏发版。对账版本只看 `git tag --sort=-version:refname` 与 GitHub Release，不看 `package.json`。
+- **出处**：`scripts/deploy.mjs`（asset version 计算）、仓库根 `package.json`（P-106）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：
