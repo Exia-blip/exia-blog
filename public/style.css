@@ -111,7 +111,7 @@ button, input, textarea, select {
 ::selection { background: var(--accent-soft); color: var(--accent); }
 
 /* ============ 布局 ============ */
-/* 704 - 2×22 = 660 正文宽：17px 中文一行约 38.8 字 / 74ch，
+/* 704 - 2×22 = 660 正文宽：17px 中文一行约 38.8 字 / 72ch，
    中英混排与长代码行都能收住；三档宽屏列必须与这个数同源，见 T-11。 */
 .wrap { max-width: 704px; margin: 0 auto; padding: 0 22px; }
 .wrap-wide { max-width: 1180px; margin: 0 auto; padding: 0 22px; }
@@ -491,7 +491,7 @@ a.cat-chip:hover { filter: brightness(0.96); }
   color: var(--accent); margin-bottom: 5px;
 }
 .post-lead p { margin: 0; font-size: 16px; line-height: 1.75; color: var(--fg-soft); }
-/* 17 / 1.75：660px 里一行约 38.8 个汉字 / 74ch，再大英文长行与代码会横滚，再小中文会频繁折行。 */
+/* 17 / 1.75：660px 里一行约 38.8 个汉字 / 72ch，再大英文长行与代码会横滚，再小中文会频繁折行。 */
 .post-body { font-size: 17px; line-height: 1.75; color: var(--fg-soft); font-feature-settings: "kern" 1, "liga" 1; }
 .post-body > *:first-child { margin-top: 0; }
 
@@ -2165,7 +2165,7 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 }
 
 /* 宽屏只放宽容器，不再放宽正文。
-   正文固定 660：17px 中文一行约 38.8 字 / 74ch，英文长行也不会顶到 81ch；
+   正文固定 660：17px 中文一行约 38.8 字 / 72ch，英文长行也不会顶到 81ch；
    窄屏守住、宽屏放开等于白守。 */
 @media (min-width: 1440px) {
   main.wrap-post { max-width: 1280px; }

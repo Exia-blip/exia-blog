@@ -25,7 +25,7 @@ const blocks = CSS.split('}').flatMap((raw) => {
 });
 const withSerif = blocks.filter((b) => /font-family\s*:\s*var\(--serif\)/.test(b.body));
 
-/* ---------- T-01 正文宽度：704 - 2×22 = 660，老板 11-27 亲定（38.8 汉字 / 74ch） ---------- */
+/* ---------- T-01 正文宽度：704 - 2×22 = 660，老板 11-27 亲定（38.8 汉字 / 72ch） ---------- */
 
 const wrap = blocks.find((b) => b.sel === '.wrap');
 assert.ok(wrap, '找不到 .wrap 规则 —— 选择器改名了，先指回来再谈宽度');
@@ -38,7 +38,7 @@ assert.equal(
   textW, 660,
   `正文内容宽 ${textW}px（${maxW} - 2×${padX}）≠ 亲定的 660px —— 660 是中英混排/代码长行与中文折行之间的有余量取值`
 );
-ok(`T-01 正文内容宽 ${textW}px（.wrap ${maxW} - 2×${padX}）= 660px / 38.8 汉字 / 74ch`);
+ok(`T-01 正文内容宽 ${textW}px（.wrap ${maxW} - 2×${padX}）= 660px / 38.8 汉字 / 72ch`);
 
 /* ---------- T-11 [P-096] 宽屏正文列别把 T-01 量到的宽度静默覆盖掉 ---------- */
 
