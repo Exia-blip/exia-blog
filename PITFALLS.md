@@ -1022,6 +1022,17 @@
 
 ---
 
+## P-098 本地体检的最后 5 项不是「代码故障」，是夹具和变体根本没落地
+
+- **现象**：P-097 修完后本地 `check-live` 仍 129/5。红的是 `avif 变体可用`（回 `image/png`）、`首图 preload` 和三条相关推荐。线上同一脚本 138/0——本地库 18 篇，缺 `post-brfy5` / `worker-cron-friend-check` / `worker-render-549-to-96`；本地 R2 只有 8 个原图、1 个 webp，没有 avif。
+- **根因**：`make-variants.mjs` 的 D1 查询与 R2 put 都写死 `--remote`，`SITE` 默认线上；`seed-ci.mjs` 造的是 UX 夹具（目录/横滚/评论折叠），不含线上体检盯的三篇真实文章。于是「本地跑线上体检」测到的是空集：缺文章的页面 404，缺变体的 URL 走设计内的回退，没有一条能证明线上判据有效。
+- **复现**：`npx wrangler dev --port 8804 --local --var SITE_ORIGIN:http://127.0.0.1:8804` 后 `node scripts/check-live.mjs http://127.0.0.1:8804` → 129/5。`node scripts/seed-live-fixtures.mjs` 从线上只读 D1 与 `/img/`，写本地 D1/R2；再用 `VARIANTS_SITE=http://127.0.0.1:8804 node scripts/make-variants.mjs --local` 补 44 个变体 → **136/0**。首图 preload 的 Link 头现在真带 `.w480.avif` 的 `imagesrcset`，相关推荐第一张是 `/p/worker-render-549-to-96`。
+- **断言**：`test-variants.mjs` 新增三条源码断言：`SCOPE` 同时管 D1 与 R2（恰好 3 处：声明 + 两处使用）、本地模式跳过 CDN 清缓存、默认探测本地 dev；另两条锁 `seed-live-fixtures.mjs` 的 put/d1 落地路径只能是 `--local`。注入验证：把 R2 put 的 `SCOPE` 改成 `'--remote'`，`SCOPE` 计数从 3 掉到 2 并变红，恢复后绿。
+- **边界**：`--local` 只换读写目标，不换图片来源——`VARIANTS_SITE` 仍可指向线上拉原图，这样本地桶才补得齐。wrangler 4 的本地 D1 拒绝 SQL 文件里的 `BEGIN/COMMIT`，seed 脚本靠「按固定 id 删除再插」保持幂等，不靠显式事务。线上数据只读，三篇夹具固定 id 9001~9003，不碰真实文章。
+- **出处**：`scripts/seed-live-fixtures.mjs`、`scripts/make-variants.mjs`、`scripts/test-variants.mjs`、`scripts/check-live.mjs`
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

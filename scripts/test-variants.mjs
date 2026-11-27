@@ -6,6 +6,7 @@
  *   1. 只看状态码 → 把回退的原图当成变体，体检显示「齐全」，实际每次多传几百 KB
  *   2. 回退响应也发 immutable 一年 → 补传变体后同一个 URL 继续吐原图，且没有任何提示
  */
+import { readFileSync } from 'node:fs';
 import { variantOk, expectedType, whyNotVariant, originOk } from './img-type.mjs';
 import { imgCacheControl } from '../src/index.js';
 
@@ -56,6 +57,26 @@ t(/immutable/.test(okCache), '正常命中锁一年');
 t(!/immutable/.test(fbCache), '回退响应不带 immutable（否则补传后边缘仍吐原图）');
 const maxAge = Number((fbCache.match(/max-age=(\d+)/) || [])[1] || 0);
 t(maxAge > 0 && maxAge <= 600, `回退缓存时长足够短（${maxAge}s）`);
+
+/* ---- 本地模式：D1 与 R2 必须同源切到 local ----
+   只改其中一处会「读本地文章、写线上桶」（或反过来），而且不会报错：
+   线上体检照绿，本地变体永远补不上。这里读源码而不是跑一次网络，
+   是因为那两种错的行为在成功路径上长得一模一样。 */
+const mv = readFileSync(new URL('./make-variants.mjs', import.meta.url), 'utf8');
+const hasLocal = /const local = process\.argv\.includes\('--local'\);/.test(mv);
+const scopeDecl = /const SCOPE = local \? '--local' : '--remote';/.test(mv);
+const scopeUses = [...mv.matchAll(/\bSCOPE\b/g)].length;
+t(hasLocal && scopeDecl && scopeUses === 3, `本地模式 D1/R2 共用一个 SCOPE（实际 ${scopeUses} 处）`);
+t((mv.match(/if \(local\) return;/g) || []).length === 1, '本地模式跳过 CDN 清缓存');
+t(/local \? 'http:\/\/127\.0\.0\.1:8787'/.test(mv), '本地模式默认探测本地 dev server');
+
+/* 夹具有写权限，写错地方比没写更糟：remoteRows() 读线上是允许的，
+   但 r2 put / d1 execute 的落地路径必须是本地。只看「跑通了」抓不到这类错。 */
+const seed = readFileSync(new URL('./seed-live-fixtures.mjs', import.meta.url), 'utf8');
+const putLine = (seed.match(/run\(\['r2', 'object', 'put'[^\n]*/) || [''])[0];
+const localD1 = (seed.match(/run\(\['d1', 'execute', 'blog-db', '--local'[^\n]*/) || [''])[0];
+t(putLine.includes("'--local'") && !putLine.includes("'--remote'"), '夹具原图只写本地 R2');
+t(!!localD1 && !/--remote/.test(localD1), '夹具文章只写本地 D1');
 
 console.log(`\n变体判据: ${pass} 通过${fails.length ? `，${fails.length} 失败` : ''}`);
 if (fails.length) process.exit(1);

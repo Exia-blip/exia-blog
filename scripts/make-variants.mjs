@@ -3,9 +3,12 @@
 // 为什么不在请求路径上转：Workers 里没有 sharp，WASM 编码器启动就要几百毫秒，
 // 给一张图多付一次冷启动不划算。转码放在这台机器上跑一次，线上只负责按 URL 发。
 //
-// 用法：node scripts/make-variants.mjs            # 只处理还没有变体的图
+// 用法：node scripts/make-variants.mjs            # 只处理线上还没有变体的图
 //       node scripts/make-variants.mjs --force    # 全部重转
 //       node scripts/make-variants.mjs --check    # 只体检，不转不传；有缺口时 exit 1
+//       VARIANTS_SITE=http://127.0.0.1:8787 node scripts/make-variants.mjs --local
+//                                                # 转本地 D1 引用到的图，写本地 R2；
+//                                                # VARIANTS_SITE 指向正在跑的 wrangler dev
 //
 // 变体的 key 是原 key 加上 .webp / .avif（/img/u/x.png.webp），
 // Worker 的 serveImage 认这个后缀，缺失时回退原图，所以转与不转都不会裂。
@@ -23,14 +26,18 @@ import { variantOk, whyNotVariant, originOk } from './img-type.mjs';
 const WR = [process.execPath, ['node_modules/wrangler/bin/wrangler.js']];
 
 const BUCKET = 'blog-images';
-/* 可覆盖：换了域名不用改代码；--check 也能指向一个本地探针来验证判断逻辑 */
-const SITE = (process.env.VARIANTS_SITE || 'https://miu.sryze.cc').replace(/\/$/, '');
+/* --local 只换「读写哪份 D1/R2」，不换图片从哪儿下载：
+   本地桶里往往只有原图，VARIANTS_SITE 仍可指向线上（拉原图）或 dev server。
+   两个口子分开，才能把线上图灌进本地桶后原地转码。 */
+const local = process.argv.includes('--local');
+const SCOPE = local ? '--local' : '--remote';
+const SITE = (process.env.VARIANTS_SITE || (local ? 'http://127.0.0.1:8787' : 'https://miu.sryze.cc')).replace(/\/$/, '');
 const force = process.argv.includes('--force');
 const checkOnly = process.argv.includes('--check');
 const tmp = checkOnly ? null : mkdtempSync(join(tmpdir(), 'variants-'));
 
 function d1(sql) {
-  const out = execFileSync(WR[0], [...WR[1], 'd1', 'execute', 'blog-db', '--remote', '--json', '--command', sql, '-y'], {
+  const out = execFileSync(WR[0], [...WR[1], 'd1', 'execute', 'blog-db', SCOPE, '--json', '--command', sql, '-y'], {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -85,6 +92,8 @@ const uploaded = [];
    没配就不清，但要吼一声：静默跳过的后果是「本地看得见变体、线上还是原图」。 */
 async function purge(urls) {
   if (!urls.length) return;
+  /* 本地桶没有 CDN 可清；走到下面的 token 检查会打印一段线上专属的告警。 */
+  if (local) return;
   const token = process.env.CF_API_TOKEN;
   const zone = process.env.CF_ZONE_ID;
   if (!token || !zone) {
@@ -278,7 +287,7 @@ for (const key of keys.keys()) {
     execFileSync(
       WR[0],
       [...WR[1], 'r2', 'object', 'put', `${BUCKET}/${vKey(key, t.ext, t.w)}`, '--file', out,
-        '--content-type', MIME[t.ext], '--remote'],
+        '--content-type', MIME[t.ext], SCOPE],
       { stdio: ['ignore', 'ignore', 'pipe'] }
     );
     if (t.ext === 'webp') saved += Math.max(0, src.size - buf.length);
