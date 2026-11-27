@@ -189,7 +189,24 @@ t('P-040', 'check-live 里确实有 og:image 的线上断言', () => {
   assert.match(s, /og:image/, '没找到 og:image 字样');
 });
 
+/* ---------- P-105：生成脚本的产物必须自带压缩 ----------
+   只验仓库里当前的 PNG 是压缩过的没有用 —— 那是上次跑 optimize 的结果，
+   下次 --apply 重渲染会把它们覆盖回 PNG24。判据要落在「脚本做了什么」上。 */
+t('P-105', 'gen-cards 渲染后必接 optimize-assets，产物天生过预算闸门', () => {
+  const gen = read('scripts/gen-cards.mjs');
+  const pyAt = gen.indexOf("'gen-title-cards.py'");
+  const optAt = gen.indexOf("'optimize-assets.mjs'");
+  assert.ok(pyAt > 0, '找不到渲染调用，判据失效');
+  assert.ok(optAt > 0, 'gen-cards 没调 optimize-assets —— --apply 会产出未压缩 PNG');
+  assert.ok(optAt > pyAt, '压缩写在渲染之前，等于没压');
+  /* 独立计数：调用必须在 apply 分支之外，否则只出图模式仍留未压缩产物。
+     用 apply 分支的 `if (apply) {` 位置作界，不靠自造的标志串。 */
+  const applyAt = gen.indexOf('if (apply) {');
+  assert.ok(applyAt > 0, '找不到 apply 分支，判据失效');
+  assert.ok(optAt < applyAt, '压缩放在 apply 分支里，只出图模式会漏');
+});
+
 console.log(
-  bad ? `\n✗ 标题卡断言 ${bad} 项失败` : `\n✓ 标题卡断言全部通过（ogCoverOf 真值表 + 仓库图片尺寸 + 2 条元断言）`
+  bad ? `\n✗ 标题卡断言 ${bad} 项失败` : `\n✓ 标题卡断言全部通过（ogCoverOf 真值表 + 仓库图片尺寸 + 元断言）`
 );
 process.exit(bad ? 1 : 0);

@@ -1098,6 +1098,17 @@
 
 ---
 
+## P-105 `--apply` 重渲染标题卡会覆盖压缩产物，发版闸门才抓到
+
+- **现象**：`node scripts/gen-cards.mjs --apply` 写 26 条 cover 到 D1 后，`npm run deploy` 在 npm test 一步停下：`test-assets` 报标题卡合计 2300K > 800K、38 张单张超 45K。但提交前跑的 `npm test` 是 EXIT=0 —— 两次测试之间产物被改了。
+- **根因**：`gen-cards.mjs` 只调 `gen-title-cards.py` 渲染，Pillow 吐的是 PNG24（2.3MB）；上一版仓库里的卡是另外手动跑 `optimize-assets.mjs` 压成索引色（673K）的。`--apply` 重渲染把压缩版本覆盖回未压缩，而脚本里没有任何一步把它压回去。压缩成了一个"记得手动跑"的动作，恰恰是发版路径上都硬化了闸门、这里却漏掉的那一类。
+- **复现**：2026-11-27 v1.2.8 发版时实测触发。修法：把 `optimize-assets.mjs` 接进 `gen-cards.mjs`，紧跟在 Python 渲染之后、体积统计与 SQL 之前 —— 产物天生可发布，不依赖操作顺序。
+- **断言**：`test-cards.mjs` P-105 不验「仓库里的 PNG 现在是压缩的」（那只证明上次跑过），而验生成脚本的调用顺序：optimize 调用存在、在渲染之后、在 `if (apply)` 分支之外（只出图模式也要压）。删调用注入实测红，恢复绿。
+- **边界**：D1 写入发生在压缩之前，但 cover 只存路径、不存字节，所以已写的 26 条无需回滚；部署上传的是磁盘上的压缩版本。真正不可逆的风险不在这里，而在「闸门放行但产物是坏的」——这条由 npm test 挡住了。
+- **出处**：`scripts/gen-cards.mjs`、`scripts/optimize-assets.mjs`、`scripts/test-cards.mjs`（P-105）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

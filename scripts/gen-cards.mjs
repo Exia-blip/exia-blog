@@ -2,8 +2,11 @@
 // 用法：node scripts/gen-cards.mjs            # 只出图，打印待执行的 SQL
 //       node scripts/gen-cards.mjs --apply    # 出图并直接把 cover 写回 D1
 //
-// 图片由 scripts/gen-title-cards.py 渲染（Pillow，中文字体可靠），
-// 这里只负责：从 D1 取文章 → 交给 Python → 生成 UPDATE 语句。
+// 图片由 scripts/gen-title-cards.py 渲染（Pillow，中文字体可靠），再由
+// optimize-assets.mjs 压索引色（P-105）：Pillow 吐的是 PNG24，40 张合计 2.3MB、
+// 单张 60K+，直接发布会被 test-assets 的 800K/45K 闸门挡下。压缩接在渲染之后，
+// 让脚本的产物天生可发布，不依赖「记得手动跑一次 assets」。
+// 这里负责：从 D1 取文章 → 交给 Python → 压图 → 生成 UPDATE 语句。
 import { execSync, execFileSync } from 'node:child_process';
 import { writeFileSync, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +52,8 @@ const input = join(here, '.cards-input.json');
 writeFileSync(input, JSON.stringify(posts, null, 2), 'utf8');
 console.log(`渲染 ${posts.length} 张标题卡…`);
 execFileSync('python', [join(here, 'gen-title-cards.py'), input], { cwd: root, stdio: 'inherit' });
+console.log('压缩索引色（gen-cards 产物必须过 assets 预算闸门，见 P-105）…');
+execFileSync(process.execPath, [join(here, 'optimize-assets.mjs')], { cwd: root, stdio: 'inherit' });
 
 // 只给「还没有手填封面」的文章挂卡：作者自己指定的封面永远优先
 const need = rows.filter((r) => !String(r.cover || '').trim());
