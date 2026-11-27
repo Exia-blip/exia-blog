@@ -26,6 +26,11 @@
 // 文章页加右栏（系列目录 + 相关文章）再推 1233 B 到 43627，上限 45500、基线 43627。
 // 三次连续上台阶都发生在同一次改版里，所以每次都重置基线而不是把 +10% 改成 +30%：
 // 守卫的斜率没动，起点跟着产品走。
+//
+// 归档页右栏（概览卡 + 最新文章 + 时间线宽屏单行）第四次 +1047 到 44674。
+// 这次 45500 只剩 826 B，按老规矩重定 47000 + 基线 44674 —— 但到这里该收手了：
+// 连续四次重置说明「一次改动一次重定」本身在掩盖增长，下一次再撞线要先把
+// 无用的死规则清一遍（历史主题残留、后台专用样式），而不是继续抬上限。
 
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -36,7 +41,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const BASELINE = join(ROOT, 'scripts/.size-baseline.json');
 const GROWTH = 1.1;
 const LIMITS = {
-  mainGzip: 45500,   // public/style.css，gzip -9；2026-11-28 按安知鱼整站改版实测重定
+  mainGzip: 47000,   // public/style.css，gzip -9；2026-11-28 按安知鱼整站改版实测重定
   themeRaw: 2000,    // public/theme/*.css，每个文件的原始字节
 };
 

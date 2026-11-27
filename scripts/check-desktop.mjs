@@ -16,6 +16,8 @@
  *   · 390 首页：仍单列、页脚竖排、汉堡出现；移动端没被桌面框架带跑
  *   · 1920 文章页：正文仍 660px；三列（目录/正文/右栏），右栏 300px 且不压正文卡
  *     （[P-112] 右栏只在 ≥1600 出现：1280 档可用宽 1236 放不下 232+660+300+两条 40 的缝）
+ *   · 1920 归档页：右栏 300px、有内容、贴框架右边界；行内元信息贴右边界
+ *     （[P-113] 「右栏在」不等于「右侧不空」：时间线仍两行堆叠时元信息全挤在左边）
  *   · 所有页面：无横向溢出，CSS 真的加载了（--frame 非空）
  */
 import puppeteer from 'puppeteer-core';
@@ -67,6 +69,17 @@ async function measure(path, width) {
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       side: box('.home-side'),
       postSide: box('.post-side'),
+      archShell: box('.arch-shell'),
+      archRail: box('.arch-rail'),
+      archRailKids: document.querySelectorAll('.arch-rail > *').length,
+      /* 行内元信息离行右边界多远。两行堆叠的排法下这个值约等于「整行宽 - 标题 - 元信息」，
+         实测 700 上下；改成一行排布后应该只剩 .tl-item 的 padding-right（10）。 */
+      tlMetaGap: (() => {
+        const it = document.querySelector('.tl-item');
+        const m = it && it.querySelector('.tl-meta');
+        if (!m) return null;
+        return Math.round(it.getBoundingClientRect().right - m.getBoundingClientRect().right);
+      })(),
       heroMain: box('.hero-main'),
       heroFeature: box('.hero-feature'),
     };
@@ -122,6 +135,19 @@ for (const [name, path] of [['归档', '/archive'], ['栏目', '/categories'], [
   check('CSS 已加载', !!d.bgToken);
   check('无横向溢出', d.overflow <= 1, `${d.overflow}px`);
   aligned(d, name);
+  if (name === '归档') {
+    /* 三件事一起验：右栏在（不是被挤没了）、真的有内容（空 aside 也有 300 宽）、
+       右边贴住框架右边界（否则整个 shell 缩在左边，右侧照样空）。 */
+    check('右栏 300px', d.archRail?.w === 300, `${d.archRail?.w}px`);
+    check('右栏有内容', d.archRailKids >= 2, `${d.archRailKids} 张卡`);
+    /* 比的是 .arch-shell 而不是 main：main 的盒子含 .wrap 左右各 22 的内边距，
+       拿它当右边界会把 22px 的留白判成「没贴边」。 */
+    check('右栏贴 shell 右边界', !!d.archRail && !!d.archShell && Math.abs(d.archRail.r - d.archShell.r) <= 1,
+      `栏右 ${d.archRail?.r} / shell 右 ${d.archShell?.r}`);
+    /* 只验「右栏存在」会漏掉「时间线还是原来的两行堆叠」——那时右栏也对，右侧仍是空的。
+       这条盯的是行内：元信息离行右边界只剩 padding，说明标题那列撑满了整行。 */
+    check('行内元信息贴右边界', d.tlMetaGap !== null && d.tlMetaGap <= 12, `差 ${d.tlMetaGap}px`);
+  }
   if (name === '文章') {
     check('正文仍 660px', d.body?.w === 660, `${d.body?.w}px`);
     /* 三列 = 目录 / 正文 / 右栏。以前第三列是个空占位（只为把正文拨回中间），

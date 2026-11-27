@@ -1717,6 +1717,19 @@ button.lnk:hover { border-bottom-color: var(--accent); }
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   font-size: 12px; color: var(--muted);
 }
+/* 宽屏：标题与元信息排成一行，元信息贴右边界。
+   堆成两行时整行只有左边 500px 有内容，右边 700px 空着 —— 空不是内容少，
+   是排法：这些元信息本来就是行的第三列（日期 | 标题 | 分类·时长·评论）。
+   窄屏放不下一行才退回上下叠，那里竖着排反而更好读。 */
+@media (min-width: 901px) {
+  .tl-item { align-items: center; }
+  .tl-day { padding-top: 0; }
+  /* .tl-body 不给 flex:1 就只跟内容一样宽，里面的 title 再 flex:1 也是零可分配空间，
+     元信息只会贴在标题后面，不会贴到行右边界 —— 看上去跟改之前一样空。 */
+  .tl-body { flex: 1 1 auto; flex-direction: row; align-items: baseline; gap: 18px; }
+  .tl-title { flex: 1 1 auto; }
+  .tl-meta { flex: 0 0 auto; justify-content: flex-end; }
+}
 
 /* ---- 紧凑归档 ---- */
 .arch-year { margin-bottom: 30px; }
@@ -2284,7 +2297,7 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   .toolbar, .tagbar, .pagination, .comments, .post-related,
   .mtoc, .mtoc-btn, .skip-link, .nav-prog, .copy-link, .readbar-toggle,
   main.home .hero, .home-side, .card-cover, .aw-cover,
-  .post-side, .post-tail {
+  .post-side, .post-tail, .arch-rail {
     display: none !important;
   }
   main.wrap, main.wrap-post { max-width: none; padding: 0; }
@@ -3072,8 +3085,37 @@ main.home .sk-card { overflow: hidden; border-radius: 12px; }
 }
 
 /* ---- 归档 / 栏目 ---- */
+/* 归档页和首页、文章页共用同一套「主列 + 300 右栏」：时间线单列排满是 1300，
+   标题最宽才 586，右边那 700px 不是留白，是没人管。给右栏之后主列 1040，
+   行内元信息贴右边界，整页才跟别处对得上同一条视觉基线。 */
+.arch-shell { display: grid; gap: 24px; }
 main.desk #arch-body { padding: 22px 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
 main.desk .arch-bar { padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+/* 右栏出现之前，arch-bar 的 margin-bottom 是它和时间线之间唯一的分隔；
+   进 grid 之后由 gap 接管，留着就会多出 28px。 */
+main.desk .arch-shell .arch-bar { margin-bottom: 0; }
+.arch-rail { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* 1440 以下没有右栏，两张卡横着并排铺满主列宽：竖排会让它们变成两条 1100 宽的横条，
+   看着像两条广告位。 */
+@media (min-width: 721px) and (max-width: 1439px) {
+  .arch-rail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+}
+
+@media (min-width: 1440px) {
+  .arch-shell { grid-template-columns: minmax(0, 1fr) 300px; align-items: start; }
+  .arch-rail { display: flex; flex-direction: column; gap: 16px; }
+  .arch-shell > .arch-bar { grid-column: 1; grid-row: 1; }
+  .arch-shell > #arch-body { grid-column: 1; grid-row: 2; min-width: 0; }
+  .arch-shell > .arch-rail { grid-column: 2; grid-row: 1 / span 2; align-self: start; position: sticky; top: 84px; }
+}
+
+/* 归档概览：dt 走弱色、dd 走等宽数字，右边一律右对齐 —— 四行数字才对得齐 */
+.ast { display: flex; flex-direction: column; gap: 9px; margin: 0; }
+.ast-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ast-row dt { color: var(--muted); font-size: 12.5px; }
+.ast-row dd { margin: 0; font-family: var(--mono); font-size: 12.5px; color: var(--fg-soft); }
+.ast-row dd b { color: var(--accent); font-size: 15px; font-weight: 600; }
 main.desk .tax-section { padding: 20px 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
 main.desk .tax-cell { border-color: var(--line); }
 

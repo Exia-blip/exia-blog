@@ -22,15 +22,20 @@
     <p id="hero-sub"></p>
   </section>
 
-  <div class="arch-bar">
-    <div class="seg" id="view-switch">
-      <button type="button" data-view="timeline" class="on">时间线</button>
-      <button type="button" data-view="list">归档</button>
+  <div class="arch-shell">
+    <div class="arch-bar">
+      <div class="seg" id="view-switch">
+        <button type="button" data-view="timeline" class="on">时间线</button>
+        <button type="button" data-view="list">归档</button>
+      </div>
+      <div class="year-filter" id="year-filter"></div>
     </div>
-    <div class="year-filter" id="year-filter"></div>
-  </div>
 
-  <div id="arch-body"></div>
+    <div id="arch-body"></div>
+
+    <!-- SSR 用注释占位替换：目标串唯一，改这里就等于改选择点，比正则扫 </div> 稳 -->
+    <aside class="arch-rail" id="arch-rail" aria-label="归档概览"><!--ARCHSIDE--></aside>
+  </div>
 </main>
 
 <script type="module">

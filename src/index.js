@@ -568,6 +568,40 @@ function archList(data) {
     .join('')}</div>`;
 }
 
+/* 右栏：归档概览 + 最新文章。
+   概览取的是全站口径 —— archiveData 的 total / first_at / last_at 三个字段
+   走的是另一条不带年份条件的查询，所以切年份时这块数字不变，也就**不需要**
+   前端重绘（public/archive.html 的 render() 只动 #arch-body）。
+   这是刻意的：右栏一旦要跟着重绘，同一份 HTML 就得在 Worker 和浏览器里各写一遍。 */
+function archSide(data) {
+  const a = localParts(data.first_at);
+  const b = localParts(data.last_at);
+  const years = a.y && b.y ? Number(b.y) - Number(a.y) + 1 : 0;
+  const months = a.y && b.y ? (Number(b.y) - Number(a.y)) * 12 + (Number(b.m) - Number(a.m)) + 1 : 0;
+  const per = months > 0 ? (data.total / months).toFixed(1) : '—';
+  const recent = data.years
+    .flatMap((y) => y.months.flatMap((m) => m.posts))
+    .slice(0, 5)
+    .map((p) => {
+      const md = localParts(p.published_at || p.created_at).md;
+      return `<li><a href="/p/${encodeURIComponent(p.slug)}"><span>${esc(p.title)}</span><time>${esc(md)}</time></a></li>`;
+    })
+    .join('');
+  return `<section class="widget">
+      <h2 class="wg-title">归档概览</h2>
+      <dl class="ast">
+        <div class="ast-row"><dt>共计</dt><dd><b>${data.total}</b> 篇</dd></div>
+        <div class="ast-row"><dt>跨度</dt><dd>${esc(archSpan(data.first_at, data.last_at)) || '—'}</dd></div>
+        <div class="ast-row"><dt>年份</dt><dd><b>${years}</b> 个</dd></div>
+        <div class="ast-row"><dt>月均</dt><dd><b>${per}</b> 篇</dd></div>
+      </dl>
+    </section>${
+      recent
+        ? `<section class="widget"><h2 class="wg-title">最新文章</h2><ul class="side-recent">${recent}</ul></section>`
+        : ''
+    }`;
+}
+
 function archBody(data) {
   if (!data.total) {
     return '<div class="empty">站点还是空的。登录后在后台写第一篇，这里就会长出时间线。</div>';
@@ -598,10 +632,13 @@ async function serveArchivePage(env, request, url) {
 
   const boot = JSON.stringify(data).replace(/</g, '\\u003c');
 
+  /* 三个替换点都改成精确串匹配：arch-body 现在是 .arch-shell 的第 2 行，
+     原来那条「…</div></main>」的正则会连 shell 的收尾 div 一起吃掉。 */
   body = body
     .replace(/<p id="hero-sub">[\s\S]*?<\/p>/, `<p id="hero-sub">${archSub(data)}</p>`)
     .replace(/<div class="year-filter" id="year-filter"><\/div>/, `<div class="year-filter" id="year-filter">${archFilters(data)}</div>`)
-    .replace(/<div id="arch-body">[\s\S]*?<\/div>\s*<\/main>/, `<div id="arch-body">${archBody(data)}</div>\n</main>`)
+    .replace('<div id="arch-body"></div>', `<div id="arch-body">${archBody(data)}</div>`)
+    .replace('<!--ARCHSIDE-->', archSide(data))
     .replace('</head>', `<script>window.__ARCH__=${boot};</script></head>`);
 
   return html(body, 200, { 'cache-control': pageCacheControl() });
