@@ -39,12 +39,14 @@ npm run check:live
 验收只认 `npm run deploy` 内部在部署后自动跑的那一次； deployed 之前先跑 `check:live`
 只能说明「线上现在没坏」，不能说明刚改的东西上线后没事。
 
-本地跑同一脚本的失败项分三层，别混成一类：
+本地跑同一脚本的失败项分三层，别混成一类。**旧表述把三层统称「环境差」，现作废**：
+种子数据那层已修并有断言锁着口径，剩下主域与 R2 变体两层才是真的「本地才有、线上没有对应物」。
+本地再红一条，先按表定位，不能默认「反正线上是绿的」就不管：
 
 | 层 | 例子 | 处理 |
 |---|---|---|
 | 主域 | canonical / RSS / P-040 / P-042 / P-050 | dev 带 `--var SITE_ORIGIN:http://127.0.0.1:<port>` |
-| 种子数据 | 相关推荐三篇夹具本地 404 | `node scripts/seed-live-fixtures.mjs`（只读线上 D1 / `/img/`，写本地） |
+| 种子数据（**已修，不再是环境差**） | 相关推荐三篇夹具本地 404；CI 夹具日期偏斜 | 三篇用 `node scripts/seed-live-fixtures.mjs` 补（只读线上 D1 / `/img/`，写本地）；`npm run seed:ci` 把文章时间锚在 UTC 12:00，`test-tz` 锁两处取日同天（P-099） |
 | R2 变体 | `avif 变体可用` 回 `image/png` | 先补原图，再 `VARIANTS_SITE=<dev> node scripts/make-variants.mjs --local` |
 
 **R2 变体这条边界长期留着，别删**：线上文章的封面全是 `/thumbs/*`，没有自带 `/img/`
