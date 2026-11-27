@@ -70,11 +70,11 @@ export function callbackUrl(env, request) {
 function noticePage(title, detail, hint = '', status = 400, extra = {}) {
   const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#faf9f7;color:#1c1b19;
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f7f9fe;color:#23262f;
 font:15px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;padding:24px}
-.card{max-width:560px;background:#fff;border:1px solid #e7e3db;border-radius:14px;padding:30px 32px}
-h1{font-size:19px;margin:0 0 10px}p{color:#4a4741;margin:0 0 12px;font-size:14.5px}
-code{background:#f3f1ec;border-radius:5px;padding:2px 6px;font-size:13px;word-break:break-all;
+.card{max-width:560px;background:#fff;border:1px solid #e2e7f2;border-radius:14px;padding:30px 32px}
+h1{font-size:19px;margin:0 0 10px}p{color:#4c4948;margin:0 0 12px;font-size:14.5px}
+code{background:#eef2fb;border-radius:5px;padding:2px 6px;font-size:13px;word-break:break-all;
 font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 a{display:inline-block;margin-top:6px;padding:9px 18px;border-radius:999px;background:#1c1b19;color:#fff;
 text-decoration:none;font-size:14px}

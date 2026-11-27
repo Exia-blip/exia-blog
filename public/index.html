@@ -18,31 +18,70 @@
 
 <main class="wrap home desk" id="main" tabindex="-1">
   <section class="hero">
-    <h1 id="hero-title">写字的地方</h1>
-    <p id="hero-sub">记录思考、代码与生活。</p>
+    <div class="hero-main">
+      <p class="hero-kicker">EXIA BLOG</p>
+      <h1 id="hero-title">写字的地方</h1>
+      <p id="hero-sub">记录思考、代码与生活。</p>
+      <div class="hero-acts">
+        <a class="hero-btn b-blue" href="#list">开始阅读</a>
+        <a class="hero-btn b-orange" href="/archive">按时间归档</a>
+        <a class="hero-btn b-green" href="/categories">栏目与标签</a>
+      </div>
+    </div>
+    <a class="hero-feature" id="hero-feature" href="/archive">
+      <img class="hf-img" src="/og-default.jpg" alt="" width="640" height="336" loading="eager" decoding="async">
+      <span class="hf-mask"></span>
+      <span class="hf-tag">最新</span>
+      <span class="hf-title" id="hf-title">从最新一篇开始</span>
+    </a>
   </section>
 
-  <div class="toolbar">
-    <div class="search">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-      <label class="sr-only" for="q">搜索文章标题或正文</label>
-      <input id="q" type="text" placeholder="搜索标题或正文…" aria-label="搜索标题或正文" autocomplete="off">
-      <button type="button" class="search-clear" id="q-clear" aria-label="清除搜索" title="清除搜索" hidden>✕</button>
-    </div>
-    <a class="btn sm" href="/friends">友链</a>
+  <div class="home-shell">
+    <section class="home-main">
+      <div class="toolbar">
+        <div class="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <label class="sr-only" for="q">搜索文章标题或正文</label>
+          <input id="q" type="text" placeholder="搜索标题或正文…" aria-label="搜索标题或正文" autocomplete="off">
+          <button type="button" class="search-clear" id="q-clear" aria-label="清除搜索" title="清除搜索" hidden>✕</button>
+        </div>
+        <a class="btn sm" href="/friends">友链</a>
+      </div>
+
+      <!-- 这两条筛选栏由服务端直出。原来是空 div、等 app.js 拉完接口才填，
+           结果首屏渲染完再过一两百毫秒整块内容往下推 90 多像素 —— CLS 全在这儿。 -->
+      <div class="tagbar" id="catbar"><!--CATBAR--></div>
+
+      <div class="tagbar" id="tagbar"><!--TAGBAR--></div>
+
+      <div class="post-list" id="list" aria-live="polite">
+        <!--LIST-->
+      </div>
+
+      <nav class="pagination" id="pager" aria-label="分页"><!--PAGER--></nav>
+    </section>
+
+    <aside class="home-side" aria-label="站点信息">
+      <section class="widget author-widget">
+        <div class="aw-cover"><span class="aw-dot"></span></div>
+        <div class="aw-avatar" id="aw-avatar" aria-hidden="true">E</div>
+        <b class="aw-name" id="aw-name">Exia Blog</b>
+        <p class="aw-desc" id="aw-desc">写字的地方</p>
+        <div class="aw-links">
+          <a href="https://github.com/Exia-blip" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="/rss.xml">RSS</a>
+        </div>
+      </section>
+      <section class="widget">
+        <h2 class="wg-title">标签</h2>
+        <div class="side-tags" id="side-tags"><!--SIDETAGS--></div>
+      </section>
+      <section class="widget">
+        <h2 class="wg-title">最近</h2>
+        <ul class="side-recent" id="side-recent"><!--SIDERECENT--></ul>
+      </section>
+    </aside>
   </div>
-
-  <!-- 这两条筛选栏由服务端直出。原来是空 div、等 app.js 拉完接口才填，
-       结果首屏渲染完再过一两百毫秒整块内容往下推 90 多像素 —— CLS 全在这儿。 -->
-  <div class="tagbar" id="catbar"><!--CATBAR--></div>
-
-  <div class="tagbar" id="tagbar"><!--TAGBAR--></div>
-
-  <div class="post-list" id="list" aria-live="polite">
-    <!--LIST-->
-  </div>
-
-  <nav class="pagination" id="pager" aria-label="分页"><!--PAGER--></nav>
 </main>
 
 <script type="module">
@@ -66,6 +105,19 @@ let page = parseInt(new URLSearchParams(location.search).get('page') || '1', 10)
 qInput.value = currentQ;
 
 const SITE = await site();
+
+/* 侧栏作者卡：站点名/描述/头像都来自 settings，模板里先放占位再替换，
+   避免右栏在 API 回来前空一块。 */
+const awName = document.getElementById('aw-name');
+const awDesc = document.getElementById('aw-desc');
+const awAva = document.getElementById('aw-avatar');
+if (awName) awName.textContent = SITE.name || 'Exia Blog';
+if (awDesc) awDesc.textContent = SITE.desc || '记录思考、代码与生活。';
+if (awAva && SITE.avatar) {
+  awAva.classList.add('has-img');
+  awAva.style.backgroundImage = `url("${SITE.avatar.replace(/"/g, '%22')}")`;
+  awAva.textContent = '';
+}
 
 if (currentCat) {
   // 服务端已经按栏目名渲染过一遍，这里只在客户端兜底（栏目改名/直接改 URL 时）
@@ -128,6 +180,19 @@ async function load() {
     }
     listEl.innerHTML = posts.map(card).join('');
     renderPager(pages, total);
+
+    /* 首屏横幅右侧跟着最新一篇走；标签/栏目/搜索页不抢这条位，保留归档入口。 */
+    if (!currentQ && !currentTag && !currentCat && page === 1) {
+      const f = posts[0];
+      const feat = document.getElementById('hero-feature');
+      if (feat && f) {
+        feat.href = `/p/${encodeURIComponent(f.slug)}`;
+        const t = document.getElementById('hf-title');
+        if (t) t.textContent = f.title;
+        const img = feat.querySelector('.hf-img');
+        if (img) img.src = f.cover || autoThumb(f);
+      }
+    }
   } catch (e) {
     if (e.name === 'AbortError' || mine !== ctrl) return;
     listEl.innerHTML = `<div class="empty">加载失败：${esc(e.message)}<br><button type="button" class="btn sm" data-reload style="margin-top:12px">重试</button></div>`;
@@ -137,11 +202,11 @@ async function load() {
   }
 }
 
-function skeleton(n = 3) {
+function skeleton(n = 4) {
   return Array.from({ length: n })
     .map(
       () =>
-        '<div class="sk-card"><div class="sk sk-thumb"></div><div class="sk-body"><div class="sk"></div><div class="sk"></div><div class="sk"></div></div></div>'
+        '<div class="sk-card"><div class="sk sk-cover"></div><div class="sk-body"><div class="sk"></div><div class="sk"></div><div class="sk"></div></div></div>'
     )
     .join('');
 }
@@ -184,18 +249,21 @@ function emptySearch() {
 }
 
 function card(p) {
+  const kicker = [
+    p.category ? `<span class="card-cat">${esc(p.category_name || p.category)}</span>` : '',
+    ...(p.tags || []).slice(0, 2).map((t) => `<span class="card-tag">#${hl(t, currentQ)}</span>`),
+  ].join('');
   return `
   <a class="post-card" href="/p/${encodeURIComponent(p.slug)}">
-    <img class="thumb" src="${esc(p.cover || autoThumb(p))}" alt="" loading="lazy" decoding="async" width="208" height="136">
-    <div class="body">
+    <div class="card-cover"><img class="thumb" src="${esc(p.cover || autoThumb(p))}" alt="" loading="lazy" decoding="async" width="640" height="360"></div>
+    <div class="card-body">
+      ${kicker ? `<div class="card-kicker">${kicker}</div>` : ''}
       <h2>${hl(p.title, currentQ)}${p.is_private ? ' <span class="tiny muted">私密</span>' : ''}</h2>
       ${p.excerpt ? `<p class="excerpt">${hl(p.excerpt, currentQ)}</p>` : ''}
-      <div class="meta">
+      <div class="card-meta">
         <span>${fmtDate(p.published_at || p.created_at)}</span>
-        <span class="sep-dot">${p.reading} 分钟</span>
-        ${p.comments ? `<span class="sep-dot">${p.comments} 条评论</span>` : ''}
-        ${p.category ? `<span class="tag cat-chip">${esc(p.category_name || p.category)}</span>` : ''}
-        ${(p.tags || []).slice(0, 3).map((t) => `<span class="tag">#${hl(t, currentQ)}</span>`).join('')}
+        <span>${p.reading} 分钟</span>
+        ${p.comments ? `<span>${p.comments} 条评论</span>` : ''}
       </div>
     </div>
   </a>`;
@@ -249,6 +317,13 @@ async function loadTags() {
       `<a class="tag" href="/" style="${!currentTag ? 'background:var(--accent-soft);color:var(--accent)' : ''}">全部</a>` +
       tags.map((t) => `<a class="${tagClass(t.name, t.count)}" href="/tag/${encodeURIComponent(t.name)}"
         style="${currentTag === t.name ? 'background:var(--accent-soft);color:var(--accent)' : ''}">#${esc(t.name)} ${t.count}</a>`).join('');
+    const side = document.getElementById('side-tags');
+    if (side && !side.childElementCount) {
+      side.innerHTML = tags
+        .slice(0, 12)
+        .map((t) => `<a class="side-tag" href="/tag/${encodeURIComponent(t.name)}">#${esc(t.name)}<i>${t.count}</i></a>`)
+        .join('');
+    }
   } catch {}
 }
 

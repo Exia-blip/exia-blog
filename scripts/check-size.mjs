@@ -13,8 +13,15 @@
 // 基线放 scripts/ 而不是 public/ —— 后者会被 Workers Assets 当静态资源发布。
 //
 // 2026-11-28：桌面框架（导航/列表/页脚共用宽度，列表双列）把主表推到实测 39301 B，
-// 原 39000 只剩 74 B 余量，扛不住一次有意的布局改动。上限按实测调到 39600（留 299 B），
-// 相对基线 +10% 的守卫不动。历史文章里的 39000 是当时的真值，不要回填改写。
+// 原 39000 只剩 74 B 余量，扛不住一次有意的布局改动。上限按实测调到 39600（留 299 B）。
+// 同日整站换安知鱼风（banner / 双列大封面卡 / 300px 侧栏 / 白卡文章页）实测 41691 B，
+// 再调到 42500（留 809 B）。相对守卫从旧基线 37626 起算已是 +10.8%，整站版式换代
+// 属于「有意变大」，因此把基线重置到本次实测值 —— 不是把闸门拆掉：绝对上限仍在，
+// 重置后的基线继续守未来 +10%。历史文章里的 39000 是当时的真值，不要回填改写。
+//
+// 同一轮的后半段（横幅/作者卡改吃 --brand，深色态压暗）把主表推到 42394 B，42500 只剩
+// 106 B，又回到「一次小改动就撞线」。上限重定 43000，基线跟着重置到 42394 —— 仍是一次
+// 有意改动内部的调整，不是放宽：基线一变，+10% 的守卫就从这个新起点重新算。
 
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -25,7 +32,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const BASELINE = join(ROOT, 'scripts/.size-baseline.json');
 const GROWTH = 1.1;
 const LIMITS = {
-  mainGzip: 39600,   // public/style.css，gzip -9；2026-11-28 按桌面框架实测重定
+  mainGzip: 43000,   // public/style.css，gzip -9；2026-11-28 按安知鱼整站改版实测重定
   themeRaw: 2000,    // public/theme/*.css，每个文件的原始字节
 };
 

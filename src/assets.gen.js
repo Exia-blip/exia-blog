@@ -8,8 +8,8 @@ export const ASSET_HASH = {
   'copy-notice.js': { v: '37005dfb02', i: 'sha384-06Z7i5AdTVLQWI4ZBpM38rD7urKygjw0ubrO4MHxvqcxw6uAe/Xy6MVyApYMrs4j' },
   'cover.js': { v: 'df82152a9d', i: 'sha384-A3lOG3f+LLp59TfT44W10oVZGE+h+s9Yl5/xBZhE80fk8zuyMXhMOcpF+aMGpe8u' },
   'md.js': { v: '092666ed13', i: 'sha384-SmrOod4zV8EQrLRzEbhQKez9axG19fmHK0uVCP7NaDbssUvRYGpYtKgEkRYxyvkv' },
-  'style.css': { v: 'add1bd6afd', i: 'sha384-dUDOahhNT/suZ+46Ls/5dVI6fX9AcaLJSGflzlcVS0D/3bfX2q6FNYD/xMNTlcIc' },
-  'theme.js': { v: 'fa9e2fc578', i: 'sha384-Fc6ucnXA19w5JsdwMjiYcUCMl+Z69QgWSdxagVdKV9KkC6F4U15zZy4HSaj72Cpp' },
+  'style.css': { v: '48305dcf92', i: 'sha384-Q5Myid6Oz7PC/Y9aYP3c/zuhLsOU66B2SoLP8dmUHWrbnXdxuyjTBp5QvHiKLy3D' },
+  'theme.js': { v: 'b24b1a75ed', i: 'sha384-pgmU0hYbYxCZqlKp/bo1SamfMf/J7v5qSyFV2ZG3gVHfkH+4HmqaiDSm4HZMfaAd' },
   'theme/edge.css': { v: '18f0168a05', i: 'sha384-IJ9batbCjnWqKiATkQs5U0uh3cZovNgRLCapKmB8s7uxs3BVbkcKiFkSCHO2NVyn' },
   'theme/forest.css': { v: 'eab1d253af', i: 'sha384-YMY12usuy6CTrV+ZqS99Pymn97IKzALhSGQ4iV3jhffMG/VVRNiYr1j+wI02gaZp' },
   'theme/ink.css': { v: 'fa93572a62', i: 'sha384-deRpxbfDXLL/CaeEGMh45bJIVuIx4vhVUclU35B9RGQMPEJ+JH/SIM1x+MpCKr8L' },
@@ -28,7 +28,7 @@ export const THEME_BG = {
   'mono': '#f4f4f5',
   'ocean': '#f4f7fb',
   'plum': '#faf7fc',
-  'paper': '#faf9f7',
+  'paper': '#f7f9fe',
 };
 
 /* 各主题暗色模式的 --bg，给 SSR 首屏那条 media="(prefers-color-scheme: dark)" 用。
@@ -40,5 +40,5 @@ export const THEME_BG_DARK = {
   'mono': '#0b0b0c',
   'ocean': '#0a1017',
   'plum': '#130f16',
-  'paper': '#141518',
+  'paper': '#14161d',
 };

@@ -10,7 +10,9 @@
  *
  * 判据：
  *   · 1920 / 1440 / 1080：导航内框、主区、页脚内框左右边界一致（±1px）
- *   · 1920 首页：文章卡片两列，单卡宽度 > 600px（不再是 660px 的窄带）
+ *   · 1920 首页：文章卡片两列、单卡 > 480px、右侧栏 300px、横幅两栏并排
+ *     （[P-111] 白卡版式：加 300 右栏后单卡从 675 落到 516，门槛随版式重定，
+ *      继续守的是「不是 660 窄带」而不是某个具体像素）
  *   · 390 首页：仍单列、页脚竖排、汉堡出现；移动端没被桌面框架带跑
  *   · 1920 文章页：正文仍 660px，目录三列布局没被框架改动挤掉
  *   · 所有页面：无横向溢出，CSS 真的加载了（--frame 非空）
@@ -62,6 +64,9 @@ async function measure(path, width) {
       footerDir: document.querySelector('.sf-inner') ? getComputedStyle(document.querySelector('.sf-inner')).flexDirection : '',
       burger: document.querySelector('.nav-toggle') ? getComputedStyle(document.querySelector('.nav-toggle')).display : '',
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      side: box('.home-side'),
+      heroMain: box('.hero-main'),
+      heroFeature: box('.hero-feature'),
     };
   });
   await page.close();
@@ -87,7 +92,11 @@ for (const width of [1920, 1440, 1080]) {
   aligned(d, '首页');
   if (width === 1920) {
     check('列表两列', d.listDisplay === 'grid' && d.cols === 2, `${d.listDisplay} / ${d.cols} 列`);
-    check('单卡宽 > 600px', d.cards[0] > 600, `首卡 ${d.cards[0]}px`);
+    /* 右栏固定 300 后单卡约 516：判据要求「明显宽于旧的 660 单列」而不是继续
+       把 600 当门槛 —— 加侧栏是版式决策，卡片变窄是它的直接结果。 */
+    check('单卡宽 > 480px', d.cards[0] > 480, `首卡 ${d.cards[0]}px`);
+    check('右侧栏 300px', d.side?.w === 300, `${d.side?.w}px`);
+    check('横幅两栏（右卡窄于主卡）', !!d.heroMain && !!d.heroFeature && d.heroMain.w > d.heroFeature.w, `${d.heroMain?.w} / ${d.heroFeature?.w}`);
     check('页脚横向排布', d.footerDir === 'row', d.footerDir);
   }
   if (width === 1080) check('桌面断点已启用', d.frame === '1180px', d.frame);

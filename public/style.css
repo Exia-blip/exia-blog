@@ -6,33 +6,33 @@
    ============================================================ */
 
 :root {
-  --bg: #faf9f7;
-  --bg-soft: #f4f2ee;
+  --bg: #f7f9fe;
+  --bg-soft: #eef2fb;
   --card: #ffffff;
-  --fg: #1c1b19;
-  --fg-soft: #4a4741;
-  --muted: #736c64;
-  --line: #e7e3db;
+  --fg: #23262f;
+  --fg-soft: #4c4948;
+  --muted: #5f6878;
+  --line: #e2e7f2;
   /* 链接下划线专用。--line 是给卡片/分隔线用的，拿来画 1px 下划线在纸底上
      等于没画；把 fg 混进 line，得到一根看得见又不出声的线。
      不写死颜色：各皮肤只覆盖 --fg/--line，这一根跟着它们一起适配明暗。 */
   --line-strong: color-mix(in srgb, var(--fg) 32%, var(--line));
-  --accent: #a8501f;
-  --accent-soft: #fdf0e7;
-  --green: #2f9e5f;
-  --red: #c8483d;
-  --radius: 10px;
+  --accent: #3b5bdb;
+  --accent-soft: #e9edfd;
+  --green: #0f9d8a;
+  --red: #d94a4a;
+  --radius: 12px;
   /* 桌面框架宽度：导航 / 列表页 / 文章页 / 页脚共用这一条基线。 */
   --frame: 1180px;
   /* 全站只有一个过渡时长。悬停是「确认点到了」，120ms 以内才像即时反馈；
      超过 200ms 就开始像动画，读者会等它演完。 */
   --t: 120ms;
   /* 单层、只在 hover 用：常驻阴影在浅底纸上是一层灰雾，不是层次 */
-  --shadow: 0 1px 2px rgba(28, 27, 25, 0.04);
-  --tok-k: #a626a4;
-  --tok-s: #2f8a4f;
-  --tok-n: #b45309;
-  --tok-f: #2563a8;
+  --shadow: 0 8px 16px -4px rgba(44, 45, 48, 0.08);
+  --tok-k: #7c3aed;
+  --tok-s: #15803d;
+  --tok-n: #c2410c;
+  --tok-f: #1d4ed8;
   --hero-space: -0.02em;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
@@ -43,45 +43,45 @@
 
 /* ---- 暗色基座（纸韵 · 深色） ---- */
 :root[data-mode="dark"] {
-  --bg: #141518;
-  --bg-soft: #1b1d21;
-  --card: #212429;
-  --fg: #e9e6e1;
-  --fg-soft: #c3bfb8;
-  --muted: #918b82;
-  --line: #343841;
-  --accent: #e08a54;
-  --accent-soft: #2a1f16;
-  --green: #4fc47f;
-  --red: #e57368;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --tok-k: #d6a4e0;
-  --tok-s: #8ed49a;
-  --tok-n: #e0b57a;
-  --tok-f: #86b8e8;
+  --bg: #14161d;
+  --bg-soft: #1b1e27;
+  --card: #20242f;
+  --fg: #e9ecf5;
+  --fg-soft: #c3c9d6;
+  --muted: #8e97a8;
+  --line: #2c313d;
+  --accent: #8b9cff;
+  --accent-soft: #262b45;
+  --green: #4fc4a8;
+  --red: #f07a7a;
+  --shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.4);
+  --tok-k: #c4a5ff;
+  --tok-s: #7ddba0;
+  --tok-n: #f0b57a;
+  --tok-f: #93b8ff;
   color-scheme: dark;
 }
 /* 无 JS 时的系统暗色兜底 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-mode]) {
-    --bg: #141518;
-    --bg-soft: #1b1d21;
-    --card: #212429;
-    --fg: #e9e6e1;
-    --fg-soft: #c3bfb8;
-    --muted: #918b82;
-    --line: #343841;
-    --accent: #e08a54;
-    --accent-soft: #2a1f16;
-    --green: #4fc47f;
-    --red: #e57368;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --bg: #14161d;
+    --bg-soft: #1b1e27;
+    --card: #20242f;
+    --fg: #e9ecf5;
+    --fg-soft: #c3c9d6;
+    --muted: #8e97a8;
+    --line: #2c313d;
+    --accent: #8b9cff;
+    --accent-soft: #262b45;
+    --green: #4fc4a8;
+    --red: #f07a7a;
+    --shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
   }
 }
 
 /* 其余六套主题的变量与专属样式都在 /theme-<id>.css，按需加载；
-   这里只留纸韵（默认）的 :root，因为它同时是脚本没跑起来时的兜底色。 */
+   这里只留默认皮肤（paper id，蓝白卡片）的 :root，脚本没跑起来时也铺满底色。 */
 
 * { box-sizing: border-box; }
 
@@ -2270,10 +2270,14 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   header.site, .read-bar, .back-top, .post-toc, .post-edit,
   .series-jump, .cmt-form, .post-foot, .site-foot, footer.site,
   .toolbar, .tagbar, .pagination, .comments, .post-related,
-  .mtoc, .mtoc-btn, .skip-link, .nav-prog, .copy-link, .readbar-toggle {
+  .mtoc, .mtoc-btn, .skip-link, .nav-prog, .copy-link, .readbar-toggle,
+  main.home .hero, .home-side, .card-cover, .aw-cover {
     display: none !important;
   }
   main.wrap, main.wrap-post { max-width: none; padding: 0; }
+  /* 屏上向外扩 40px 的白卡，纸上就是 40px 横向溢出；纸本来就是白的，直接撤掉 */
+  .post-main::before { display: none !important; }
+  main.home .post-card { break-inside: avoid; }
   .post-article { display: block; }
   .post-head { border: 0; padding-top: 0; }
   .post-body, .md { font-size: 11.5pt; line-height: 1.7; }
@@ -2818,3 +2822,210 @@ mark {
   .site-foot { margin-top: 52px; }
   .site-foot .sf-inner { padding: 24px 18px 28px; }
 }
+
+/* ============ 安知鱼风：卡片、横幅、侧栏 ============
+   参考站是 Hexo 安知鱼：浅蓝底、白卡、12px 圆角、双列大封面 + 300px 右栏。
+   这一段只改读者侧版式，后台/编辑器/正文排版不动；颜色仍走契约变量。 */
+
+/* ---- 顶栏：60px、菜单居中、选中项蓝底胶囊 ---- */
+header.site { box-shadow: 0 2px 12px rgba(44, 45, 48, 0.05); }
+header.site .inner { height: 60px; }
+.brand { font-family: var(--sans); font-weight: 700; }
+nav.top { margin-left: auto; margin-right: auto; }
+nav.top a, nav.top button { border-radius: 9px; padding: 8px 13px; }
+nav.top .active, nav.top [aria-current="page"] { background: var(--accent); color: #fff; }
+
+/* ---- 首屏横幅 ---- */
+main.home { padding-top: 22px; }
+main.home .hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.85fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 0 0 18px;
+}
+.hero-main {
+  position: relative;
+  min-height: 292px;
+  padding: 42px 44px;
+  border-radius: 16px;
+  overflow: hidden;
+  /* 横幅跟着主题走：--brand 是填充位（只有 edge 定义），其余主题没有就落回 --accent。
+     写死一组紫色渐变的话，苔原/暮紫/终端这几套底部会顶着一块不相干的外来色 —— 
+     和 P-107「同一个颜色同时说四件事」是反着的毛病：这次是「同一个位置换四套色」。 */
+  color: var(--on-brand, #fff);
+  background: linear-gradient(132deg,
+    color-mix(in srgb, var(--brand, var(--accent)) 78%, #000) 0%,
+    var(--brand, var(--accent)) 58%,
+    color-mix(in srgb, var(--brand, var(--accent)) 88%, #fff) 100%);
+}
+.hero-main::after {
+  content: "";
+  position: absolute;
+  right: -70px;
+  bottom: -120px;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--on-brand, #fff) 12%, transparent);
+}
+/* 深色态下 --accent 是「在暗底上能当文字」的亮色，直接当填充会亮成一块荧光板，
+   白字压不住。横幅只在深色态额外压暗，浅色态保持原色调。 */
+:root[data-mode="dark"] .hero-main {
+  background: linear-gradient(132deg,
+    color-mix(in srgb, var(--brand, var(--accent)) 52%, #000) 0%,
+    color-mix(in srgb, var(--brand, var(--accent)) 70%, #000) 58%,
+    color-mix(in srgb, var(--brand, var(--accent)) 84%, #000) 100%);
+}
+/* 压暗之后底已经不是「亮橙/亮绿」了，--on-brand 那套深色字就是按亮底配的，
+   再叠上去会糊成一片（基建深色态实测：墨蓝字压在棕橙上）。深色态统一走白字。 */
+:root[data-mode="dark"] .hero-main,
+:root[data-mode="dark"] main.home .hero h1,
+:root[data-mode="dark"] .hero-btn { color: #fff; }
+:root[data-mode="dark"] main.home .hero p#hero-sub { color: rgba(255, 255, 255, 0.84); }
+:root[data-mode="dark"] .b-orange,
+:root[data-mode="dark"] .b-green { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.hero-kicker { margin: 0 0 12px; font-size: 12px; letter-spacing: 0.18em; opacity: 0.78; }
+main.home .hero h1 { position: relative; margin: 0 0 12px; color: var(--on-brand, #fff); font-family: var(--sans); font-size: 42px; line-height: 1.22; letter-spacing: -0.02em; }
+main.home .hero p#hero-sub { position: relative; margin: 0; color: color-mix(in srgb, var(--on-brand, #fff) 84%, transparent); font-size: 15.5px; }
+.hero-acts { position: relative; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+.hero-btn { padding: 10px 18px; border-radius: 10px; color: var(--on-brand, #fff); font-size: 13.5px; font-weight: 600; transition: transform var(--t), filter var(--t); }
+.hero-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+/* 主 CTA 反白 + 副 CTA 半透明：横幅本身已经是主题色，按钮再各自上一种饱和色，
+   页面上就有四种颜色在抢注意力，还都不指向「哪个是主操作」。 */
+.b-blue { background: color-mix(in srgb, var(--brand, var(--accent)) 42%, #000); color: #fff; }
+.b-orange, .b-green { background: color-mix(in srgb, var(--on-brand, #fff) 16%, transparent); color: var(--on-brand, #fff); }
+.hero-feature { position: relative; display: block; min-height: 292px; border-radius: 16px; overflow: hidden; background: var(--bg-soft); }
+.hf-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s ease; }
+.hero-feature:hover .hf-img { transform: scale(1.03); }
+.hf-mask { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0) 32%, rgba(0, 0, 0, 0.66)); }
+.hf-tag { position: absolute; top: 14px; left: 14px; padding: 3px 10px; border-radius: 999px; background: var(--brand, var(--accent)); color: var(--on-brand, #fff); font-size: 12px; font-weight: 600; }
+.hf-title { position: absolute; left: 18px; right: 18px; bottom: 18px; color: #fff; font-size: 19px; font-weight: 700; line-height: 1.4; }
+
+/* ---- 主列 + 右栏 ---- */
+.home-shell { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.home-main { min-width: 0; }
+.home-side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 76px; }
+main.home .toolbar { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+main.home .toolbar .search input { border: 0; background: var(--bg-soft); }
+main.home .tagbar { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+main.home .tagbar + .tagbar { margin-top: -4px; }
+main.home .tagbar .bar-label { display: none; }
+main.home .tagbar .tag { border: 0; background: var(--bg-soft); padding: 3px 9px; }
+main.home .tagbar .tag:hover, main.home .tagbar .cat-chip { background: var(--accent-soft); color: var(--accent); }
+
+/* 精选条横跨两列：留在左列会让第一行错位，右列第一张卡悬在半空 */
+main.home .picks { grid-column: 1 / -1; padding: 13px 18px 6px; border-radius: 12px; }
+main.home #tagbar { display: none; }
+
+/* 双列大卡 */
+main.home .post-list { gap: 16px; }
+main.home .post-card {
+  display: block;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+main.home .post-card:hover { transform: translateY(-3px); border-color: var(--line); box-shadow: 0 14px 28px -12px rgba(44, 45, 48, 0.22); }
+main.home .card-cover { aspect-ratio: 16 / 9; overflow: hidden; background: var(--bg-soft); }
+main.home .card-cover picture { display: block; height: 100%; }
+main.home .post-card .thumb { width: 100%; height: 100%; object-fit: cover; border-radius: 0; transition: transform 0.4s ease; }
+main.home .post-card:hover .thumb { transform: scale(1.04); }
+main.home .card-body { padding: 13px 16px 15px; }
+main.home .card-kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 7px; font-size: 12px; }
+main.home .card-cat { padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+main.home .card-tag { color: var(--muted); }
+main.home .post-card h2 { margin: 0 0 7px; font-family: var(--sans); font-size: 17px; font-weight: 700; line-height: 1.5; letter-spacing: -0.01em; }
+main.home .post-card .excerpt { margin: 0 0 12px; color: var(--muted); font-size: 13.5px; line-height: 1.68; }
+main.home .card-meta { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 12px; }
+main.home .sk-card { overflow: hidden; border-radius: 12px; }
+
+/* 右栏 */
+.widget { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
+.author-widget { padding: 0 0 16px; overflow: hidden; text-align: center; }
+.aw-cover { height: 84px; background: linear-gradient(132deg, var(--brand, var(--accent)), color-mix(in srgb, var(--brand, var(--accent)) 74%, #fff)); }
+.aw-avatar {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: -32px auto 9px;
+  border: 3px solid var(--card);
+  border-radius: 50%;
+  background: var(--bg-soft);
+  background-size: cover;
+  background-position: center;
+  color: var(--accent);
+  font-size: 22px;
+  font-weight: 700;
+}
+.aw-name { display: block; font-size: 16px; }
+.aw-desc { margin: 5px 14px 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.aw-links { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
+.aw-links a { padding: 5px 13px; border-radius: 999px; background: var(--bg-soft); color: var(--fg-soft); font-size: 12px; }
+.aw-links a:hover { background: var(--accent-soft); color: var(--accent); }
+.wg-title { margin: 0 0 10px; font-family: var(--sans); font-size: 14px; font-weight: 700; }
+.side-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.side-tag { padding: 3px 9px; border-radius: 6px; background: var(--bg-soft); color: var(--muted); font-size: 12px; }
+.side-tag:hover { background: var(--accent-soft); color: var(--accent); }
+.side-tag i { margin-left: 4px; font-style: normal; opacity: 0.6; }
+.side-recent { display: flex; flex-direction: column; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.side-recent a { display: flex; justify-content: space-between; gap: 10px; color: var(--fg-soft); font-size: 13px; line-height: 1.5; }
+.side-recent a span { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.side-recent a:hover { color: var(--accent); }
+.side-recent time { flex: 0 0 auto; color: var(--muted); font-size: 11.5px; }
+
+/* ---- 文章页：整列一张宽白卡 ----
+   .post-main 的列宽必须留给正文 660（T-11 锁着），所以卡片用伪元素向外扩，
+   不靠 padding —— 一 padding 正文就只剩 580，行宽被媒体查询静默改掉。 */
+.post-main { position: relative; isolation: isolate; }
+.post-main::before {
+  content: "";
+  position: absolute;
+  inset: -26px -40px -34px;
+  z-index: -1;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.post-head { padding: 26px 0 22px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none; margin-bottom: 26px; }
+.post-lead { border: 0; border-left: 3px solid var(--accent); background: var(--bg-soft); box-shadow: none; }
+.post-related, .comments, .post-adjacent { border-radius: 12px; }
+
+/* ---- 归档 / 栏目 ---- */
+main.desk #arch-body { padding: 22px 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
+main.desk .arch-bar { padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+main.desk .tax-section { padding: 20px 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
+main.desk .tax-cell { border-color: var(--line); }
+
+/* ---- 页脚：渐变到白，居中 ---- */
+.site-foot { margin-top: 64px; border-top: 0; background: linear-gradient(180deg, rgba(255, 255, 255, 0), var(--card) 28%); }
+.site-foot .sf-inner { padding: 44px 22px 40px; }
+
+/* ---- 窄屏：横幅单列、侧栏下移、卡片单列 ---- */
+@media (max-width: 1079px) {
+  .home-shell { grid-template-columns: minmax(0, 1fr); }
+  .home-side { position: static; }
+  main.home .hero { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+  .hero-main { padding: 32px 30px; min-height: 250px; }
+  main.home .hero h1 { font-size: 34px; }
+  .hero-feature { min-height: 250px; }
+}
+@media (max-width: 720px) {
+  main.home { padding-top: 14px; }
+  main.home .hero { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .hero-main { min-height: 0; padding: 26px 22px 28px; border-radius: 14px; }
+  main.home .hero h1 { font-size: 30px; }
+  .hero-acts { margin-top: 20px; }
+  .hero-feature { min-height: 190px; border-radius: 14px; }
+  .hf-title { font-size: 16px; }
+  .home-shell { gap: 12px; }
+  main.home .post-list { grid-template-columns: minmax(0, 1fr); }
+  .post-head { padding: 22px 20px 18px; }
+  main.desk #arch-body, main.desk .tax-section { padding: 16px; }
+}
+

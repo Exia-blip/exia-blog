@@ -1164,6 +1164,17 @@
 
 ---
 
+## P-111 白卡要留白，正文行宽却是死的：用 padding 换视觉，等于把 660 压成 580
+
+- **现象**：2026-11-28 老板要求整站换成参考站（Hexo 安知鱼）那种卡片风格——首页渐变横幅 + 16:9 大封面白卡 + 300px 右栏、文章页整列白卡、归档与栏目页白卡化。改完后视觉对了，但正文实测 580px；把白卡 padding 撤掉又变回「没有卡片感」。同一轮里归档页顶部还冒出一条巨大白字「归档」压住时间线，卡片整体错位。
+- **根因**：两件事被塞进同一个盒子。`.post-main` 既是**正文行宽的载体**（T-01 锁 660），又想当**白卡的视觉容器**（要内边距才有卡片留白）。给容器加 `padding: 26px 40px` 就是从 660 里扣掉 80px 横向——行宽不是「差不多就行」的数，17px 中文 72ch 是量出来的（P-107 的 `ch` 口径）。归档页那条白字则是另一回事：`.hero` 一开始写成了全局选择器，首页横幅的样式顺着类名漏到所有用 `.hero` 的页面上去。
+- **复现**：`node scripts/check-desktop.mjs` 里「正文仍 660px」那条会先红；`node scripts/check-print.mjs` 会报文章 OVERFLOW=40px。逐条改坏验过：把 `.post-main::before` 的 `inset:-26px -40px -34px` 改成 `inset:0`，白卡退化成一条细边但 660 恢复——证明宽度确实是从伪元素那层拿的，不是从 padding。
+- **断言**：外扩交给伪元素——`.post-main{position:relative;isolation:isolate}` + `.post-main::before{inset:-26px -40px -34px;z-index:-1}`，正文盒子零 padding，660 保住、白卡面积照拿。`isolation:isolate` 是必需的，否则 `z-index:-1` 会掉到页面背景之后变成看不见。`check-desktop.mjs` 新增三条真机判据：右栏 300px、首卡单卡宽 > 480px、横幅两栏并排；`test-theme-contract.mjs` TC-06/TC-30/TC-44 与 `test-typography.mjs` T-04 一条没放宽（`--serif` 仍是衬线栈，标题字体归主题层）。
+- **边界**：① 打印态只许**一段** `@media print`（T-08 锁死），本次新增的隐藏项（`main.home .hero` / `.home-side` / `.card-cover` / `.aw-cover` / `.post-main::before`）全部并进原段，新开一段会让前一段整体失效——改一处等于没改，且症状是「屏上好了、纸上还是溢出」。② CSS gzip 实测 41691，绝对上限从 39600 提到 42500；但相对基线 +10% 直接失败（10.8%），于是**重置基线**为 41691 而不是把闸门掰宽——整站版式换代属于有意变大，重置后基线继续守未来的无意识膨胀。同一轮后半段横幅改吃 `--brand` 后又涨到 42394，42500 只剩 106 B，上限再定 43000、基线跟着走到 42394。历史文章里 39000 / 39600 / 42500 都是当时的真值，不回填。③ `build:sri` 之后必须清 `.wrangler/state/v3/cache` 再跑体检，否则旧 HTML 带旧 integrity，NO-CSS 一片假红。④ 横幅首版写死了一组紫色渐变（`#4f63f2 → #a26bf2`），换到苔原/暮紫/终端/基建上就是一块外来色——和 P-107 是同一个病的另一半：P-107 是「一个颜色说四件事」，这里是「一件事换四套颜色」。改成 `var(--brand, var(--accent))` 派生（`--brand` 只有 edge 定义，其余主题必须带回退），浅色态直接用 accent，深色态另加一段压暗——深色态的 `--accent` 是「在暗底上能当字读」的亮色，当填充会亮成荧光板，白字压不住；而压暗之后 `--on-brand` 那套**按亮底配的深色字**又糊了（基建深色态实测墨蓝压棕橙），所以深色态横幅统一白字。按钮也跟着收：三色 CTA（蓝/橙/青）各抢一次注意力还都不指向主操作，改成主按钮实心加深、副按钮半透明白。
+- **出处**：`public/style.css`（`:root` 蓝白基座、`main.home .hero`、`.home-shell`、`.post-main::before`、唯一 `@media print`）、`public/index.html`（hero / home-shell / card 模板）、`src/index.js`（`postCard` 走 `coverOf`、`applyList` 里横幅 SSR 注入）、`scripts/check-desktop.mjs`、`scripts/check-size.mjs`、`scripts/.size-baseline.json`、P-110（桌面框架）、P-107（probe 纪律）、P-075（停手条件）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

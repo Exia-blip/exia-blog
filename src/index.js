@@ -1496,10 +1496,10 @@ function renderHero(body, site, path) {
 /* ---------- 首页文章列表 SSR ----------
    以前首页 HTML 里只有一句「加载中…」，内容和分页都得等 /api/posts 回来。
    现在首屏直接把第一页写进 HTML：搜索引擎能抓到正文摘要，用户也不用等一圈往返。 */
-const SKELETON = Array.from({ length: 3 })
+const SKELETON = Array.from({ length: 4 })
   .map(
     () =>
-      '<div class="sk-card"><div class="sk sk-thumb"></div><div class="sk-body"><div class="sk"></div><div class="sk"></div><div class="sk"></div></div></div>'
+      '<div class="sk-card"><div class="sk sk-cover"></div><div class="sk-body"><div class="sk"></div><div class="sk"></div><div class="sk"></div></div></div>'
   )
   .join('');
 
@@ -1513,7 +1513,8 @@ const SKELETON = Array.from({ length: 3 })
 function thumbTag(url, first = false) {
   const u = String(url || '');
   const attrs = first ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
-  const img = `<img class="thumb" src="${esc(u)}" alt="" ${attrs} decoding="async" width="108" height="78">`;
+  // 16:9 大封面：640×360 的框，标题卡 1200×630 正好铺满，不再裁成 108×78 的方框
+  const img = `<img class="thumb" src="${esc(u)}" alt="" ${attrs} decoding="async" width="640" height="360">`;
   // /thumbs/* 是构建时生成的 webp，/cards/* 是 png 标题卡，都没有 R2 变体
   if (!/^\/img\//.test(u)) return img;
   const variant = (ext) => {
@@ -1526,21 +1527,20 @@ function thumbTag(url, first = false) {
 }
 
 function postCard(p, i = 0) {
-  // 卡片永远有图：shapePost 已经兜过一层，这里再兜一次是防「传进来的是原始行」
-  const cover = thumbTag(thumbOf(p), i === 0);
-  const tags = (p.tags || [])
-    .slice(0, 3)
-    .map((t) => `<span class="tag">#${esc(t)}</span>`)
-    .join('');
-  return `<a class="post-card" href="/p/${encodeURIComponent(p.slug)}">${cover}<div class="body"><h2>${esc(p.title)}${
-    p.is_private ? ' <span class="tiny muted">私密</span>' : ''
-  }</h2>${p.excerpt ? `<p class="excerpt">${esc(p.excerpt)}</p>` : ''}<div class="meta"><span>${esc(
-    fmtDay(p.published_at || p.created_at)
-  )}</span><span class="sep-dot">${p.reading} 分钟</span>${
-    p.words ? `<span class="sep-dot read-meta">${p.words} 字</span>` : ''
-  }${
-    p.comments ? `<span class="sep-dot">${p.comments} 条评论</span>` : ''
-  }${p.category ? `<span class="tag cat-chip">${esc(p.category_name || catName(p.category))}</span>` : ''}${tags}</div></div></a>`;
+  // 卡片永远有图：shapePost 已经兜过一层，这里再兜一次是防「传进来的是原始行」。
+  // 大封面用 coverOf（标题卡 1200×630），不再用 thumbOf 的小图。
+  const cover = thumbTag(coverOf(p), i === 0);
+  const kicker = [
+    p.category ? `<span class="card-cat">${esc(p.category_name || catName(p.category))}</span>` : '',
+    ...(p.tags || []).slice(0, 2).map((t) => `<span class="card-tag">#${esc(t)}</span>`),
+  ].join('');
+  return `<a class="post-card" href="/p/${encodeURIComponent(p.slug)}"><div class="card-cover">${cover}</div><div class="card-body">${
+    kicker ? `<div class="card-kicker">${kicker}</div>` : ''
+  }<h2>${esc(p.title)}${p.is_private ? ' <span class="tiny muted">私密</span>' : ''}</h2>${
+    p.excerpt ? `<p class="excerpt">${esc(p.excerpt)}</p>` : ''
+  }<div class="card-meta"><span>${esc(fmtDay(p.published_at || p.created_at))}</span><span>${p.reading} 分钟</span>${
+    p.words ? `<span>${p.words} 字</span>` : ''
+  }${p.comments ? `<span>${p.comments} 条评论</span>` : ''}</div></div></a>`;
 }
 
 function pagerHtml(page, pages, total, base) {
@@ -1640,11 +1640,34 @@ function applyList(body, res) {
     ? data.posts.map(postCard).join('')
     : `<div class="empty">${res.tag || res.cat ? '这个栏目下还没有文章' : '还没有文章，去写第一篇吧'}</div>`;
 
+  /* 侧栏「最近」用同一批数据直出：首页右栏不该再发一次 /api/posts，
+     也不能先空着等 JS —— 那一下会把右栏整体往下推。 */
+  const recent = data.posts
+    .slice(0, 5)
+    .map(
+      (p) =>
+        `<li><a href="/p/${encodeURIComponent(p.slug)}"><span>${esc(p.title)}</span><time>${esc(
+          fmtDay(p.published_at || p.created_at)
+        )}</time></a></li>`
+    )
+    .join('');
+
   const boot = JSON.stringify({ page: data.page, pages: data.pages, total: data.total }).replace(/</g, '\\u003c');
-  const out = body
+  let out = body
     .replace('<!--LIST-->', (res.picks ? picksHtml(res.picks) : '') + cards)
     .replace('<!--PAGER-->', pagerHtml(res.page, data.pages, data.total, res.base))
+    .replace('<!--SIDERECENT-->', recent)
     .replace('</head>', `<script>window.__LIST__=${boot};</script></head>`);
+
+  /* 首屏横幅右侧：直接用第一篇文章，不再等客户端 ——— 有 SSR 列表时
+     index.html 的 load() 不会跑，等它填就是永远停在默认文案。 */
+  const feat = res.base === '/' && data.page === 1 ? data.posts[0] : null;
+  if (feat) {
+    out = out
+      .replace(/(<a class="hero-feature"[^>]*href=")[^"]*/, `$1/p/${encodeURIComponent(feat.slug)}`)
+      .replace(/(<img class="hf-img"[^>]*src=")[^"]*/, `$1${esc(coverOf(feat))}`)
+      .replace(/(<span class="hf-title" id="hf-title">)[\s\S]*?(<\/span>)/, `$1${esc(feat.title)}$2`);
+  }
 
   return { body: out, list: data };
 }
@@ -1823,7 +1846,8 @@ function fillSeo(body, site, url) {
 function renderListBars(body, counts, tags, url) {
   const needCat = body.includes('<!--CATBAR-->');
   const needTag = body.includes('<!--TAGBAR-->');
-  if (!needCat && !needTag) return body;
+  const needSideTags = body.includes('<!--SIDETAGS-->');
+  if (!needCat && !needTag && !needSideTags) return body;
 
   const path = url ? url.pathname : '';
   const curCat = (path.match(/^\/cat\/([^/]+)/) || [])[1] || '';
@@ -1853,6 +1877,16 @@ function renderListBars(body, counts, tags, url) {
       )
       .join('');
     out = out.replace('<!--TAGBAR-->', `<span class="bar-label">标签</span><a class="tag" href="/"${hl(!curTag)}>全部</a>${rows}`);
+  }
+  if (needSideTags) {
+    const side = (tags || [])
+      .slice(0, 12)
+      .map(
+        (t) =>
+          `<a class="side-tag" href="/tag/${encodeURIComponent(t.name)}">#${esc(t.name)}<i>${t.count}</i></a>`
+      )
+      .join('');
+    out = out.replace('<!--SIDETAGS-->', side);
   }
   return out;
 }
