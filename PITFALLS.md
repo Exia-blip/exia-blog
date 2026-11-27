@@ -1033,6 +1033,17 @@
 
 ---
 
+## P-099 CI 夹具的时间戳跟着 seed 执行时刻漂：本地 sitemap 日期链差一天
+
+- **现象**：本地 `node scripts/check-sitemap.mjs http://127.0.0.1:8806` 是 12/1，`[P-048] datePublished / lastmod / RSS pubDate 三者不矛盾` 红在两篇夹具：`ci-fixture lastmod 2026-11-22 < datePublished 2026-11-23`、`ci-plain lastmod 2026-11-21 < datePublished 2026-11-22`。页面、RSS、sitemap 各自都没报错，只有日期链互相对不上。
+- **根因**：`seed-ci.mjs` 用 `datetime('now', '-3 days')` 写 UTC 裸字符串。页面显示走 `localDay()`（再 +8 取北京日），sitemap 的 `lastOf()` 直接取字符串前 10 位（UTC 日）。种子执行在 UTC 16:00 之后（北京时间 00:00 后）时两者必然差一天——本地库那两行是 UTC 17:33 灌的。同一份夹具白天灌就绿、凌晨灌就红，不是代码改坏了。
+- **复现**：把 `published_at` 改成 `2026-11-24 12:00:00` 后重跑 → 13/0；`npm run seed:ci` 现在锚在 `date('now','-N days') || ' 12:00:00'`（+8 后仍是当天 20:00），任何时刻重灌都同天。评论继续用 `datetime('now')`，它们是相对时间的靶子且不进 sitemap。
+- **断言**：`scripts/test-tz.mjs` 从 `seed-ci.mjs --sql` 取真实输出：posts 块里锚定表达式恰好 6 处（两行 × 三个时间列）、`datetime('now')` 0 处、评论相对时间 2 处；再把锚定表达式交给 `node:sqlite` 求值，用独立的 `localDay()` 验「显示日 == sitemap 取的 UTC 日」。注入：把一列改回 `datetime('now')` → 计数掉到 5 且裸 datetime 断言红，恢复后 41/0。
+- **边界**：这是本地夹具的时间口径问题，不改展示层与 sitemap 的生成逻辑；线上库由后台 `nowISO()` 写 UTC，P-048 的 +8 对账口径保持原样。这里的「any time of day 都同天」只对夹具成立，真实凌晨发布的文章仍会显示北京次日日期——那是展示层的既定设计（`localDay`），不是本条要改的东西。
+- **出处**：`scripts/seed-ci.mjs`、`scripts/test-tz.mjs`、`scripts/check-sitemap.mjs`（P-048）、`src/utils.js`（`localDay`）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

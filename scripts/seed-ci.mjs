@@ -25,6 +25,15 @@ const WRANGLER = join(ROOT, 'node_modules/wrangler/bin/wrangler.js');
 
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
+/* 文章时间戳锚在 UTC 12:00，不取 datetime('now')。
+   显示层 localDay() 把 D1 里的裸 UTC 字符串再 +8 取日期，sitemap 的 lastOf()
+   直接取前 10 位（UTC 日）。种子若落在 UTC 16:00 之后，页面日期就是次日，
+   sitemap/RSS 日期链当天，check-sitemap 的 P-048 判据就红 —— 2026-11-27
+   17:33 灌的库正好撞上。固定 12:00（+8 后仍是当天 20:00）让两个口径
+   在任何执行时刻都同一天，夹具不再随 seed 时间漂移。
+   评论仍用 datetime('now')：那是相对时间的靶子，不进 sitemap。 */
+const stamp = (days) => `date('now', '-${days} days') || ' 12:00:00'`;
+
 /* 正文：5 个二级标题 + 关键词 + 长代码行 + 足够的段落长度。
    段落必须给足：正文高度减一屏才是进度条的分母，正文太短时「滚到半页」已经读完了，
    阅读百分比会直接显示 100% 而隐藏 —— 那是夹具不够长，不是组件坏了。 */
@@ -82,9 +91,9 @@ DELETE FROM posts WHERE slug IN ('ci-fixture', 'ci-plain');
 INSERT INTO posts (slug, title, content, category, summary, published_at, author_id, created_at, updated_at)
 VALUES
   ('ci-fixture', ${q('CI 夹具：缓存与增量构建')}, ${q(BODY)}, ${q('log')}, '',
-   datetime('now', '-3 days'), 1, datetime('now', '-3 days'), datetime('now', '-3 days')),
+   ${stamp(3)}, 1, ${stamp(3)}, ${stamp(3)}),
   ('ci-plain', ${q('CI 夹具：无小标题')}, ${q(PLAIN)}, ${q('log')}, '',
-   datetime('now', '-4 days'), 1, datetime('now', '-4 days'), datetime('now', '-4 days'));
+   ${stamp(4)}, 1, ${stamp(4)}, ${stamp(4)});
 
 -- 评论：一条 900 字（触发折叠），一条 5 分钟前（相对时间不是「刚刚」）
 INSERT INTO comments (post_id, parent_id, name, content, is_admin, ip, created_at)
