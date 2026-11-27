@@ -160,9 +160,13 @@ console.log(`\n${ORIGIN}\n`);
      恰好有一篇带配图的文章」—— 那篇被设成 hidden 或者掉到第二页，就是一条假红。
      改成先问接口有没有 /img/ 封面，有才验。 */
   const list = await (await fetch(ORIGIN + '/api/posts?page=1&size=50')).json();
-  const hasOwn = (list.posts || []).some((p) => /^\/img\//.test(p.cover || ''));
-  if (hasOwn) {
-    ok('自有封面走 avif/webp 协商', /<picture><source type="image\/avif"/.test(body));
+  /* [P-097] 别拿首页当夹具：接口给的是全库前 50 篇，首页只渲染第 1 页 10 篇。
+     本地库里唯一一篇自带封面的文章排第 12，首页没有 <picture> 是页面划分的结果，
+     不是协商标记丢了。直接打那篇文章的页面，测「有自带图的文章」这个命题本身。 */
+  const own = (list.posts || []).find((p) => /^\/img\//.test(p.cover || ''));
+  if (own) {
+    const ownBody = (await page('/p/' + own.slug)).body;
+    ok('自有封面走 avif/webp 协商', /<picture><source type="image\/avif"/.test(ownBody), own.slug);
   } else {
     ok('自有封面走 avif/webp 协商', true, '当前列表里没有 /img/ 封面的公开文章，跳过');
   }
@@ -176,14 +180,20 @@ console.log(`\n${ORIGIN}\n`);
     ok('缩略图一年强缓存', /immutable/.test(cc), cc);
     ok('缩略图 MIME 正确', /image\//.test(h.get('content-type') || ''), h.get('content-type'));
   }
-  // 原图与变体
-  const cover = (body.match(/src="(\/img\/[^"?]+)"/) || [])[1];
-  if (cover) {
+  // 原图与变体：必须从「自带封面的那篇文章」取地址。
+  // 从首页正文里随便 grep 一个 /img/ 会抓到页头头像（本地实测抓到的是 brand-avatar），
+  // 拿头像去问 avif 变体，得到的当然是回退的原图 —— 判据测错了对象。
+  if (own) {
+    const cover = own.cover.split('?')[0];
     const orig = await get(cover);
     ok('原图可达', orig.res.status === 200, `${orig.res.status} ${orig.h.get('content-type')}`);
     ok('原图 immutable', /immutable/.test(orig.h.get('cache-control') || ''));
     const av = await get(cover + '.avif');
     ok('avif 变体可用', av.res.status === 200 && /avif/.test(av.h.get('content-type') || ''), av.h.get('content-type'));
+  } else {
+    ok('原图可达', true, '没有自带封面，跳过');
+    ok('原图 immutable', true, '没有自带封面，跳过');
+    ok('avif 变体可用', true, '没有自带封面，跳过');
   }
 }
 
