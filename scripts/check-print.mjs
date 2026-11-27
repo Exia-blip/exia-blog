@@ -1,4 +1,4 @@
-/* [P-093] 打印态逐页体检：把每个路由按 print 媒体渲染一遍，检查「纸上不该出现的东西」。
+/* [P-093][P-094] 打印态逐页体检：把每个路由按 print 媒体渲染一遍，检查「纸上不该出现的东西」。
  *
  * 为什么要有这个脚本：print 段是唯一一段全站策略，它是**按选择器**写的，
  * 而漏掉的往往不是「某个页面没有段的」，是「某一类元素没被列进清单」——
@@ -18,8 +18,9 @@
  *   · 不得有可见的按钮（纸上按不动；input/textarea 除外 —— 它们在 print 段
  *     里已去掉控件外观，编辑器里承载的是标题与正文）
  *
- * 后台 4 页需要管理员票：本地库管理员 uid 固定写在 UID 里；线上跑会因
- * uid 对不上返回 401，那几个页面会被标 ? 并跳过 —— 不算失败，但要知道没验。
+ * 后台 13 页（/admin 及 11 个子页 + /editor）需要管理员票：本地库管理员 uid
+ * 固定写在 UID 里；线上跑会因 uid 对不上返回 401，那几个页面会被标 ? 并跳过 ——
+ * 不算失败，但要知道没验。
  */
 import puppeteer from 'puppeteer-core';
 import { resolveChrome } from './chrome.mjs';
@@ -83,7 +84,8 @@ const probe = async (p) =>
       .map(path);
     return {
       // 样式没加载时（SRI 对不上、404、CSP 拦住）上面每一条都会「通过」：
-      // 没有 fixed、没有背景色、没有按钮 —— 全绿是假绿。--bg 只在 style.css 里定义，
+      // 没有 fixed、没有背景色、没有按钮 —— 全绿是假绿。[P-095] 边缘缓存里留着的旧 HTML
+      // 带旧 integrity，同样会走到这里。--bg 只在 style.css 里定义，
       // 它为空就说明这一页根本没套上样式，后面的判据全部无意义。
       hasTokens: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() !== '',
       bodyBg: getComputedStyle(document.body).backgroundColor,
@@ -105,7 +107,9 @@ const probe = async (p) =>
 const line = (name, url, r, opts = {}) => {
   const hard = [];
   const info = [];
-  if (!r.hasTokens) hard.push('NO-CSS=样式未加载，本页其余判据无意义');
+  /* 自带 <style> 的页面（OAuth 提示页 / 500 页）不引 style.css，没有 --bg：
+     NO-CSS 防线对它们不适用，改用「body 必须已是白底」这同一条硬判据兜住。 */
+  if (!r.hasTokens && !opts.selfStyled) hard.push('NO-CSS=样式未加载，本页其余判据无意义');
   if (r.bodyBg !== 'rgb(255, 255, 255)') hard.push(`BODYBG=${r.bodyBg}`);
   if (r.overflowX > 1) hard.push(`OVERFLOW=${r.overflowX}px[${r.over.join(' | ')}]`);
   if (r.floats.length) hard.push(`FLOAT=${r.floats.join(' | ')}`);
@@ -122,40 +126,56 @@ const line = (name, url, r, opts = {}) => {
 const p = await b.newPage();
 await p.setViewport({ width: 1280, height: 900 });
 await p.goto(`${ORIGIN}/`, { waitUntil: 'networkidle2' });
-const links = await p.evaluate(() => ({
-  tag: document.querySelector('a[href^="/tag/"]')?.getAttribute('href') || '',
-  cat: document.querySelector('a[href^="/cat/"]')?.getAttribute('href') || '',
-}));
+const link = (sel) =>
+  p.evaluate((s) => document.querySelector(s)?.getAttribute('href') || '', sel).catch(() => '');
+const links = {
+  tag: await link('a[href^="/tag/"]'),
+  cat: await link('a[href^="/cat/"]'),
+};
+await p.goto(`${ORIGIN}/series`, { waitUntil: 'networkidle2' });
+links.series = await link('a[href^="/series/"]');
+await p.goto(`${ORIGIN}/archive`, { waitUntil: 'networkidle2' });
+// 年归档链接不一定出现在归档页首屏（年份靠 JS 分段），取不到就按当前年兜底
+links.year = (await link('a[href^="/archive/2"]')) || `/archive/${new Date().getFullYear()}`;
 
+/* 路由清单在这里手写，所以「新加一个页面」不会自动进来 —— test-typography 的
+   T-10 会把 src/index.js 里每个返回 HTML 的 path 字面量对到这里，漏一个就红。
+   新加页面时两边一起改，并按 P-093 的教训把新页面**渲染一遍**再收工。 */
 const routes = [
   ['/', '首页'],
   ['/?q=缓存', '搜索结果'],
   ['/archive', '归档'],
+  [links.year, '年份归档'],
   ['/categories', '分类'],
   ['/numbers', '数据'],
   ['/friends', '友链'],
   ['/series', '系列'],
+  [links.series, '系列详情'],
   [links.tag, '标签页'],
   [links.cat, '分类页'],
   ['/p/ci-fixture', '文章'],
   ['/p/blog-markdown-xss', '文章(表/码)'],
   ['/no-such-page-xyz', '404'],
   ['/login', '登录'],
+  /* 这份页面自带 <style>、不引 /style.css（OAuth 出错时全站样式未必可用），
+     所以全站打印段管不到它 —— 它有自己的 @media print。触发条件是 state 对不上。 */
+  ['/auth/callback?code=x&state=bad', '登录提示页', 400, { selfStyled: true }],
 ].filter(([u]) => u);
 
-for (const [u, name] of routes) {
+for (const [u, name, expect = 0, opts = {}] of routes) {
   const page = await b.newPage();
   await page.setViewport({ width: 1280, height: 900 });
   const res = await page.goto(`${ORIGIN}${u}`, { waitUntil: 'networkidle2' });
   const st = res ? res.status() : 0;
-  if (st >= 400 && !(name === '404' && st === 404)) {
+  const allowed = st < 300 || (name === '404' && st === 404) || st === expect;
+  if (st >= 400 && !allowed) {
     console.log(`? ${name.padEnd(14)} ${u.padEnd(24)} status=${st}`);
     await page.close();
     continue;
   }
   await page.emulateMediaType('print');
   await new Promise((r) => setTimeout(r, 150));
-  line(name, u, await probe(page));
+  line(name, u, await probe(page), opts);
   await page.close();
 }
 
@@ -169,7 +189,16 @@ if (!cred.cookie) {
   console.log(`\n(cookie: ${cookie.name}=… len=${cookie.value.length} attrs=${attrs.join(';').trim()})`);
   for (const [u, label] of [
     ['/admin', '后台概览'],
+    ['/admin/review', '审核队列'],
+    ['/admin/health', '体检'],
+    ['/admin/queue', '队列'],
+    ['/admin/audit', '审计'],
+    ['/admin/history', '版本历史'],
+    ['/admin/friends', '友链管理'],
     ['/admin/media', '媒体库'],
+    ['/admin/comments', '评论管理'],
+    ['/admin/notify', '通知'],
+    ['/admin/tools', '工具'],
     ['/admin/stats', '统计'],
     ['/editor', '编辑器'],
   ]) {

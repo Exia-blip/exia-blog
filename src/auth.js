@@ -78,7 +78,10 @@ code{background:#f3f1ec;border-radius:5px;padding:2px 6px;font-size:13px;word-br
 font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 a{display:inline-block;margin-top:6px;padding:9px 18px;border-radius:999px;background:#1c1b19;color:#fff;
 text-decoration:none;font-size:14px}
-.hint{font-size:13px;color:#868079;margin-top:14px}</style></head>
+.hint{font-size:13px;color:#868079;margin-top:14px}
+@media print{body{background:#fff;color:#000;min-height:0;display:block;padding:0}
+.card{max-width:none;border:0;padding:0;background:#fff}
+p{color:#000}.hint{color:#333}a{display:none}}</style></head>
 <body><div class="card"><h1>${title}</h1><p>${detail}</p>
 ${hint ? `<div class="hint">${hint}</div>` : ''}
 <a href="/login">重新登录</a></div></body></html>`;
@@ -108,6 +111,12 @@ a{color:#2563eb;text-decoration:none}a:hover{text-decoration:underline}
 .box{background:#f8f9fb;border:1px solid #e6e8eb;border-radius:10px;padding:14px 16px;margin:16px 0;font-size:13.5px}
 .box b{display:block;margin-bottom:6px;font-size:13px;color:#374151}
 .tag{display:inline-block;background:#fef3c7;color:#92400e;border-radius:5px;padding:1px 7px;font-size:12px}
+/* 这一页的内容是「照着做」的步骤，打印出来照着配是正当用法：所以不隐藏链接，
+   反而把外链地址印出来（纸上点不了），只把深色卡片与阴影压平。 */
+@media print{body{background:#fff;color:#000;min-height:0;display:block;padding:0}
+.card{max-width:none;border:0;box-shadow:none;padding:0}
+p.sub{color:#333}.box,.tag,code{background:#fff}
+a{color:#000}a[href^="http"]::after{content:" (" attr(href) ")";font-size:90%;word-break:break-all}}
 </style></head><body><div class="card">
 <h1>站已上线，只差 GitHub OAuth 一处</h1>
 <p class="sub">当前 Worker 里没有有效的 <code>GITHUB_CLIENT_ID</code>，所以不能直接跳转登录。

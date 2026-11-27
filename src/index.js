@@ -2532,6 +2532,14 @@ a{display:inline-block;padding:10px 22px;border-radius:999px;background:#1b1f24;
   p{color:#9aa4b0}
   a{background:#e8eaed;color:#16181c}
 }
+/* 故障页也可能被打印（截屏存档、贴进工单）。它不引全站那份样式表，
+   拿不到全站打印段，所以自带一条：纸上没有深底反白，「回到首页」也按不动。 */
+@media print{
+  body{background:#fff;color:#000;min-height:0;display:block;padding:0}
+  p{color:#000}
+  .big{opacity:.25}
+  a{display:none}
+}
 </style></head>
 <body><div class="wrap"><p class="big">500</p>
 <p>刚刚那次请求没能完成，多半是临时的。<br>过一会儿再试，或者先回首页。</p>

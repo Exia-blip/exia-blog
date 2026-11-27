@@ -2333,6 +2333,18 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
      开关/定时块。灰底在纸上只是墨，开关本身印出来是个空框。 */
   .editor-body, .pub-switch, .pub-time { background: #fff !important; }
   .pub-switches, .pub-mini-actions, .ed-toolbar, .pub-foot-ops { display: none !important; }
+  /* ---- 按钮按元素类型收口，不按页面清单收口 ----
+     上一版是逐个数出来的（.copy-link、.readbar-toggle、.view-head .btn…），
+     结果后台十二个子页里每个都有自己的操作区：友链的 .adm-fr-ops、版本历史的
+     .adm-hist-ops、评论的 .adm-cmt-ops、审核的 .rv-btn。清单永远比页面少一条，
+     而且漏掉的正是「空列表时看不出来」的那种（本地库里没数据就全绿）。
+     纸上没有任何东西可按，所以判据换成元素类型：button 一律不印。
+     只读信息都在正文节点里，按钮里没有内容。
+     input/textarea/select 不能一起收 —— 编辑器里它们承载标题与正文。 */
+  button, [role="button"] { display: none !important; }
+  /* 空壳表单：只有 placeholder 与提交按钮，印出来是一排空框。
+     这几类是「新增/编辑」入口，不是内容。 */
+  .adm-fr-add, .adm-fr-edit, .adm-cmt-ops, .adm-cmt-toggle, .adm-cmt-switch { display: none !important; }
 }
 
 .md .code-meta { display: inline-flex; align-items: center; gap: 8px; }

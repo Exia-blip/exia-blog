@@ -978,6 +978,28 @@
 
 ---
 
+## P-094 打印禁令按页面清单写：清单比页面少一条，而且空列表时看不出来
+
+- **现象**：`/admin` 只验过概览 / 媒体 / 统计 / 编辑器四页。把体检清单扩到全部十二个后台页 + `/editor` 后，`/admin/friends` 立刻 ✗ —— 新增友链表单的提交按钮、每行「编辑 / 立即探测 / 删除」三个按钮全印在纸上。同类残留还在 `/admin/history`（预览 / 回滚）、`/admin/comments`（通过 / 驳回）、`/admin/review`（`.rv-btn`）里，只是本地库没有行数据，页面渲染成空列表，**体检全绿**。
+- **根因**：上一版 print 段按「屏幕上看到过哪些按钮」列类名（`.copy-link`、`.view-head .btn`、`.pub-actions`…）。后台每个子页都是独立模板，各自有 `.adm-fr-ops` / `.adm-hist-ops` / `.adm-cmt-ops` / `.rv-btn`，清单必然漏；漏掉的那几条又恰好长在「有数据才渲染」的行里，本地空库直接绕过。判据换了形态：**按元素类型收口** `button, [role="button"] { display: none }` —— 纸上没有任何东西可按，这个判断与页面、与数据量、与主题都无关。`input/textarea/select` 不能一起收（编辑器里它们承载标题与正文）。空壳表单（`.adm-fr-add` / `.adm-fr-edit` / `.adm-cmt-ops` / `.adm-cmt-toggle`）单独隐藏，因为印出来是一排 placeholder 空框。
+- **复现**：`npx wrangler dev --port 8801` 后 `AUDIT_ORIGIN=http://127.0.0.1:8801 node scripts/check-print.mjs`；插一行 `comments(status='pending')` 与一行 `post_revisions` 再看评论 / 历史页。修前 `/admin/friends` 11 个按钮上纸，修后全部 0。
+- **断言**：`scripts/check-print.mjs` 覆盖 15 个前台路由（含年份归档、系列详情、OAuth 提示页）+ 13 个后台路由，`exit(fails?1:0)`。清单本身是手写的，所以另有 `test-typography` 的 **T-10** 对账：`src/index.js` 里每个 `path === '/xxx'` 字面量必须出现在清单里，非页面出口（`/auth/*`、`/avatar`、rss/sitemap/robots/llms/manifest）逐条列进 `NON_PAGE` 并给理由；注入验证（删掉 `['/admin/tools',…]`）实测变红。另加独立下限「字面量 ≥ 25 条」，防源码重构成查表后正则抓空、断言恒绿。
+- **边界**：`button` 一律不印的前提是「按钮里没有内容」。目前成立（复制 / 折叠 / 主题 / 导航 / 后台操作全在按钮上）。哪天有按钮承载正文（比如「展开全文」把内容放在按钮自身文本里），这条要收窄到类名。
+- **出处**：`public/style.css`（`@media print` 末尾「按元素类型收口」段）、`scripts/check-print.mjs`、`scripts/test-typography.mjs`（T-10）
+
+---
+
+## P-095 边缘缓存里的旧 HTML 带旧 integrity：审计假红，线上发版后 5 分钟白屏
+
+- **现象**：同一份代码、同一个 dev server，`/` 与 `/p/*` 报 `NO-CSS`（`--bg` 为空、body 透明、按钮全可见），`/archive`、`/tag/*` 却正常。对比响应头：首页 `style.css?v=250592fd18`，归档页 `style.css?v=b88da71348` —— 两个不同的内容哈希，同一时刻。
+- **根因**：`build:sri` 改过 `style.css` 之后，`ASSET_HASH` 变了，但本地 `.wrangler/state/v3/cache` 里还留着上一轮渲染好的 HTML（`s-maxage=300`），里面写死了旧 `?v=` 与旧 `integrity`。浏览器拿到新 CSS 字节、按旧哈希校验 → SRI 拦截 → 整页无样式。这不是页面缺陷，是**缓存与构建产物不同步**。线上同理：发版瞬间边缘缓存仍在吐旧 HTML，最长 5 分钟整站无样式（PWA 强缓存 CSS 一年是另一回事，`?v=` 变了就是新 URL）。
+- **复现**：改 `public/style.css` → `npm run build:sri` → **不重启** dev server 或不清 `.wrangler/state/v3/cache` 直接跑体检，首页必现 `NO-CSS`。清缓存后同一路由 `style.css?v=` 与归档页一致，立刻转 ✓。
+- **断言**：`check-print.mjs` 的 `NO-CSS` 红线正是这条的探测器（改坏输入先红：旧服务实测 `EXIT=1`）。日常跑体检前先 `rm -rf .wrangler/state/v3/cache` 并重启 dev（`build:sri` 之后必须重启，理由见 P-092 边界那段：旧进程下发旧哈希）。
+- **边界**：线上无法用清缓存验证，只能靠 `?v=` 一致性判断——同一时刻抓两页比 `style.css?v=`，不一致就是缓存没同步，不是样式坏了。
+- **出处**：`scripts/check-print.mjs`（`NO-CSS` 判据）、`scripts/build-sri.mjs`、`.wrangler/state/v3/cache`
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

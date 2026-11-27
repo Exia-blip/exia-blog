@@ -203,4 +203,42 @@ for (const tok of FLATTEN) {
 }
 ok(`T-09 [P-092] 打印态 ${FLATTEN.length} 个 token 全部 !important，压过皮肤文件`);
 
+/* ---------- T-10 [P-093] 打印体检的路由清单必须覆盖全部页面出口 ---------- */
+
+/* 待查清单是手写在 check-print.mjs 里的，所以「新加一个页面」不会自己进来。
+   这里把 src/index.js 里每个 `path === '/xxx'` 字面量捞出来，和体检清单对账。
+   两个坑各防一道：
+     · 只做「清单 ⊇ 源码」的判定 → 源码被重构成查表、正则一个都抓不到时恒绿。
+       故加独立下限：字面量少于 25 条就当判据失效（当前 30 条）。
+     · 非页面出口（RSS / sitemap / auth / 头像…）必须逐条列进 NON_PAGE 并给理由，
+       新加一个接口时必然要在这里表态，不会因为「不在清单里」被静默排除。 */
+const INDEX = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+const PRINT = readFileSync(new URL('./check-print.mjs', import.meta.url), 'utf8');
+const lits = [...new Set([...INDEX.matchAll(/path === '(\/[^']*)'/g)].map((m) => m[1]))];
+assert.ok(lits.length >= 25, `只找到 ${lits.length} 条 path 字面量，正则已失效，本断言无意义`);
+const NON_PAGE = new Set([
+  '/auth/github', '/auth/callback', '/auth/logout', '/auth/status', // 302 / JSON
+  '/avatar', // 头像代理，二进制
+  '/rss.xml', '/sitemap.xml', '/robots.txt', '/llms.txt', '/manifest.webmanifest', // 非 HTML
+]);
+/* 体检清单里除字面量外还有四个「运行时取到才发现」的地址：标签 / 分类 / 系列
+   详情 / 年归档。它们各自对应源码里的一条前缀或正则路由，缺一条就等于那类页面
+   没被渲染过 —— 所以按占位符名字计数，而不是按字面量。 */
+const placeholders = [...PRINT.matchAll(/\[links\.(tag|cat|series|year),/g)].map((m) => m[1]);
+assert.deepEqual(
+  placeholders.sort(),
+  ['cat', 'series', 'tag', 'year'],
+  `体检清单里的动态路由占位符变成 ${placeholders.join(',')}，标签/分类/系列详情/年归档有一类没验`
+);
+const norm = (p) => (p.length > 1 ? p.replace(/\/+$/, '') : p);
+const listed = new Set([...PRINT.matchAll(/'(\/[^'?]*)'/g)].map((m) => norm(m[1])));
+const missing = lits.filter((p) => !NON_PAGE.has(norm(p)) && !listed.has(norm(p)));
+assert.deepEqual(
+  missing,
+  [],
+  `这些页面出口没进打印体检清单：${missing.join(' ')} —— 补进 check-print.mjs 的 routes 数组再跑一遍`
+);
+const pages = new Set(lits.filter((p) => !NON_PAGE.has(norm(p))).map(norm));
+ok(`T-10 [P-094] 打印体检覆盖 ${lits.length} 个出口里的 ${pages.size} 个 HTML 页面`);
+
 console.log(`\n[P-086] typography: ${pass} passed`);
