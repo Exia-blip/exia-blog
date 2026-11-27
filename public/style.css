@@ -90,7 +90,7 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--sans);
-  font-size: 16.5px;
+  font-size: 17px;
   line-height: 1.7;
   /* 全站数字等宽：统计数字与对比表刷新时不能左右跳（P-096）。 */
   font-variant-numeric: tabular-nums lining-nums;
@@ -508,13 +508,11 @@ a.cat-chip:hover { filter: brightness(0.96); }
 /* 段落 1.2em / 列表项 0.4em：删掉装饰后留白顶上来，
    少了这两个数就会从「简约」掉进「简陋」—— 段落挤在一起，层级全靠猜。 */
 .md p { margin: 0 0 1.2em; text-wrap: pretty; }
-/* 正文链接只靠一条下划线认，不改文字颜色。
-   整段染强调色，一篇里出现十个链接就像贴了十张小广告；完全不动，读者又不知道能点。
-   下划线用 --line-strong（比分隔线重一档），hover 只把线换成强调色 —— 颜色不动。 */
-.md a { color: inherit; border-bottom: 1px solid var(--line-strong); transition: border-color var(--t); }
-/* color: inherit 不是重复：全局 `a:hover { color: var(--accent) }` 会漏进来，
-   优先级低于这里但只管 hover，不显式写回去，文字还是会变色。 */
-.md a:hover { border-bottom-color: var(--accent); color: inherit; }
+/* 正文链接静态暖深棕可辨：--fg 混 30% --accent，比正文深、不是橙（橙归代码/当前项/边框）；
+   hover 才进橙。派生不写死：八套主题明暗底不同，固定色到暗色就糊。 */
+.md a { color: color-mix(in srgb, var(--fg) 70%, var(--accent)); border-bottom: 1px solid var(--line-strong); transition: color var(--t), border-color var(--t); }
+/* 必须显式写回 color：`.md a` 在全局 a:hover 之后，不写就停在静态棕，hover 只有下划线变。 */
+.md a:hover { border-bottom-color: var(--accent); color: var(--accent); }
 .md ul, .md ol { margin: 0 0 1.2em; padding-left: 1.5em; }
 .md li { margin: 0.4em 0; text-wrap: pretty; }
 .md li > ul, .md li > ol { margin: 0.4em 0; }

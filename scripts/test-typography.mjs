@@ -138,28 +138,39 @@ assert.doesNotMatch(
 );
 ok('T-04 基准 :root 的 --serif 是衬线栈（主题层改 sans 不在此列）');
 
-/* ---------- T-05 正文链接：只动下划线，不动字色 ---------- */
+/* ---------- T-05 正文链接：静态暖深棕可辨，hover 才进铁锈橙 ---------- */
+
+/* 取独立声明，不能拿 /color:/ 直接搜：`border-bottom-color` 里那段同名子串
+   会让「hover 进橙」的判据在只有下划线变色时也恒绿 —— 注入验证时栽过一次。 */
+const decl = (body, prop) =>
+  body.split(';').map((s) => s.trim()).find((s) => new RegExp(`^${prop}\\s*:`).test(s));
 
 const mdA = blocks.find((b) => b.sel === '.md a');
 assert.ok(mdA, '找不到 .md a 规则 —— 正文链接的判据失效了');
-assert.match(
-  mdA.body,
-  /color:\s*inherit/,
-  `正文链接又染字色了：${mdA.body.trim()} —— 一篇文章十个链接就会像十张小广告`
-);
+/* 静止态必须可辨：不能再是 inherit（连下划线都细到看不清时读者不知道能点）。
+   判据挂在两个独立来源上：① 包含 color-mix 派生 ② 同时混了 --fg 和 --accent。
+   只查 color-mix 不足以证明「暖棕」—— 混两个 --fg 也是 mix，但等于没染。 */
+const staticVal = decl(mdA.body, 'color');
+assert.ok(staticVal, '.md a 没有 color 声明，静止态又回到无信号');
+assert.match(staticVal, /color-mix\(/, `正文链接静态色不是派生色：${staticVal.trim()}`);
+assert.match(staticVal, /var\(--fg\)/, '暖棕没混 --fg —— 换皮肤会失配，且可能只剩橙');
+assert.match(staticVal, /var\(--accent\)/, '暖棕没混 --accent —— 那就是正文色，静止态仍不可辨');
+assert.ok(!/^color:\s*inherit/.test(staticVal), '正文链接又退回 inherit，静止态零色信号');
 assert.match(
   mdA.body,
   /border-bottom:\s*1px solid var\(--line-strong\)/,
   '下划线没用 --line-strong：--line 是给分隔线算的，在纸底上等于没画'
 );
-/* 全局 `a:hover { color: var(--accent) }` 会漏进正文链接：`.md a:hover` 只声明
-   border-color 的话，color 仍由那条全局规则生效 —— 悬停时字色还是变了。 */
+/* 全局 `a:hover { color: var(--accent) }`  specificity 与本条相同，但 .md a 写在它后面 —— 
+   hover 不显式写 color 就永远停在静态棕。 */
 const mdAHover = blocks.find((b) => b.sel === '.md a:hover');
 assert.ok(mdAHover, '找不到 .md a:hover');
+const hoverColor = decl(mdAHover.body, 'color');
+assert.ok(hoverColor, '.md a:hover 没有独立 color 声明，hover 反馈失效');
 assert.match(
-  mdAHover.body,
-  /color:\s*inherit/,
-  'hover 没把字色按回去：全局 a:hover 会把正文链接染成强调色，等于「只动下划线」没做到'
+  hoverColor,
+  /^color:\s*var\(--accent\)/,
+  `hover 没进铁锈橙（拿到的是 ${hoverColor.trim()}）：静态棕 + hover 无变化 = 没有反馈`
 );
 const rootTok = blocks.find((b) => b.sel === ':root');
 assert.ok(rootTok, '找不到基准 :root');
@@ -168,7 +179,20 @@ assert.match(
   /--line-strong\s*:\s*color-mix\(/,
   '--line-strong 没从 fg/line 派生 —— 换皮肤（七套 fg/line 各不相同）会失配'
 );
-ok('T-05 正文链接只靠 --line-strong 下划线区分，字色继承');
+ok('T-05 正文链接静态暖深棕（--fg/--accent 派生）+ hover 进铁锈橙');
+
+/* ---------- T-13 全站正文字号单一基准：首页 16.5 / 文章 17 的两档必须收成一档 ---------- */
+
+const bodyBlock = blocks.find((b) => b.sel === 'body');
+assert.ok(bodyBlock, '找不到 body 规则 —— 字号判据失效了');
+const bodyFs = Number((bodyBlock.body.match(/font-size:\s*(\d+(?:\.\d+)?)px/) || [])[1]);
+const postBody = blocks.find((b) => b.sel === '.post-body');
+assert.ok(postBody, '找不到 .post-body 规则 —— 字号判据失效了');
+const postFs = Number((postBody.body.match(/font-size:\s*(\d+(?:\.\d+)?)px/) || [])[1]);
+assert.equal(bodyFs, 17, `全站正文基准 ${bodyFs}px ≠ 17px —— 首页与文章页会跳档`);
+assert.equal(postFs, bodyFs, `文章正文 ${postFs}px ≠ 全站基准 ${bodyFs}px —— 点进文章字号跳一下`);
+assert.ok(!/16\.5px/.test(CSS), 'CSS 里还留着 16.5px —— 第二档字号没清干净');
+ok(`T-13 全站正文单一基准 ${bodyFs}px：首页 body 与 .post-body 同源，无 16.5 残留`);
 
 /* ---------- T-06 [P-089] 打印段唯一且四件事齐全 ---------- */
 
