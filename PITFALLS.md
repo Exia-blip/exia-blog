@@ -1000,6 +1000,17 @@
 
 ---
 
+## P-096 正文宽度的断言量在 `.wrap` 上，真正生效的是媒体查询里的 grid 列
+
+- **现象**：T-01 长期绿在「正文内容宽 720px（.wrap 764 - 2×22）」。浏览器实测 `getComputedStyle` / `getBoundingClientRect`：`main.wrap` 计算 `max-width: 1180px`，`.post-body` 宽 **780px**，17px 字号下每行 45.9 个汉字 / 88ch（目标区间 34~40 字 / 65~75ch）。同一份 CSS 里 `@media (min-width:1440px)` 的注释还写着「正文固定 720」，而 1080 档写的是 780 —— 意图与实现不一致。
+- **根因**：读源码层断言只覆盖了 `.wrap` 那条规则，没有跟进 `@media (min-width:1080px)` 里 `.post-article { grid-template-columns: 232px minmax(0,780px) }`。媒体查询的 grid 列在 1280/1440/1600 视口下直接决定正文宽，`.wrap` 的 720px 被它盖掉。这是 P-084 的同类：**断言落在编码之前的那一层，测的是另一个东西**。不是「没设计」，是「量错了地方」。
+- **复现**：`getComputedStyle(document.querySelector('.post-body')).width` → 780px；跑 `node scripts/test-typography.mjs` → T-01 仍绿。把 1080 档改回 `minmax(0,720px)` 后浏览器实测 720px / 42.4 汉字 / 81ch。
+- **断言**：T-11 把三档宽屏列（1080/1440/1600）逐个解析出来，与 T-01 算出的 `.wrap` 可用宽相等才算过；独立计数「固定列断点恰好 3 个」防解析失效后空集恒真。注入验证：把 1080 档改回 780px，T-11 立刻红，恢复后绿。T-12 同时锁住 body 的 `tabular-nums lining-nums`（前台此前只有后台声明，实测当前字体栈 `000`/`111`/`012` 已同宽——补的是跨平台契约，不是本机可见变化）。
+- **边界**：720px 对应 42.4 汉字 / 81ch，仍高于「34~40 字 / 65~75ch」的建议区间。要继续收窄到 680（40 字 / 76ch）或 660（38.8 字 / 74ch）属于设计取舍，改前需老板点头；本次只修「意图 720、渲染 780」这个确定的偏差。
+- **出处**：`public/style.css`（`.wrap`、`@media (min-width:1080px)` 的 `.post-article`）、`scripts/test-typography.mjs`（T-01 / T-11 / T-12）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

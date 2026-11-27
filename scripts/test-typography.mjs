@@ -40,6 +40,40 @@ assert.ok(
 );
 ok(`T-01 正文内容宽 ${textW}px（.wrap ${maxW} - 2×${padX}），在 680~740 内`);
 
+/* ---------- T-11 [P-096] 宽屏正文列别把 T-01 量到的宽度静默覆盖掉 ---------- */
+
+/* T-01 只量 .wrap，但 1080px 以上 .post-article 自己开了 grid，正文是哪一列
+   由 `minmax(0, Npx)` 说了算。实测 N=780 时 T-01 照样绿，浏览器里正文却是
+   45.9 个中文字 / 88ch —— 断言落在被覆盖的那一层上，等于没测。
+   判据挂在两处独立来源：.wrap 的可用宽（T-01 已算）与宽屏列宽，必须相等。 */
+const wideCols = blocks.filter((b) => b.sel === '.post-article' && /grid-template-columns/.test(b.body));
+assert.ok(wideCols.length >= 4, `正文列规则只找到 ${wideCols.length} 条（基础 + 1080/1440/1600），判据失效`);
+/* 三个断点各有自己的列声明；一个写错就能让该档行宽跑掉，而 T-01 全绿。
+   独立计数锁住「确实有三档」，再逐档比 .wrap 的可用宽。 */
+const pxCols = wideCols
+  .map((b) => [...b.body.matchAll(/minmax\(\s*0\s*,\s*(\d+)px\s*\)/g)].map((m) => Number(m[1])))
+  .filter((s) => s.length);
+assert.equal(pxCols.length, 3, `只解析到 ${pxCols.length} 个固定列断点，应有 3 个（1080/1440/1600）`);
+for (const cols of pxCols) {
+  assert.deepEqual(
+    cols,
+    [textW],
+    `宽屏正文列 ${cols.join(',')}px ≠ .wrap 可用宽 ${textW}px —— 正文行宽被媒体查询改掉了，T-01 看不见`
+  );
+}
+ok(`T-11 [P-096] 三档宽屏正文列都为 ${textW}px，与 .wrap 可用宽同源`);
+
+/* ---------- T-12 全站数字等宽：声明必须落在 body，不能只落在后台 ---------- */
+
+const bodyRule = blocks.find((b) => b.sel === 'body' && /font-family:\s*var\(--sans\)/.test(b.body));
+assert.ok(bodyRule, '找不到 body 的排版规则，判据失效');
+assert.match(
+  bodyRule.body,
+  /font-variant-numeric:\s*tabular-nums lining-nums/,
+  'body 没声明 tabular-nums lining-nums：统计页/对比表的数字宽度交给字体心情'
+);
+ok('T-12 [P-096] body 声明 tabular-nums lining-nums，前台数字与后台同口径');
+
 /* ---------- T-02 衬线只给标题：正文标签选择器不得出现 var(--serif) ---------- */
 
 /* 这些选择器一旦吃 serif，就是「中文宋体小字号上屏」那条老坑：
