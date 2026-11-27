@@ -299,4 +299,29 @@ assert.deepEqual(
 const pages = new Set(lits.filter((p) => !NON_PAGE.has(norm(p))).map(norm));
 ok(`T-10 [P-094] 打印体检覆盖 ${lits.length} 个出口里的 ${pages.size} 个 HTML 页面`);
 
+/* ---------- T-14 行内代码退中性：铁锈橙不再同时说「技术 token」 ----------
+   `--accent` 在正文里同时扛行内代码 / 当前项 / 引用边框 / 摘要边框四件事（P-107），
+   信号被摊薄。行内代码改用 --fg-soft：八套主题明暗两档都有它，暗色自动跟随，
+   不需要新增规则；pre 里的 .tok-* 是独立类、pre code 是 inherit，四色高亮不动。 */
+const mdCode = blocks.find((b) => b.sel === '.md code' && /font-family/.test(b.body));
+assert.ok(mdCode, '找不到 .md code 的排版规则，判据失效');
+const codeColor = decl(mdCode.body, 'color');
+assert.ok(codeColor, '.md code 没有 color 声明');
+assert.match(
+  codeColor,
+  /^color:\s*var\(--fg-soft\)/,
+  `行内代码又染回强调色或裸值（拿到 ${codeColor.trim()}）：中性退后失效`
+);
+/* 光改 .md code 不够：有人在 pre 里塞一条 color 覆盖，四色高亮就被连带洗掉。 */
+const preCode = blocks.find((b) => b.sel === '.md pre.code-block code');
+assert.ok(preCode, '找不到 pre.code-block code 规则，四色高亮的隔离层没了');
+assert.match(decl(preCode.body, 'color') || '', /^color:\s*inherit/, 'pre code 不再 inherit，行内代码色会漏进代码块');
+const tokClasses = ['tok-k', 'tok-s', 'tok-n', 'tok-f'];
+for (const k of tokClasses) {
+  const b = blocks.find((x) => x.sel === `.${k}`);
+  assert.ok(b, `找不到 .${k}，四色高亮缺一角`);
+  assert.match(decl(b.body, 'color') || '', /^color:\s*var\(--tok-[ksnf]\)/, `.${k} 不再走 --tok-*，四色被写死`);
+}
+ok('T-14 [P-107] 行内代码退 --fg-soft，四色 token 与 pre 隔离层仍在');
+
 console.log(`\n[P-086] typography: ${pass} passed`);

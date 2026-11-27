@@ -537,7 +537,8 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .md code {
   font-family: var(--mono); font-size: 0.875em;
   background: var(--bg-soft); padding: 2px 6px; border-radius: 5px;
-  color: var(--accent);
+  /* 橙归当前项/引用/边框；代码退 --fg-soft（八套主题明暗自带，零新增规则） */
+  color: var(--fg-soft);
   white-space: nowrap;              /* 行内代码不折行，避免 "Ctrl/Cmd + S" 被拆断 */
 }
 .md pre code, .md .code-block code { white-space: pre; }

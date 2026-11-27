@@ -8,7 +8,7 @@ export const ASSET_HASH = {
   'copy-notice.js': { v: '37005dfb02', i: 'sha384-06Z7i5AdTVLQWI4ZBpM38rD7urKygjw0ubrO4MHxvqcxw6uAe/Xy6MVyApYMrs4j' },
   'cover.js': { v: 'df82152a9d', i: 'sha384-A3lOG3f+LLp59TfT44W10oVZGE+h+s9Yl5/xBZhE80fk8zuyMXhMOcpF+aMGpe8u' },
   'md.js': { v: '092666ed13', i: 'sha384-SmrOod4zV8EQrLRzEbhQKez9axG19fmHK0uVCP7NaDbssUvRYGpYtKgEkRYxyvkv' },
-  'style.css': { v: '6537327475', i: 'sha384-iT6jxJN9ujOiH6WhCEaR9kUiaSShe0bZcjvAhDIdvHT2AykkTYgW5CJ+Vu/omSw7' },
+  'style.css': { v: 'feb9a6d39b', i: 'sha384-dZpOWeRmVo81ZVms7b5HSnUFM4DzgW8PyNHEG1jXm1yDw/sHidNqb7SegdyDwAAk' },
   'theme.js': { v: 'fa9e2fc578', i: 'sha384-Fc6ucnXA19w5JsdwMjiYcUCMl+Z69QgWSdxagVdKV9KkC6F4U15zZy4HSaj72Cpp' },
   'theme/edge.css': { v: '18f0168a05', i: 'sha384-IJ9batbCjnWqKiATkQs5U0uh3cZovNgRLCapKmB8s7uxs3BVbkcKiFkSCHO2NVyn' },
   'theme/forest.css': { v: 'eab1d253af', i: 'sha384-YMY12usuy6CTrV+ZqS99Pymn97IKzALhSGQ4iV3jhffMG/VVRNiYr1j+wI02gaZp' },
