@@ -25,7 +25,7 @@ const blocks = CSS.split('}').flatMap((raw) => {
 });
 const withSerif = blocks.filter((b) => /font-family\s*:\s*var\(--serif\)/.test(b.body));
 
-/* ---------- T-01 正文宽度：716 是 760 - 2×22，落在 38~42 字/行的区间 ---------- */
+/* ---------- T-01 正文宽度：704 - 2×22 = 660，老板 11-27 亲定（38.8 汉字 / 74ch） ---------- */
 
 const wrap = blocks.find((b) => b.sel === '.wrap');
 assert.ok(wrap, '找不到 .wrap 规则 —— 选择器改名了，先指回来再谈宽度');
@@ -34,11 +34,11 @@ assert.ok(maxW, '.wrap 没写死 max-width（改成 ch/%/rem 就没人算得出�
 const padX = (wrap.body.match(/padding\s*:\s*0\s+(\d+)px/) || [])[1];
 assert.ok(padX, '.wrap 的水平 padding 不是 `0 Npx` 形式，这条判据失效了');
 const textW = maxW - Number(padX) * 2;
-assert.ok(
-  textW >= 680 && textW <= 740,
-  `正文内容宽 ${textW}px（${maxW} - 2×${padX}）超出 680~740 —— 超过 740 每行过 45 字会丢行，少于 680 会频繁回行`
+assert.equal(
+  textW, 660,
+  `正文内容宽 ${textW}px（${maxW} - 2×${padX}）≠ 亲定的 660px —— 660 是中英混排/代码长行与中文折行之间的有余量取值`
 );
-ok(`T-01 正文内容宽 ${textW}px（.wrap ${maxW} - 2×${padX}），在 680~740 内`);
+ok(`T-01 正文内容宽 ${textW}px（.wrap ${maxW} - 2×${padX}）= 660px / 38.8 汉字 / 74ch`);
 
 /* ---------- T-11 [P-096] 宽屏正文列别把 T-01 量到的宽度静默覆盖掉 ---------- */
 

@@ -33,6 +33,25 @@ npm run check:live
 零外链头像 / 零注释泄漏 等。项数随断言增长，以脚本输出为准（这里不写死数字）。
 部署脚本已在部署后自动跑这一步。
 
+### 线上体检的覆盖边界（2026-11-27）
+
+**部署前拿到的线上全绿（当时 135/0、修夹具后 138/0）是旧代码基线，不是本次验收。**
+验收只认 `npm run deploy` 内部在部署后自动跑的那一次； deployed 之前先跑 `check:live`
+只能说明「线上现在没坏」，不能说明刚改的东西上线后没事。
+
+本地跑同一脚本的失败项分三层，别混成一类：
+
+| 层 | 例子 | 处理 |
+|---|---|---|
+| 主域 | canonical / RSS / P-040 / P-042 / P-050 | dev 带 `--var SITE_ORIGIN:http://127.0.0.1:<port>` |
+| 种子数据 | 相关推荐三篇夹具本地 404 | `node scripts/seed-live-fixtures.mjs`（只读线上 D1 / `/img/`，写本地） |
+| R2 变体 | `avif 变体可用` 回 `image/png` | 先补原图，再 `VARIANTS_SITE=<dev> node scripts/make-variants.mjs --local` |
+
+**R2 变体这条边界长期留着，别删**：线上文章的封面全是 `/thumbs/*`，没有自带 `/img/`
+封面的公开样本，`check-live` 的自有封面 / avif 判据在线上走的是「显式跳过」分支。
+也就是本地有变体、线上没有样本，**线上永远验不到 `serveImage` 的 avif/webp 过滤真在工作**。
+线上 138/0 不能读成「变体链路已验」；那条只能靠本地补齐样本后跑 `check-live` 验。
+
 ## 5. 按需确认项
 ```bash
 npm run backfill:check     # 正文渲染缓存有无空行（退出码 0=无需 / 1=需回填）

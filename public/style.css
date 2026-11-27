@@ -111,8 +111,9 @@ button, input, textarea, select {
 ::selection { background: var(--accent-soft); color: var(--accent); }
 
 /* ============ 布局 ============ */
-/* 764 - 2×22 = 720 正文宽：17px 中文一行约 42 字，超 45 字回行会丢行 */
-.wrap { max-width: 764px; margin: 0 auto; padding: 0 22px; }
+/* 704 - 2×22 = 660 正文宽：17px 中文一行约 38.8 字 / 74ch，
+   中英混排与长代码行都能收住；三档宽屏列必须与这个数同源，见 T-11。 */
+.wrap { max-width: 704px; margin: 0 auto; padding: 0 22px; }
 .wrap-wide { max-width: 1180px; margin: 0 auto; padding: 0 22px; }
 
 header.site {
@@ -490,7 +491,7 @@ a.cat-chip:hover { filter: brightness(0.96); }
   color: var(--accent); margin-bottom: 5px;
 }
 .post-lead p { margin: 0; font-size: 16px; line-height: 1.75; color: var(--fg-soft); }
-/* 17 / 1.75：720px 里一行约 42 个汉字，再大就回行丢行，再小就显挤。 */
+/* 17 / 1.75：660px 里一行约 38.8 个汉字 / 74ch，再大英文长行与代码会横滚，再小中文会频繁折行。 */
 .post-body { font-size: 17px; line-height: 1.75; color: var(--fg-soft); font-feature-settings: "kern" 1, "liga" 1; }
 .post-body > *:first-child { margin-top: 0; }
 
@@ -2113,7 +2114,7 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 
 /* ============ 阅读体验：侧边目录 / 标题锚点 / 系列徽章 / 代码块 ============ */
 
-/* 文章页在宽屏上把容器放宽，左边让出 200px 给目录；正文仍锁在 720px，
+/* 文章页在宽屏上把容器放宽，左边让出 232px 给目录；正文仍锁在 660px，
    行宽不跟着变 —— 目录是给眼睛的导航，不是把正文拉宽的理由。
    三档断点列宽必须同源，见 T-11。 */
 /* 关键：grid item 必须 stretch 到整行高度，否则 sticky 没有可滚的余量 ——
@@ -2155,7 +2156,7 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   /* 目录 210→232、间距 76→56：字号涨到 15px 后长标题开始掉字，
      232 是量出来的临界值（再窄「数据集：邮箱和 IP 只进不出」会把「出」甩到第二行）。
      少掉的 20px 间距挪给目录，正文列一个字都没少。 */
-  .post-article { grid-template-columns: 232px minmax(0, 720px); gap: 56px; justify-content: center; }
+  .post-article { grid-template-columns: 232px minmax(0, 660px); gap: 56px; justify-content: center; }
   .post-toc { display: block; }
   /* 列位置写死，不靠源码顺序。没小标题的文章不出目录，如果哪天 aside 又被省掉，
      正文会掉进 232px 那一列 —— 整页压成一条竖排，页面上却什么都不报错。 */
@@ -2164,23 +2165,23 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 }
 
 /* 宽屏只放宽容器，不再放宽正文。
-   正文固定 720：17px 中文一行约 42 字，到 800 就是 47 字，
-   眼睛回行会丢串 —— 这条在窄屏守住了，宽屏放开等于白守。 */
+   正文固定 660：17px 中文一行约 38.8 字 / 74ch，英文长行也不会顶到 81ch；
+   窄屏守住、宽屏放开等于白守。 */
 @media (min-width: 1440px) {
   main.wrap-post { max-width: 1280px; }
-  .post-article { grid-template-columns: 232px minmax(0, 720px); gap: 110px; }
+  .post-article { grid-template-columns: 232px minmax(0, 660px); gap: 110px; }
 }
 
 /* 大屏补上第三列：两列时正文会被目录顶到视口右侧（1920 下偏 165px），
    加一列同宽的留白，正文才回到正中 —— 目录仍在左边，间距不打折。
    第三列没有内容，纯占位，所以结构不用改。 */
 @media (min-width: 1600px) {
-  /* 1468 = 正文720 + 两翼232×2 + 间隙86×2 + 卡片内边距68 + 容器内边距44；
+  /* 1408 = 正文660 + 两翼232×2 + 间隙86×2 + 卡片内边距68 + 容器内边距44；
      两翼跟着目录走（232），目录才不会贴死在卡片边缘上，也不会因为只有 200px
      把「数据集：邮箱和 IP 只进不出」硬折成两行。 */
-  main.wrap-post { max-width: 1468px; }
+  main.wrap-post { max-width: 1408px; }
   .post-article {
-    grid-template-columns: 232px minmax(0, 720px) 232px;
+    grid-template-columns: 232px minmax(0, 660px) 232px;
     gap: 86px;
     justify-content: center;
   }
