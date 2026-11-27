@@ -46,6 +46,7 @@
     "backfill:imgsize": "node scripts/backfill-img-size.mjs --remote",
     "check:browser": "node scripts/ci-browser.mjs",
     "check:print": "node scripts/check-print.mjs",
+    "check:desktop": "node scripts/check-desktop.mjs",
     "seed:ci": "node scripts/seed-ci.mjs",
     "probe:anim": "node scripts/probe-anim.mjs",
     "vitals": "node scripts/perf-vitals.mjs",

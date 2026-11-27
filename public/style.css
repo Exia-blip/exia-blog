@@ -22,6 +22,8 @@
   --green: #2f9e5f;
   --red: #c8483d;
   --radius: 10px;
+  /* 桌面框架宽度：导航 / 列表页 / 文章页 / 页脚共用这一条基线。 */
+  --frame: 1180px;
   /* 全站只有一个过渡时长。悬停是「确认点到了」，120ms 以内才像即时反馈；
      超过 200ms 就开始像动画，读者会等它演完。 */
   --t: 120ms;
@@ -116,6 +118,17 @@ button, input, textarea, select {
 .wrap { max-width: 704px; margin: 0 auto; padding: 0 22px; }
 .wrap-wide { max-width: 1180px; margin: 0 auto; padding: 0 22px; }
 
+/* 桌面框架：导航 1180 / 主区 704 / 页脚 760 三套宽度各说各话，宽屏上主区
+   成了一条居中窄带。现在三处都读 --frame；正文窄列 .wrap 不动（T-01 守 660），
+   只有列表页在桌面换宽、卡片排两列。断点与文章页三档同源，别再各写一个数。 */
+@media (min-width: 1440px) { :root { --frame: 1280px; } }
+@media (min-width: 1600px) { :root { --frame: 1408px; } }
+@media (min-width: 1080px) {
+  main.desk.wrap { max-width: var(--frame); }
+  main.desk .post-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  main.desk .tax-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+}
+
 header.site {
   position: sticky;
   top: 0;
@@ -125,7 +138,7 @@ header.site {
   border-bottom: 1px solid var(--line);
 }
 header.site .inner {
-  max-width: 1180px;
+  max-width: var(--frame);
   margin: 0 auto;
   padding: 0 22px;
   height: 58px;
@@ -2151,7 +2164,7 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 }
 
 @media (min-width: 1080px) {
-  main.wrap-post { max-width: 1180px; }
+  main.wrap-post { max-width: var(--frame); }
   /* 目录 210→232、间距 76→56：字号涨到 15px 后长标题开始掉字，
      232 是量出来的临界值（再窄「数据集：邮箱和 IP 只进不出」会把「出」甩到第二行）。
      少掉的 20px 间距挪给目录，正文列一个字都没少。 */
@@ -2167,7 +2180,7 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
    正文固定 660：17px 中文一行约 38.8 字 / 72ch，英文长行也不会顶到 81ch；
    窄屏守住、宽屏放开等于白守。 */
 @media (min-width: 1440px) {
-  main.wrap-post { max-width: 1280px; }
+  main.wrap-post { max-width: var(--frame); }
   .post-article { grid-template-columns: 232px minmax(0, 660px); gap: 110px; }
 }
 
@@ -2178,7 +2191,7 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   /* 1408 = 正文660 + 两翼232×2 + 间隙86×2 + 卡片内边距68 + 容器内边距44；
      两翼跟着目录走（232），目录才不会贴死在卡片边缘上，也不会因为只有 200px
      把「数据集：邮箱和 IP 只进不出」硬折成两行。 */
-  main.wrap-post { max-width: 1408px; }
+  main.wrap-post { max-width: var(--frame); }
   .post-article {
     grid-template-columns: 232px minmax(0, 660px) 232px;
     gap: 86px;
@@ -2760,7 +2773,7 @@ mark {
   font-size: 12.5px;
 }
 .site-foot .sf-inner {
-  max-width: 760px;
+  max-width: var(--frame);
   margin: 0 auto;
   padding: 30px 22px 34px;
   display: flex;
@@ -2794,6 +2807,10 @@ mark {
 .site-foot .foot-mode svg { width: 16px; height: 16px; }
 .site-foot .foot-mode:hover { color: var(--fg); background: var(--bg-soft); }
 .site-foot .foot-mode.on { color: var(--bg); background: var(--fg); }
+/* 桌面把两行摊开贴在框架两端；窄屏仍是一列居中，别让版权去追右边缘 */
+@media (min-width: 1080px) {
+  .site-foot .sf-inner { flex-direction: row; justify-content: space-between; align-items: center; text-align: left; }
+}
 @media (prefers-reduced-motion: reduce) {
   .site-foot .foot-mode { transition: none; }
 }
