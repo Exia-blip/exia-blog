@@ -1049,7 +1049,7 @@
 - **现象**：三个 OG 产物各说各话：`og-default.jpg` 浅底蓝紫渐变 + `exia.de5.net`、`thumbs/auto-N.jpg` 紫蓝绿琥珀六色、`/cards/*.png` 按分类四色 + 同一个旧域。别人第一次见到这个站是在群里/时间线上那张卡，不是在 660px 正文列 —— 最有辨识度的门面挂着已 301 掉的旧域。
 - **根因**：`gen-title-cards.py` 把域名写死在 `d.text()` 的参数里，四色写死在 `ACCENT` 字典里。换域时 `SITE_ORIGIN` 只归一了 Worker 运行时，构建期产物没人管；分类配色是早期「让栏目看起来不同」的约定，后来 paper 底座收口成铁锈橙单色，产物没跟着收。
 - **复现**：2026-11-27 把 `gen-title-cards.py` 改成深墨底 `#141518` + 铁锈橙 `#a8501f` + `SITE_ORIGIN` 派生域名，全量重出 40 张卡和 `og-default.jpg`。分类不再决定颜色（信息归标题里的栏目文字），渐变光晕整个删掉。
-- **断言**：`test-assets.mjs` 逐文件验 1200×630 与体积；`test-cards.mjs` 验 `ogCoverOf()` 真值表与仓库图同尺寸；`optimize-assets.mjs --check` 守图片预算。域名没有专门断言——它由 `SITE_ORIGIN` 一处派生，改域重跑脚本即可。
+- **断言**：`test-assets.mjs` 逐文件验 1200×630 与体积；`test-cards.mjs` 验 `ogCoverOf()` 真值表与仓库图同尺寸；`optimize-assets.mjs --check` 守图片预算。域名由 `SITE_ORIGIN` 一处派生，但**派生正确 ≠ 产物全对**：`test-cards.mjs` P-100 现在全量扫 `cards/*.png` + `thumbs/*.jpg` + `og-default.jpg` 的原始字节，40+ 张一张不漏；抽样 3 张只能验脚本逻辑，验不了产物完整性。自检喂旧域字节必须判真，注入非首卡单独验过全量那条独立红。
 - **边界**：深底 4:2:0 JPEG 的米白字亮度细节不受色度抽样影响，实测 23.2K 过 26K 预算；40 张卡压缩后 673K，预算按每张 20K × 40 调到 800K（原来 470K 是 14 张时代的数）。
 - **出处**：`scripts/gen-title-cards.py`、`scripts/gen-cards.mjs`、`scripts/optimize-assets.mjs`、`README.md`「标题卡」段
 
@@ -1101,7 +1101,7 @@
 ## P-105 `--apply` 重渲染标题卡会覆盖压缩产物，发版闸门才抓到
 
 - **现象**：`node scripts/gen-cards.mjs --apply` 写 26 条 cover 到 D1 后，`npm run deploy` 在 npm test 一步停下：`test-assets` 报标题卡合计 2300K > 800K、38 张单张超 45K。但提交前跑的 `npm test` 是 EXIT=0 —— 两次测试之间产物被改了。
-- **根因**：`gen-cards.mjs` 只调 `gen-title-cards.py` 渲染，Pillow 吐的是 PNG24（2.3MB）；上一版仓库里的卡是另外手动跑 `optimize-assets.mjs` 压成索引色（673K）的。`--apply` 重渲染把压缩版本覆盖回未压缩，而脚本里没有任何一步把它压回去。压缩成了一个"记得手动跑"的动作，恰恰是发版路径上都硬化了闸门、这里却漏掉的那一类。
+- **根因**：`gen-cards.mjs` 只调 `gen-title-cards.py` 渲染，Pillow 吐的是 PNG24（2.3MB）；上一版仓库里的卡是另外手动跑 `optimize-assets.mjs` 压成索引色（673K）的。`--apply` 重渲染把压缩版本覆盖回未压缩，而脚本里没有任何一步把它压回去。压缩成了一个"记得手动跑"的动作，恰恰是发版路径上都硬化了闸门、这里却漏掉的那一类 —— **否则下次 `--apply` 还会重犯**：闸门挡住纯属那次跑了一遍完整 deploy，不是断言在产物变更之后仍能守住（和 M-04「断言落在编码之后、测了另一层」同族，这次是「验了另一个时刻」）。修法必须是让产物天生可发布，而不是靠操作顺序。
 - **复现**：2026-11-27 v1.2.8 发版时实测触发。修法：把 `optimize-assets.mjs` 接进 `gen-cards.mjs`，紧跟在 Python 渲染之后、体积统计与 SQL 之前 —— 产物天生可发布，不依赖操作顺序。
 - **断言**：`test-cards.mjs` P-105 不验「仓库里的 PNG 现在是压缩的」（那只证明上次跑过），而验生成脚本的调用顺序：optimize 调用存在、在渲染之后、在 `if (apply)` 分支之外（只出图模式也要压）。删调用注入实测红，恢复绿。
 - **边界**：D1 写入发生在压缩之前，但 cover 只存路径、不存字节，所以已写的 26 条无需回滚；部署上传的是磁盘上的压缩版本。真正不可逆的风险不在这里，而在「闸门放行但产物是坏的」——这条由 npm test 挡住了。

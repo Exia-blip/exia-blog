@@ -173,6 +173,37 @@ t('P-041', '自检：尺寸判定对错图必须为假', () => {
   assert.equal(sizeMatches(Buffer.alloc(0), pngSize, want), false, '空 buffer 被判成合格');
 });
 
+/* ---------- P-100：构建产物全量扫旧域字节 ----------
+   抽样 3 张只能证明脚本对了，不能证明 40 张产物都对 —— 「脚本逻辑」与「产物全不全」
+   是两层。判据挂在真实字节上（不带 utf8），不挂在生成脚本的源码上。 */
+const LEGACY_HOST = 'exia.de5.net';
+const hasLegacy = (buf) => buf.includes(Buffer.from(LEGACY_HOST, 'ascii'));
+
+t('P-100', '自检：旧域判定对错字节必须为真', () => {
+  const files = readdirSync(CARDS).filter((f) => f.endsWith('.png'));
+  assert.ok(files.length > 0, '没有真卡可比对');
+  const good = readFileSync(join(CARDS, files[0]));
+  assert.equal(hasLegacy(good), false, '真卡被判成含旧域');
+  assert.equal(hasLegacy(Buffer.concat([good, Buffer.from(LEGACY_HOST, 'ascii')])), true,
+    '判定恒假 —— 全量扫会变成假绿');
+});
+
+t('P-100', '构建目录全量无旧域：cards / thumbs / og-default', () => {
+  const files = [
+    ...readdirSync(CARDS).filter((f) => f.endsWith('.png')).map((f) => join(CARDS, f)),
+    ...readdirSync(THUMBS).filter((f) => f.endsWith('.jpg')).map((f) => join(THUMBS, f)),
+    join(ROOT, 'public/og-default.jpg'),
+  ];
+  assert.ok(files.length >= 40, `只扫到 ${files.length} 张，样本不足（构建期全量是 40 卡 + 6 预设）`);
+  let scanned = 0;
+  for (const f of files) {
+    const buf = readFileSync(f);
+    assert.equal(hasLegacy(buf), false, `${f} 含旧域 ${LEGACY_HOST}`);
+    scanned++;
+  }
+  assert.equal(scanned, files.length, `只扫了 ${scanned}/${files.length} 张`);
+});
+
 /* ---------- 3. 元断言：防止「断言还在，测的东西没了」 ---------- */
 
 t('P-040', 'index.js 用 ogCoverOf 生成 og:image 与尺寸', () => {
