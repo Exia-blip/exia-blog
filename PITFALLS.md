@@ -1044,6 +1044,28 @@
 
 ---
 
+## P-100 分享卡是唯一对外门面，却挂着旧域和站内不存在的四色渐变
+
+- **现象**：三个 OG 产物各说各话：`og-default.jpg` 浅底蓝紫渐变 + `exia.de5.net`、`thumbs/auto-N.jpg` 紫蓝绿琥珀六色、`/cards/*.png` 按分类四色 + 同一个旧域。别人第一次见到这个站是在群里/时间线上那张卡，不是在 660px 正文列 —— 最有辨识度的门面挂着已 301 掉的旧域。
+- **根因**：`gen-title-cards.py` 把域名写死在 `d.text()` 的参数里，四色写死在 `ACCENT` 字典里。换域时 `SITE_ORIGIN` 只归一了 Worker 运行时，构建期产物没人管；分类配色是早期「让栏目看起来不同」的约定，后来 paper 底座收口成铁锈橙单色，产物没跟着收。
+- **复现**：2026-11-27 把 `gen-title-cards.py` 改成深墨底 `#141518` + 铁锈橙 `#a8501f` + `SITE_ORIGIN` 派生域名，全量重出 40 张卡和 `og-default.jpg`。分类不再决定颜色（信息归标题里的栏目文字），渐变光晕整个删掉。
+- **断言**：`test-assets.mjs` 逐文件验 1200×630 与体积；`test-cards.mjs` 验 `ogCoverOf()` 真值表与仓库图同尺寸；`optimize-assets.mjs --check` 守图片预算。域名没有专门断言——它由 `SITE_ORIGIN` 一处派生，改域重跑脚本即可。
+- **边界**：深底 4:2:0 JPEG 的米白字亮度细节不受色度抽样影响，实测 23.2K 过 26K 预算；40 张卡压缩后 673K，预算按每张 20K × 40 调到 800K（原来 470K 是 14 张时代的数）。
+- **出处**：`scripts/gen-title-cards.py`、`scripts/gen-cards.mjs`、`scripts/optimize-assets.mjs`、`README.md`「标题卡」段
+
+---
+
+## P-101 theme-color 的暗色首屏不能等 JS：meta 要 SSR 出两条，JS 接管后删一条
+
+- **现象**：SSR 只出一条浅色 `theme-color`，暗色用户在 CSS/JS 到手前顶栏是亮白的；更持久的错是用户手动选浅色、系统却是暗色时，`querySelector` 只改第一条，浏览器的 `prefers-color-scheme` 仍按系统偏好取色，页面亮着而地址栏长期是黑的。
+- **根因**：theme-color 的值有两个来源在打架——SSR 常量和运行时计算样式。[P-055] 已经把浅色那条改成从 CSS 派生，但只解决「主题换色忘了改常量」，没解决首屏和执行顺序。
+- **复现**：SSR 由 `themeColorMetas()` 一次输出浅色 + `media="(prefers-color-scheme: dark)"` 两条，值分别取 `THEME_BG` / `THEME_BG_DARK`（都由 build-sri 从各主题 `--bg` 派生）。`theme.js` 的 `syncThemeColor()` 在 `apply()` 里删掉 media 那条、只把剩下的写成当前 `--bg`。
+- **断言**：`test-theme-contract.mjs` TC-47 逐值比对 `THEME_BG_DARK` 与 CSS 暗色块，行首锚定三个 head 出口都走 helper（恰 3 处）、`apply()` 里恰 1 次调用 `syncThemeColor()`。注入三处坏值逐条验过：改错色值 → 逐值比对红；手搓一条出口 meta → 计数掉到 2；删 sync 调用 → 计数掉到 0。恢复后 47/0。
+- **边界**：首屏的两条 meta 是给无 JS / JS 未执行时的兜底，不是给浏览器长期按系统偏好决定 —— JS 一旦跑起来，用户选择就是唯一事实来源。
+- **出处**：`src/index.js`（`themeColorMetas`）、`scripts/build-sri.mjs`（`THEME_BG_DARK`）、`public/theme.js`（`syncThemeColor`）、`scripts/test-theme-contract.mjs`（TC-47）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

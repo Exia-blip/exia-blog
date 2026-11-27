@@ -17,10 +17,20 @@ import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.
    （ink 写 #f6f6f4 实为 #fdfcfa、mono 写 #ffffff 实为 #f4f4f5），
    症状是手机地址栏与页面底色差一点点，肉眼在浅色主题上看得见（P-055）。 */
 import { THEME_BG as THEME_COLOR } from './assets.gen.js';
+import { THEME_BG_DARK } from './assets.gen.js';
 import { timedDb, withServerTiming } from './timing.js';
 import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
 import { normalizePagePath } from './routes.js';
 import { NUMBER_GROUPS, allNumbers, numberStats } from './numbers.js';
+
+/* 首屏顶栏色：SSR 就按系统偏好出两条，CSS/JS 到手前也不会亮瞎一下。
+   值都从构建期的 --bg 派生，三个 head 出口共用这一处，不许各写一份常量。 */
+function themeColorMetas(theme) {
+  const light = THEME_COLOR[theme] || '#faf9f7';
+  const dark = THEME_BG_DARK[theme] || '#141518';
+  return `<meta name="theme-color" content="${light}">
+<meta name="theme-color" content="${dark}" media="(prefers-color-scheme: dark)">`;
+}
 import { statsPage, prunePv } from './stats.js';
 import {
   healthPage,
@@ -679,7 +689,7 @@ function seriesShell({ site, origin, title, kicker, desc, canonical, ld, sub, li
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} · ${siteName}</title>
 <meta name="description" content="${esc(desc)}">
-<meta name="theme-color" content="${THEME_COLOR[site.theme] || '#faf9f7'}">
+${themeColorMetas(site.theme)}
 <meta name="color-scheme" content="light dark">
 <link rel="canonical" href="${esc(canonical)}">
 ${rssAlternate(origin)}
@@ -1268,7 +1278,7 @@ async function servePostPage(env, request, slug) {
     `<meta name="description" content="${esc(desc)}">`,
     // 隐藏文章（不进首页/归档/sitemap）不该再被收录，否则等于绕开自己的分流
     post.hidden ? `<meta name="robots" content="noindex,follow">` : '',
-    `<meta name="theme-color" content="${THEME_COLOR[site.theme] || '#f7f9fe'}">`,
+    themeColorMetas(site.theme),
     `<meta name="color-scheme" content="light dark">`,
     `<link rel="canonical" href="${esc(canonical)}">`,
     rssAlternate(origin),
@@ -1773,7 +1783,7 @@ function fillSeo(body, site, url) {
     `<title>${esc(title)}</title>`,
     isSearch ? `<meta name="robots" content="noindex,follow">` : '',
     `<meta name="description" content="${esc(desc)}">`,
-    `<meta name="theme-color" content="${THEME_COLOR[site.theme] || '#f7f9fe'}">`,
+    themeColorMetas(site.theme),
     `<meta name="color-scheme" content="light dark">`,
     canonical ? `<link rel="canonical" href="${esc(canonical)}">` : '',
     rssAlternate(origin),

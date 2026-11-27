@@ -19,7 +19,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { THEME_IDS } from '../src/settings.js';
-import { ASSET_HASH, THEME_BG } from '../src/assets.gen.js';
+import { ASSET_HASH, THEME_BG, THEME_BG_DARK } from '../src/assets.gen.js';
 import { CONTRACT_CORE, CONTRACT_VARS, CONTRACT_DECLS, INLINE_THEMES, INTERNAL_PREFIX, TOK_EXCEPTION, deriveThemeIds } from '../src/theme-contract.js';
 import { THEME_BOOT, THEME_ASSETS, themeBootTag } from '../src/themeboot.js';
 /* 真渲染一次，验的是产物不是模板字符串（TC-35）。md.js 零依赖、纯字符串处理，
@@ -456,6 +456,42 @@ t('TC-23 theme-color 是构建期从 CSS 里读出来的，不是手抄的', () 
     /===\s*'(?:paper|anzhiyu)'/,
     'settings.js 还在按主题名判断「有没有独立文件」—— 该问 ASSET_HASH'
   );
+});
+
+t('TC-47 暗色顶栏首屏不靠 JS：色值从 CSS 派生，三个 head 出口同源', () => {
+  /* 首屏那条 media="(prefers-color-scheme: dark)" 的 theme-color，值必须和
+     各主题暗色块的 --bg 一致 —— 手抄一份就会像 P-055 那样漂掉几套。
+     判据逐值比 CSS 自己，不比「生成的常量非空」这种更弱的东西。 */
+  const missing = THEME_IDS.filter((id) => !THEME_BG_DARK[id]);
+  assert.deepEqual(missing, [], `THEME_BG_DARK 缺主题：${missing.join(', ')}`);
+  const drift = [];
+  for (const id of THEME_IDS) {
+    const bg = varOf(blockOf(id, 'dark'), 'bg');
+    assert.ok(bg, `${id} 暗色块读不到 --bg`);
+    if (bg.toLowerCase() !== THEME_BG_DARK[id].toLowerCase()) {
+      drift.push(`${id}: THEME_BG_DARK=${THEME_BG_DARK[id]} ≠ CSS=${bg}`);
+    }
+  }
+  assert.deepEqual(drift, [], `暗色顶栏色与 CSS 不一致，跑 npm run build:sri：\n      ${drift.join('\n      ')}`);
+
+  /* 三个出口必须都走同一处 helper。行首锚定 + 唯一计数：正文里那三行是
+     `${themeColorMetas(...)}` / `themeColorMetas(...),`，注释散文不算。 */
+  const idx = read('src/index.js');
+  const uses = (idx.match(/^[\s$]*\{?themeColorMetas\(site\.theme\)/gm) || []).length;
+  assert.equal(uses, 3, `head 出口调用 themeColorMetas ${uses} 处，应为 3（首页/文章页/列表页）`);
+  /* 先把 helper 定义体整块切掉再扫：它自己那两行 meta 是行首，不切就会被当成
+     出口手搓 —— 判据搜到自己，假红。切完再要求「行首 meta = 0 处」。 */
+  const withoutHelper = idx.replace(/^function themeColorMetas\(theme\) \{[\s\S]*?^\}/m, '');
+  assert.ok(!withoutHelper.includes('function themeColorMetas'), 'helper 定义体没切干净，下面的判定不可信');
+  assert.ok(!/^\s*<meta name="theme-color"/m.test(withoutHelper), '还有出口在手搓 theme-color meta，没走 helper');
+
+  /* JS 接管后必须删掉 media 那条，否则用户手动选浅色、系统却暗时
+     浏览器仍按 media 取暗色 —— 顶栏和页面长期不一致。 */
+  const tj = read('public/theme.js');
+  const syncCalls = (tj.match(/^\s+syncThemeColor\(\);$/gm) || []).length;
+  assert.equal(syncCalls, 1, `apply() 里调用 syncThemeColor ${syncCalls} 次，应为 1`);
+  assert.ok(/meta\.hasAttribute\('media'\)/.test(tj), 'syncThemeColor 没识别 media 那条');
+  assert.ok(/meta\.remove\(\)/.test(tj), 'syncThemeColor 没删掉 media 那条');
 });
 
 /* ---------- 越界变量探测（TC-24 用它，变异测试也用它必须调得动） ----------

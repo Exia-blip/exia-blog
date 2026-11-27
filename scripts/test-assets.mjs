@@ -75,7 +75,8 @@ t(iconTotal < 60 * 1024, `图标 + OG 合计 ${(iconTotal / 1024).toFixed(1)}K <
 const cards = readdirSync(join(PUB, 'cards')).filter((f) => f.endsWith('.png'));
 t(cards.length >= 10, `标题卡 ${cards.length} 张`);
 const cardTotal = cards.reduce((s, f) => s + statSync(join(PUB, 'cards', f)).size, 0);
-t(cardTotal < 470 * 1024, `标题卡合计 ${(cardTotal / 1024).toFixed(0)}K < 470K`);
+// 预算按每张均值 20K 计 × 40 张 = 800K，跟 optimize-assets.mjs 的 cards/* 同源。
+t(cardTotal < 800 * 1024, `标题卡合计 ${(cardTotal / 1024).toFixed(0)}K < 800K`);
 const oversize = cards.filter((f) => statSync(join(PUB, 'cards', f)).size > 45 * 1024);
 t(oversize.length === 0, '没有单张超过 45K 的标题卡', oversize.join(','));
 

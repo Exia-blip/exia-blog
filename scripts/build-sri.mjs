@@ -93,6 +93,32 @@ function themeBg() {
   return out;
 }
 
+/* 暗色顶栏色走同一条路：从 CSS 的 data-mode="dark" 块读 --bg，不手抄。
+   目的不是给 JS 用（JS 跑起来后直接读计算样式），而是给 SSR 首屏那一条
+   media="(prefers-color-scheme: dark)" 的 meta 用 —— CSS 到手前顶栏就不该是亮的。 */
+function themeBgDark() {
+  const out = {};
+  const bgOf = (block) => (block.match(/--bg:\s*(#[0-9a-fA-F]{3,8})/) || [])[1] || '';
+  const themeDir = join(PUB, 'theme');
+  if (existsSync(themeDir)) {
+    for (const name of readdirSync(themeDir).sort()) {
+      if (!/\.css$/i.test(name)) continue;
+      const id = name.replace(/\.css$/i, '');
+      const text = readFileSync(join(themeDir, name), 'utf8');
+      const m = text.match(new RegExp(`:root\\[data-theme="${id}"\\]\\[data-mode="dark"\\]\\s*\\{([\\s\\S]*?)\\n\\}`));
+      const bg = m && bgOf(m[1]);
+      if (bg) out[id] = bg;
+    }
+  }
+  const main = readFileSync(join(PUB, 'style.css'), 'utf8');
+  const base = main.match(/(?:^|\n):root\[data-mode="dark"\]\s*\{([\s\S]*?)\n\}/);
+  for (const id of INLINE_THEMES) {
+    const bg = base && bgOf(base[1]);
+    if (bg) out[id] = bg;
+  }
+  return out;
+}
+
 const files = collect();
 const map = {};
 const rows = [];
@@ -127,11 +153,16 @@ const header = `/* 自动生成，不要手改。改完 public 里的 js/css 跑
 
 const bgMap = themeBg();
 const bgRows = Object.entries(bgMap).map(([k, v]) => `  '${k}': '${v}',`);
+const darkMap = themeBgDark();
+const darkRows = Object.entries(darkMap).map(([k, v]) => `  '${k}': '${v}',`);
 
 const body = `${header}export const ASSET_HASH = {\n${rows.join('\n')}\n};\n\n` +
   `/* 各主题的 --bg，给 theme-color 与 PWA manifest 用（[P-055]）。
    构建期从 CSS 读出来，所以「改了主题底色但忘了改常量」这种漏法不存在了。 */\n` +
-  `export const THEME_BG = {\n${bgRows.join('\n')}\n};\n`;
+  `export const THEME_BG = {\n${bgRows.join('\n')}\n};\n\n` +
+  `/* 各主题暗色模式的 --bg，给 SSR 首屏那条 media="(prefers-color-scheme: dark)" 用。
+   同样从 CSS 派生：JS 未执行时就该有正确的顶栏色，不能等运行时再补。 */\n` +
+  `export const THEME_BG_DARK = {\n${darkRows.join('\n')}\n};\n`;
 
 if (CHECK) {
   const old = existsSync(OUT) ? readFileSync(OUT, 'utf8') : '';

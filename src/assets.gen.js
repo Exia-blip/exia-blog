@@ -9,7 +9,7 @@ export const ASSET_HASH = {
   'cover.js': { v: 'df82152a9d', i: 'sha384-A3lOG3f+LLp59TfT44W10oVZGE+h+s9Yl5/xBZhE80fk8zuyMXhMOcpF+aMGpe8u' },
   'md.js': { v: '092666ed13', i: 'sha384-SmrOod4zV8EQrLRzEbhQKez9axG19fmHK0uVCP7NaDbssUvRYGpYtKgEkRYxyvkv' },
   'style.css': { v: '31ccb04341', i: 'sha384-8ds78y321USpKVgyMAzlrBkxf5+mCXp5X7af4dhIkoeVqv8yqVz28aVHZTq63EwZ' },
-  'theme.js': { v: '3e5a3af8e2', i: 'sha384-vecfvwUhje6MP48nPurbFw9trVxkL7m51TfN9dNVk49uGLQvIoPOagrpmmyUpTSi' },
+  'theme.js': { v: 'fa9e2fc578', i: 'sha384-Fc6ucnXA19w5JsdwMjiYcUCMl+Z69QgWSdxagVdKV9KkC6F4U15zZy4HSaj72Cpp' },
   'theme/edge.css': { v: '18f0168a05', i: 'sha384-IJ9batbCjnWqKiATkQs5U0uh3cZovNgRLCapKmB8s7uxs3BVbkcKiFkSCHO2NVyn' },
   'theme/forest.css': { v: 'eab1d253af', i: 'sha384-YMY12usuy6CTrV+ZqS99Pymn97IKzALhSGQ4iV3jhffMG/VVRNiYr1j+wI02gaZp' },
   'theme/ink.css': { v: 'fa93572a62', i: 'sha384-deRpxbfDXLL/CaeEGMh45bJIVuIx4vhVUclU35B9RGQMPEJ+JH/SIM1x+MpCKr8L' },
@@ -29,4 +29,16 @@ export const THEME_BG = {
   'ocean': '#f4f7fb',
   'plum': '#faf7fc',
   'paper': '#faf9f7',
+};
+
+/* 各主题暗色模式的 --bg，给 SSR 首屏那条 media="(prefers-color-scheme: dark)" 用。
+   同样从 CSS 派生：JS 未执行时就该有正确的顶栏色，不能等运行时再补。 */
+export const THEME_BG_DARK = {
+  'edge': '#0d1117',
+  'forest': '#0e1411',
+  'ink': '#0e0e10',
+  'mono': '#0b0b0c',
+  'ocean': '#0a1017',
+  'plum': '#130f16',
+  'paper': '#141518',
 };

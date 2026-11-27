@@ -893,15 +893,16 @@ node scripts/gen-cards.mjs            # 出图 + 生成 SQL，不写库
 node scripts/gen-cards.mjs --apply    # 出图并写回 posts.cover
 ```
 
-- 渲染在 `scripts/gen-title-cards.py`（Pillow，中文字体取 `simsun.ttc`；**别用 `simsunb.ttf`**，那是 SimSun-ExtB，常用字全是豆腐块）
-- 分类决定强调色：`log` 蓝、`tools` 绿、`teardown` 紫、`site` 琥珀
+- 编排在 `scripts/gen-cards.mjs`（读 D1 → 写 `scripts/.cards-input.json` → 调 Python → 写 `scripts/seed-cards.sql`），渲染在 `scripts/gen-title-cards.py`（Pillow，中文字体取 `simsun.ttc`；**别用 `simsunb.ttf`**，那是 SimSun-ExtB，常用字全是豆腐块）
+- 配色只有一套：深墨底 `#141518` + 米白字 + 铁锈橙 `#a8501f`（顶条 / 分类 / 标题左竖线）。分类不再决定颜色——旧版四色渐变是站内另一套配色，门面和正文对不上；域名从 `wrangler.jsonc` 的 `SITE_ORIGIN` 派生，换域只改一处
+- 同一次运行还重出 `public/og-default.jpg`：首页/系列页/无封面兜底共用同一套门面，不再是一张带旧域的蓝紫图
 - 标题最多三行，超长自动降字号（76→46px），按像素断行且不拆 ASCII 单词
-- 输出 `public/cards/<slug>.png`；`/cards/*` 缓存一天
-- 只给「还没有手填封面」的文章挂卡，`posts.cover` 一旦非空就尊重作者的选择
+- 输出 `public/cards/<slug>.png`（1200×630）；`/cards/*` 缓存一天
+- 只给「还没有手填封面」的文章挂卡，`posts.cover` 一旦非空就尊重作者的选择。2026-11-27 全量重出 40 张（公开文章数），26 篇空封面的挂卡 SQL 落在 `scripts/seed-cards.sql`
 
 #### 图标与默认分享图的体积
 
-这一组是设计出来的图形（渐变 + 文字），**PNG24 里全是熵**：zlib level 9 无损重压一张都省不到 1%，所以「优化 PNG」这类说法在它们身上是空的。
+这一组是设计出来的图形（纯色底 + 文字，旧版曾带渐变），**PNG24 里全是熵**：zlib level 9 无损重压一张都省不到 1%，所以「优化 PNG」这类说法在它们身上是空的。
 
 真正有效的是降到 256 色索引图，但抖动强度必须压小：`dither: 1` 会在平缓渐变上堆出可见的颗粒斑（512 图标右侧那块），`quality: 100` + `dither: 0.5` 反而又小又干净，PSNR 55、肉眼看不出、体积 -33%~-42%。OG 图是 1200×630 的 JPEG，原文件只有 0.039 B/px，已经贴着 JPEG 地板，能动的只剩色度抽样 4:4:4 → 4:2:0（-15%）。
 
@@ -916,8 +917,8 @@ npm run assets:check    # 比对体积预算，超了 exit 1
 | `favicon.ico`（4 帧 PNG 重压后重拼容器） | 5.9K | 3.0K |
 | `icon-192.png` / `apple-touch-icon.png` | 8.9K / 8.3K | 6.0K / 5.5K |
 | `icon-512.png` | 28.5K | 16.6K |
-| `og-default.jpg` | 29.1K | 24.7K |
-| `cards/*.png`（14 张，同时是各篇 `og:image`） | 947K | 363K |
+| `og-default.jpg` | 38.8K | 23.2K |
+| `cards/*.png`（40 张，同时是各篇 `og:image`） | 2354K | 673K |
 
 脚本**幂等**：PNG 头里已是索引色（color type 3）、JPEG 已是渐进 4:2:0 的直接跳过，收益不足 5% 的也不写 —— 二次量化是累计有损的，跑两遍不会把图越压越糊。`sharp` 的 `effort` 参数在这条路上是陷阱：它是给索引色量化用的，配在无损档上会悄悄改像素（实测最大偏差 16）。
 

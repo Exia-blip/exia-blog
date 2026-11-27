@@ -121,6 +121,22 @@ function ensureThemeCss(theme) {
   });
 }
 
+/* SSR 首屏给了两条 theme-color（浅 + 系统暗色兜底）。JS 一旦跑起来，实际模式
+   以用户选择为准，不再让浏览器的 prefers-color-scheme 抢着决定顶栏色：
+   删掉 media 那条，只留一条并写成当前 --bg。否则用户手动选浅色、系统却是暗色时，
+   media 那条会赢，页面亮着而地址栏是黑的 —— 比首屏闪一下更持久的「一眼假」。 */
+function syncThemeColor() {
+  const metas = document.querySelectorAll('meta[name="theme-color"]');
+  for (const meta of metas) {
+    if (meta.hasAttribute('media')) {
+      meta.remove();
+      continue;
+    }
+    const bg = getComputedStyle(ROOT).getPropertyValue('--bg').trim();
+    if (bg) meta.setAttribute('content', bg);
+  }
+}
+
 /** 应用主题；persist=false 时只改不存（用于"跟随系统"下响应系统变化） */
 export function apply(theme, mode, persist = true) {
   if (!isValidTheme(theme)) theme = 'paper';
@@ -140,12 +156,7 @@ export function apply(theme, mode, persist = true) {
       } catch {}
       dropPreview();
     }
-    // 让浏览器/手机地址栏底色跟着主题走，深色模式下不会留一条刺眼的白边
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) {
-      const bg = getComputedStyle(ROOT).getPropertyValue('--bg').trim();
-      if (bg) meta.setAttribute('content', bg);
-    }
+    syncThemeColor();
     syncUI();
     return { theme, mode, dark };
   };
