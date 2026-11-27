@@ -2174,6 +2174,15 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
      正文会掉进 232px 那一列 —— 整页压成一条竖排，页面上却什么都不报错。 */
   .post-article > .post-toc { grid-column: 1; }
   .post-article > .post-main { grid-column: 2; min-width: 0; }
+  /* 1080–1599 挤不下第三条 300px 栏：右栏落到正文下面、并排两格。
+     列位置钉在第 2 列（不是 1/-1）：横跨整格会从目录那列的左边缘起排，
+     和正文卡错开 232+56，看着像两套栅格。 */
+  .post-article > .post-side {
+    grid-column: 2;
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px; align-items: start;
+  }
+  .post-article > .post-tail { grid-column: 2; min-width: 0; }
 }
 
 /* 宽屏只放宽容器，不再放宽正文。
@@ -2181,21 +2190,24 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
    窄屏守住、宽屏放开等于白守。 */
 @media (min-width: 1440px) {
   main.wrap-post { max-width: var(--frame); }
-  .post-article { grid-template-columns: 232px minmax(0, 660px); gap: 110px; }
+  /* 行间距不能跟着列间距走 110：这一档右栏落在正文下面，行缝 110 会在
+     右栏与评论区之间留出一大段空底。列 110、行 56。 */
+  .post-article { grid-template-columns: 232px minmax(0, 660px); gap: 56px 110px; }
 }
 
-/* 大屏补上第三列：两列时正文会被目录顶到视口右侧（1920 下偏 165px），
-   加一列同宽的留白，正文才回到正中 —— 目录仍在左边，间距不打折。
-   第三列没有内容，纯占位，所以结构不用改。 */
+/* 右栏只从 1600 起出现，这一档以下是容不下，不是没做：
+   frame 1280（1440 档）减掉 .wrap 左右各 22 的内边距只剩 1236，
+   而 232 目录 + 660 正文 + 300 右栏 = 1192，两条缝一共只剩 44px —— 
+   一缝 22px，可正文卡自己还向外扩 40px，卡片会直接压到目录和右栏上。
+   到 1600 档 frame 1408（可用 1364）才够：232 + 56 + 660 + 56 + 300 = 1304，两侧各余 30。
+   1280 一档宁可把右栏落到正文下面并排两格，也不缩正文列宽（T-11 锁着 660）。 */
 @media (min-width: 1600px) {
-  /* 1408 = 正文660 + 两翼232×2 + 间隙86×2 + 卡片内边距68 + 容器内边距44；
-     两翼跟着目录走（232），目录才不会贴死在卡片边缘上，也不会因为只有 200px
-     把「数据集：邮箱和 IP 只进不出」硬折成两行。 */
   main.wrap-post { max-width: var(--frame); }
-  .post-article {
-    grid-template-columns: 232px minmax(0, 660px) 232px;
-    gap: 86px;
-    justify-content: center;
+  .post-article { grid-template-columns: 232px minmax(0, 660px) 300px; gap: 56px; }
+  .post-article > .post-side {
+    grid-column: 3; grid-row: 1;
+    display: flex; flex-direction: column; gap: 16px;
+    align-self: start; position: sticky; top: 84px;
   }
   .post-toc { justify-self: start; width: 232px; }
 }
@@ -2271,12 +2283,13 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   .series-jump, .cmt-form, .post-foot, .site-foot, footer.site,
   .toolbar, .tagbar, .pagination, .comments, .post-related,
   .mtoc, .mtoc-btn, .skip-link, .nav-prog, .copy-link, .readbar-toggle,
-  main.home .hero, .home-side, .card-cover, .aw-cover {
+  main.home .hero, .home-side, .card-cover, .aw-cover,
+  .post-side, .post-tail {
     display: none !important;
   }
   main.wrap, main.wrap-post { max-width: none; padding: 0; }
   /* 屏上向外扩 40px 的白卡，纸上就是 40px 横向溢出；纸本来就是白的，直接撤掉 */
-  .post-main::before { display: none !important; }
+  .post-main::before, .post-tail::before { display: none !important; }
   main.home .post-card { break-inside: avoid; }
   .post-article { display: block; }
   .post-head { border: 0; padding-top: 0; }
@@ -2995,6 +3008,68 @@ main.home .sk-card { overflow: hidden; border-radius: 12px; }
 .post-head { padding: 26px 0 22px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none; margin-bottom: 26px; }
 .post-lead { border: 0; border-left: 3px solid var(--accent); background: var(--bg-soft); box-shadow: none; }
 .post-related, .comments, .post-adjacent { border-radius: 12px; }
+
+/* ---- 文章页右栏：系列目录 + 相关文章 ----
+   两块共用首页右栏那套 widget 外观（白卡 + 12px 圆角 + 同一档阴影），
+   文章页和首页滚动时才对得上同一条视觉基线。 */
+.post-side { min-width: 0; }
+/* 列方向 flex 的子项默认 min-width:auto = 不窄于自己的 min-content：
+   系列标题是长中文串，卡片会被顶得比 300px 还宽，右边直接切字。
+   逐个压成 min-width:0，让文字在卡内折行。 */
+.post-side > * { min-width: 0; }
+.post-side > .series {
+  margin: 0; padding: 16px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card); box-shadow: var(--shadow);
+}
+/* 系列条目在侧栏里悬停要往「纸底」上落，不能再用 var(--card) —— 那正是它自己的底色 */
+.post-side > .series .series-list li > a:hover { background: var(--bg-soft); }
+/* 头部三件（胶囊 / 系列名 / 计数）在 300px 里排不下一行：计数换到第二行，
+   别让 margin-left:auto 把它挤成「共 4」这种半个词。 */
+.post-side .series-top { gap: 6px; }
+.post-side .series-count { flex: 1 0 100%; margin-left: 0; }
+/* 上下篇两条原本并排 + nowrap，300px 里只剩省略号；侧栏改成上下叠、允许折行 */
+.post-side .series-jump { flex-direction: column; gap: 6px; }
+.post-side .series-jump a { max-width: 100%; white-space: normal; }
+.post-side > .post-related {
+  margin: 0; padding: 16px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card); box-shadow: var(--shadow);
+}
+/* 三列卡片在 300px 里会挤成三条 90px 的竖条，改成带分隔线的单列清单 */
+.post-side > .post-related .rel-grid { display: flex; flex-direction: column; gap: 0; }
+.post-side > .post-related .rel {
+  padding: 10px 0; border: 0; border-top: 1px solid var(--line);
+  border-radius: 0; background: none;
+}
+.post-side > .post-related .rel:first-child { border-top: 0; padding-top: 0; }
+.post-side > .post-related .rel:hover { box-shadow: none; }
+.post-side > .post-related .rel-t { font-size: 13.5px; line-height: 1.55; }
+.post-side > .post-related .rel-m { font-size: 11.5px; }
+
+/* ---- 文章页：评论单独成卡 ----
+   评论是 .post-main 之后的独立 grid 单元（列 2），不是正文卡的一部分：
+   这样窄屏的顺序是「正文 → 右栏 → 评论」，相关文章不会被压在整段评论区后面。
+   卡片仍用外扩伪元素，理由和 .post-main 一样（正文列宽不能被 padding 吃掉）。 */
+.post-tail { position: relative; isolation: isolate; margin-top: 44px; }
+.post-tail::before {
+  content: "";
+  position: absolute;
+  inset: -24px -40px -30px;
+  z-index: -1;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.post-tail .comments { margin: 0 0 26px; }
+
+/* 窄屏容器只有 16px 内边距，外扩 40 会顶出视口。收到 10px：卡片两侧各留 6px 呼吸，
+   再多就是贴边（-14 时只剩 2px，白卡看着像铺满整屏）。 */
+@media (max-width: 1079px) {
+  .post-main::before, .post-tail::before { inset: -16px -10px -20px; }
+  .post-tail { margin-top: 40px; }
+}
 
 /* ---- 归档 / 栏目 ---- */
 main.desk #arch-body { padding: 22px 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }

@@ -1241,6 +1241,11 @@ async function servePostPage(env, request, slug) {
       ? `<a class="series-chip" href="#series"><span class="sc-dot"></span>${esc(post.series)} · 第 ${seriesIdx + 1}/${seriesPosts.length} 篇</a>`
       : '';
 
+  /* 右栏：系列目录 + 相关文章。两者空的时候 aside 仍然渲染 ——
+     它是 grid 的第三列，撤掉列会让正文在宽屏上整体左移（改版前正是靠一个
+     空的 232px 占位列把正文拨回中间的，见 ≥1600 那段的注释）。 */
+  const side = `${renderSeries(post, seriesPosts)}${renderRelated(post, related)}`;
+
   const article = `<article class="post-article">
       ${toc}
       <div class="post-main">
@@ -1267,10 +1272,10 @@ async function servePostPage(env, request, slug) {
       ${renderSeries(post, seriesPosts)}
       <div class="md post-body">${bodyHtml}</div>
       <footer class="post-foot"><div class="tagbar" style="margin:0">${tagbar}</div></footer>
-      ${renderRelated(post, related)}
       ${renderAdjacent(post, sameCat, seriesPosts)}
-      ${renderComments(cmtRows, cmtRows.length, user)}
       </div>
+      <aside class="post-side"${side ? ' aria-label="系列与相关文章"' : ' aria-hidden="true"'}>${side}</aside>
+      <div class="post-tail">${renderComments(cmtRows, cmtRows.length, user)}</div>
     </article>`;
 
   const meta = [

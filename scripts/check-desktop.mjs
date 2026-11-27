@@ -14,7 +14,8 @@
  *     （[P-111] 白卡版式：加 300 右栏后单卡从 675 落到 516，门槛随版式重定，
  *      继续守的是「不是 660 窄带」而不是某个具体像素）
  *   · 390 首页：仍单列、页脚竖排、汉堡出现；移动端没被桌面框架带跑
- *   · 1920 文章页：正文仍 660px，目录三列布局没被框架改动挤掉
+ *   · 1920 文章页：正文仍 660px；三列（目录/正文/右栏），右栏 300px 且不压正文卡
+ *     （[P-112] 右栏只在 ≥1600 出现：1280 档可用宽 1236 放不下 232+660+300+两条 40 的缝）
  *   · 所有页面：无横向溢出，CSS 真的加载了（--frame 非空）
  */
 import puppeteer from 'puppeteer-core';
@@ -65,6 +66,7 @@ async function measure(path, width) {
       burger: document.querySelector('.nav-toggle') ? getComputedStyle(document.querySelector('.nav-toggle')).display : '',
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       side: box('.home-side'),
+      postSide: box('.post-side'),
       heroMain: box('.hero-main'),
       heroFeature: box('.hero-feature'),
     };
@@ -122,7 +124,13 @@ for (const [name, path] of [['归档', '/archive'], ['栏目', '/categories'], [
   aligned(d, name);
   if (name === '文章') {
     check('正文仍 660px', d.body?.w === 660, `${d.body?.w}px`);
-    check('目录三列未塌', d.articleCols === 3, `${d.articleCols} 列`);
+    /* 三列 = 目录 / 正文 / 右栏。以前第三列是个空占位（只为把正文拨回中间），
+       现在放系列目录与相关文章，判据同时验「列数没塌」和「右栏真的是 300」——
+       只看列数的话，第三列缩成 120 也照样绿。 */
+    check('三列：目录 / 正文 / 右栏', d.articleCols === 3, `${d.articleCols} 列`);
+    check('右栏 300px', d.postSide?.w === 300, `${d.postSide?.w}px`);
+    check('右栏不压正文卡', !!d.postSide && !!d.body && d.postSide.l - (d.body.r + 40) >= 0,
+      `栏左 ${d.postSide?.l} / 卡右 ${d.body ? d.body.r + 40 : '?'}`);
   }
 }
 

@@ -22,6 +22,10 @@
 // 同一轮的后半段（横幅/作者卡改吃 --brand，深色态压暗）把主表推到 42394 B，42500 只剩
 // 106 B，又回到「一次小改动就撞线」。上限重定 43000，基线跟着重置到 42394 —— 仍是一次
 // 有意改动内部的调整，不是放宽：基线一变，+10% 的守卫就从这个新起点重新算。
+//
+// 文章页加右栏（系列目录 + 相关文章）再推 1233 B 到 43627，上限 45500、基线 43627。
+// 三次连续上台阶都发生在同一次改版里，所以每次都重置基线而不是把 +10% 改成 +30%：
+// 守卫的斜率没动，起点跟着产品走。
 
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -32,7 +36,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const BASELINE = join(ROOT, 'scripts/.size-baseline.json');
 const GROWTH = 1.1;
 const LIMITS = {
-  mainGzip: 43000,   // public/style.css，gzip -9；2026-11-28 按安知鱼整站改版实测重定
+  mainGzip: 45500,   // public/style.css，gzip -9；2026-11-28 按安知鱼整站改版实测重定
   themeRaw: 2000,    // public/theme/*.css，每个文件的原始字节
 };
 
