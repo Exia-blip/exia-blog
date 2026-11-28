@@ -206,5 +206,44 @@ t('P2-15 作者卡：字母砖 + token 底色，渐变全部撤掉', () => {
   assert.ok(/awAva\.textContent\s*=/.test(indexHtml), '作者卡头像没有回填字母');
 }, 'P-120');
 
+/* ---------- 简约化补丁（外部给的锚点是另一套仓库，这里守等价落点） ---------- */
+
+t('P3-16 正文链接：静态下划线 + 键盘 focus 与 hover 同款', () => {
+  assert.ok(/border-bottom:\s*1px solid var\(--line-strong\)/.test(rule('.md a')),
+    '正文链接没有静态下划线（触屏认不出哪几个词能点）');
+  const hv = css.match(/\.md a:hover[^{]*\{[^}]*\}/)?.[0] || '';
+  assert.ok(/\.md a:focus-visible/.test(hv), 'focus-visible 没有和 hover 共用同一条规则（键盘用户没有反馈）');
+  assert.ok(/border-bottom-color:\s*var\(--accent\)/.test(hv), 'hover/focus 没有把底线换成 accent');
+  /* 补丁要求「不改全局 a」——一改导航、卡片、标签会全部多出下划线 */
+  assert.ok(!/^\s*a\s*\{[^}]*text-decoration:\s*underline/m.test(css), '全局 a 被加了下划线');
+}, 'P-122');
+
+t('P3-17 首页卡圆角走 --radius，没有写死的 12px', () => {
+  /* 打印块里另有一条同名选择器（只写 break-inside），rule() 只取第一条会抓错 */
+  const home = [...css.matchAll(/main\.home \.post-card\s*\{([^}]*)\}/g)]
+    .map((m) => m[1]).find((r) => /border-radius/.test(r)) || '';
+  assert.ok(/border-radius:\s*var\(--radius\)/.test(home), `首页卡没有走 token：${home.slice(0, 80)}`);
+  assert.ok(!/border-radius:\s*12px/.test(home), '首页卡还写死 12px（plum 18px / ink 5px 会被吃掉）');
+  assert.ok(/--radius:\s*12px/.test(rule(':root')), '基准半径定义没了');
+}, 'P-122');
+
+t('P3-18 首页卡 hover 不位移、封面不缩放，只留边框与底色', () => {
+  const hv = rule('main.home .post-card:hover');
+  assert.ok(hv && !/transform/.test(hv), `首页卡 hover 还有位移：${hv}`);
+  assert.ok(!/main\.home \.post-card:hover \.thumb/.test(css), '封面还在 hover 缩放（划过时抖两下）');
+  assert.ok(/background:\s*var\(--bg-soft\)/.test(hv), 'hover 没有底色反馈');
+  assert.ok(/border-color:\s*color-mix\(in srgb, var\(--accent\) 32%/.test(hv), 'hover 没有边框加深');
+  /* 位移撤掉后，触屏段那条 transform:none 就是死规则，不能留着装样子 */
+  const touch = css.match(/@media \(hover: none\) and \(pointer: coarse\) \{[\s\S]*?\n\}/)?.[0] || '';
+  assert.ok(!/main\.home \.post-card:hover/.test(touch), '触屏段还在覆盖已不存在的位移');
+}, 'P-122');
+
+t('P3-19 打印：代码块浅灰底，token 洗白后仍划得出边界', () => {
+  const pr = css.match(/@media print \{[\s\S]*?\n\}/)?.[0] || '';
+  const block = pr.match(/\.md pre\.code-block\s*\{([^}]*)\}/)?.[1] || '';
+  assert.ok(/background:\s*#f5f5f5\s*!important/.test(block), '打印代码块没有浅灰底（和纸面融成一片）');
+  assert.ok(/--bg-soft:\s*#fff\s*!important/.test(pr), 'token 洗白段没了（浅灰底的前提）');
+}, 'P-122');
+
 console.log(fails.length ? `\n✗ ${fails.length} 项视觉修复断言失败` : '');
 process.exit(fails.length ? 1 : 0);

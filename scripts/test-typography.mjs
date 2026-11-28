@@ -164,8 +164,10 @@ assert.match(
 );
 /* 全局 `a:hover { color: var(--accent) }`  specificity 与本条相同，但 .md a 写在它后面 —— 
    hover 不显式写 color 就永远停在静态棕。 */
-const mdAHover = blocks.find((b) => b.sel === '.md a:hover');
+/* 键盘 focus 与 hover 共用同一条规则：触屏没有 hover，键盘用户也不能只靠指针 */
+const mdAHover = blocks.find((b) => b.sel.startsWith('.md a:hover'));
 assert.ok(mdAHover, '找不到 .md a:hover');
+assert.ok(mdAHover.sel.includes('.md a:focus-visible'), 'focus-visible 没和 hover 共用规则（键盘用户没有反馈）');
 const hoverColor = decl(mdAHover.body, 'color');
 assert.ok(hoverColor, '.md a:hover 没有独立 color 声明，hover 反馈失效');
 assert.match(

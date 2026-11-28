@@ -1285,6 +1285,17 @@
 
 ---
 
+## P-122 外部补丁的选择器锚点是另一套仓库：按效果落地，不照贴
+
+- **现象**：老板转来一份「简约化五条」补丁：删 body 的 `radial-gradient ×2 + background-attachment: fixed`、`anzhiyu` 主题 `--radius:16px` → 10、`.post-card{border-radius:20px}`、`translateY(-5px)` 蓝紫双层阴影、`@media print` 整段新增。实测本仓库这五处锚点**一处都不存在**：主题只有 7 套（paper 内联 + ink/forest/ocean/plum/mono/edge 六个文件），anzhiyu 早已下架；`radialGradient` 0 处；`.post-card` 用 `var(--radius)` 且基础 hover 早已无位移；`@media print` 有完整块（token 洗白 + 隐藏浮层 + 代码展开 + `a::after` 印 URL + 窄屏溢出修正）。
+- **根因**：补丁是按「选择器文本」写的，不是按「效果」写的。它假设的是一个还在用大圆角、光晕背景、空白打印样式的旧版本；照贴会新增一堆永不命中的死规则，并把已有打印块的 `!important` 洗白覆盖掉（六套皮肤的 `:root[data-theme=...][data-mode=dark]` 权重 (0,3,0)，比新增块的 (0,1,0) 高，结果就是 ink + 深色打印仍是深底浅字）。
+- **复现**：直接 `git apply` 那份补丁 → `check:size` 撞线（死规则也占字节）、`test-theme-contract` 报未知主题、打印预览回到深色底。或者更隐蔽：`.md a` 被补成 `color-mix(var(--muted) 45%)`，把本仓库已有的 `var(--line-strong)` 静态下划线**换淡**，在暗色底上反而更难认。
+- **断言**：`scripts/test-visual-fixes.mjs` 四条（P-122）：`.md a` 静态下划线 + focus-visible 与 hover 同规则、首页卡 `border-radius: var(--radius)` 而非写死 12px、首页卡 hover 无 `transform` 且封面不缩放、打印块内 `.md pre.code-block` 有 `#f5f5f5 !important`。五次注入全红（撤 focus-visible / 圆角写回 12px / 位移回来 / 封面缩放回来 / 打印底色撤掉）。
+- **边界**：① **先核实锚点再贴补丁**：`grep -rn` 一下选择器、`/api/site` 看真实 `theme`、`curl` 看 `theme-color` —— 这两条颜色值 (`#f7f9fe`/`#14161d`) 是 **paper** 的 `--bg`，不是 anzhiyu；`THEME_BG` 里根本没有 anzhiyu 键。② **`--radius` 是主题契约 token**（`src/theme-contract.js` 的 `CONTRACT_CORE`），七套主题各有自己的值（paper 12 / ink 5 / forest 16 / plum 18 / edge mono 6 / ocean 12），不能全局改成 10：正确做法是让首页卡写死的 12px 改走 `var(--radius)`，这样 plum 的 18px / ink 的 5px 才不会被首页吃掉。③ **打印块追加必须 `!important`**，否则皮肤文件加载顺序决定打印颜色（详见 `PITFALLS` 打印段与 `style.css:2218` 的注释）。④ 补丁里的「正文链接底线 `--muted 45%`」在本仓库是**降级**：已有 `var(--line-strong)` 更清晰、且派生自主题；只补 `:focus-visible`，不替换底线颜色。⑤ 位移去掉后，触屏段 `@media (hover:none)` 里的 `transform:none` / `:hover .thumb{transform:none}` 变成死规则，要一起删 —— 否则 CSS 预算白占。
+- **出处**：`public/style.css`（`.md a:hover,:focus-visible`、`main.home .post-card` 的 `var(--radius)`、hover 改 border+bg、触屏段收窄、打印 `.md pre.code-block` 浅灰底）、`scripts/test-visual-fixes.mjs`（P-122 四条）、`src/theme-contract.js`（`--radius` 是 core token）、`src/assets.gen.js`（`THEME_BG` 派生 theme-color，anzhiyu 不存在）。
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

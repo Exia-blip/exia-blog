@@ -514,8 +514,9 @@ a.cat-chip:hover { filter: brightness(0.96); }
 /* 正文链接静态暖深棕可辨：--fg 混 30% --accent，比正文深、不是橙（橙归代码/当前项/边框）；
    hover 才进橙。派生不写死：八套主题明暗底不同，固定色到暗色就糊。 */
 .md a { color: color-mix(in srgb, var(--fg) 70%, var(--accent)); border-bottom: 1px solid var(--line-strong); transition: color var(--t), border-color var(--t); }
-/* 必须显式写回 color：`.md a` 在全局 a:hover 之后，不写就停在静态棕，hover 只有下划线变。 */
-.md a:hover { border-bottom-color: var(--accent); color: var(--accent); }
+/* 必须显式写回 color：`.md a` 在全局 a:hover 之后，不写就停在静态棕，hover 只有下划线变。
+   触屏没有 hover，键盘用户同理：focus-visible 必须和 hover 同款，不能只靠指针。 */
+.md a:hover, .md a:focus-visible { border-bottom-color: var(--accent); color: var(--accent); }
 .md ul, .md ol { margin: 0 0 1.2em; padding-left: 1.5em; }
 .md li { margin: 0.4em 0; text-wrap: pretty; }
 .md li > ul, .md li > ol { margin: 0.4em 0; }
@@ -2270,6 +2271,8 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
   .md pre.code-block {
     white-space: pre-wrap; word-break: break-word;
     border: 1px solid #d6d6d6; color: #000;
+    /* token 洗白把 --bg-soft 也设成 #fff，代码块会和纸面融成一片；浅灰底重新划出边界 */
+    background: #f5f5f5 !important;
     page-break-inside: avoid;
   }
   .md pre.code-block > .gutter { background: #fff; }
@@ -3005,16 +3008,16 @@ main.home .post-card {
   padding: 0;
   gap: 0;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--card);
   box-shadow: var(--shadow);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color var(--t), background-color var(--t);
 }
-main.home .post-card:hover { transform: translateY(-3px); border-color: var(--line); box-shadow: 0 14px 28px -12px rgba(44, 45, 48, 0.22); }
+/* 位移 + 封面缩放会让列表在指针划过时「抖」两下；简约只留边框与底色 120ms 过渡 */
+main.home .post-card:hover { border-color: color-mix(in srgb, var(--accent) 32%, var(--line)); background: var(--bg-soft); }
 main.home .card-cover { aspect-ratio: 16 / 9; overflow: hidden; background: var(--bg-soft); }
 main.home .card-cover picture { display: block; height: 100%; }
-main.home .post-card .thumb { width: 100%; height: 100%; object-fit: cover; border-radius: 0; transition: transform 0.4s ease; }
-main.home .post-card:hover .thumb { transform: scale(1.04); }
+main.home .post-card .thumb { width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
 main.home .card-body { padding: 13px 16px 15px; }
 main.home .card-kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 7px; font-size: 12px; }
 main.home .card-cat { padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
@@ -3309,11 +3312,9 @@ main.desk .tax-cell { border-color: var(--line); }
   .hero-feature { display: none; }
 }
 
-/* 触屏（含平板）不靠悬停提示，也不需要位移反馈：
-   卡片 hover 上浮在手指上永远不触发，反倒会在松手后留一帧错位。 */
+/* 触屏没有悬停反馈；hover 分支本身已无位移，这里不再需要覆盖，
+   只保留按下时的极轻反馈（松手即回，不留在列表里）。 */
 @media (hover: none) and (pointer: coarse) {
-  main.home .post-card:hover { transform: none; box-shadow: var(--shadow); }
-  main.home .post-card:hover .thumb { transform: none; }
   main.home .picks .pick:hover { transform: none; }
   /* 手指点下去要看得见：用 :active 代替 :hover 做反馈 */
   main.home .post-card:active { transform: scale(0.995); }
