@@ -2382,12 +2382,9 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 .pick-n { font-family: var(--mono); font-size: 11px; color: var(--accent); flex: 0 0 auto; }
 .pick-t { flex: 1; min-width: 0; font-size: 15.5px; line-height: 1.5; }
 .pick:hover .pick-t { color: var(--accent); }
-.pick-m { font-size: 12px; color: var(--muted); white-space: nowrap; flex: 0 0 auto; }
-/* 窄屏：分类标签挤在同一行会把标题压成三行半。让它掉到第二行右对齐，
-   当一行脚注 —— 信息不丢，标题也不再被折断。 */
+/* 窄屏留 flex-wrap 余量：标签/日期/时长已经沉到 .pick-t 内部，不再单独占一行。 */
 @media (max-width: 560px) {
   .pick { flex-wrap: wrap; row-gap: 3px; }
-  .pick-m { flex: 0 0 100%; text-align: right; }
 }
 
 @media (max-width: 640px) {

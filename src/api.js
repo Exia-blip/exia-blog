@@ -307,8 +307,13 @@ export async function tagHasLivePosts(env, name) {
 /* 标签用相关子查询一次带出，替代「先查 posts 再 attachTags」的第二次往返。
    char(31) 是 US（unit separator），标签名里不可能出现，拿来当分隔符比逗号安全 —— 标签本身允许逗号。
    列表页每多一次 D1 往返就是几十毫秒，这一条和下面 COUNT 的并行加起来能砍掉一半 SSR 时间。 */
-const TAG_AGG = `(SELECT GROUP_CONCAT(t.name, char(31)) FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = p.id) AS tag_str`;
-const splitTagStr = (s) => (s ? String(s).split('\u001f').filter(Boolean) : []);
+export const TAG_AGG = `(SELECT GROUP_CONCAT(t.name, char(31)) FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = p.id) AS tag_str`;
+export const splitTagStr = (s) => (s ? String(s).split('\u001f').filter(Boolean) : []);
+
+/* 阅读时长口径唯一源：去掉空格/换行/回车/制表符后的字符数 / 400，至少 1 分钟。
+   archiveData / listPosts / pickPosts 共用这一个 SQL 片段，不许各自手抄 ——
+   抄一份就多一个能走偏的地方，同一篇文章在两处显示两个时长。 */
+export const CONTENT_LEN = `length(replace(replace(replace(replace(COALESCE(p.content, ''), char(32), ''), char(10), ''), char(13), ''), char(9), ''))`;
 
 /* ---------- 归档数据（接口与 /archive SSR 共用一份，避免两处 SQL 走偏） ---------- */
 export async function archiveData(db, year = '') {
@@ -327,7 +332,6 @@ export async function archiveData(db, year = '') {
      再全部丢掉。这里改成只取需要的列，阅读时长用 SQL 直接算：
      与 public/md.js 的 readingTime() 同口径（去掉空白后 / 400 取整），
      否则归档页显示 26 分钟、文章页显示 24 分钟，读者会以为哪里算错了。 */
-  const CONTENT_LEN = `length(replace(replace(replace(replace(COALESCE(p.content, ''), char(32), ''), char(10), ''), char(13), ''), char(9), ''))`;
 
   const { results } = await db
     .prepare(
@@ -463,7 +467,6 @@ export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q
      封面改读 cover_body（保存时落库的正文首图快照）。
      只有真的在搜索时才带 content：searchSnippet 要按关键词截那一段，
      LIKE 条件本身在 WHERE 里，不需要 SELECT 出来。 */
-  const CONTENT_LEN = `length(replace(replace(replace(replace(COALESCE(p.content, ''), char(32), ''), char(10), ''), char(13), ''), char(9), ''))`;
   const listCols = [
     'p.id', 'p.slug', 'p.title', 'p.cover', 'p.cover_body', 'p.summary', 'p.summary_src',
     'p.category', 'p.series', 'p.series_order', 'p.is_private', 'p.hidden', 'p.author_id',

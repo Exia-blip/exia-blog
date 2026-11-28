@@ -1,4 +1,4 @@
-import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql, tagHasLivePosts } from './api.js';
+import { handleApi, listPosts, archiveData, attachTags, friendsData, tagsData, liveSql, tagHasLivePosts, TAG_AGG, splitTagStr, CONTENT_LEN } from './api.js';
 import { loginRedirect, handleCallback, logout, authStatus, currentUser, ownerOrAdmin } from './auth.js';
 import { html, json, umamiOn, collectOrigins, metaDesc, sqlIso, tagOf, localDay, localParts, siteOrigin, hostRedirect, isLocalHost, wordCount, pageParams } from './utils.js';
 import { checkFriends, checkSelfHealth, sweepComments } from './cron.js';
@@ -1665,20 +1665,37 @@ function listParams(url) {
 }
 
 /* 首页导语位：固定三篇代表作。新访客第一眼看到的不是"最新"，而是"该从哪读起"。
-   只查这三条，不参与列表排序 —— 精选是编辑决定，不该被发布时间推着走。 */
+   只查这三条，不参与列表排序 —— 精选是编辑决定，不该被发布时间推着走。
+
+   三张卡以前只有序号+标题：不是模板偷懒，是查询只 SELECT 了 4 列，摘要/标签/时长
+   根本没取回来。列补齐后走和下面十张卡同一个字段口径：
+   摘要 = summary 手填导语优先（三篇都是 manual），正文截段只做兜底；
+   阅读时长 = 和列表/归档共用的 CONTENT_LEN 片段，同一篇文章两处不会有两个数；
+   标签 = 和列表同一条 TAG_AGG 子查询，连 GROUP_CONCAT 的顺序行为都一致。 */
 const PICKS = ['d1-no-such-table', 'oauth-device-flow', 'editor-markdown-xss'];
 
 async function pickPosts(db) {
   try {
     const { results } = await db
       .prepare(
-        `SELECT slug, title, category, published_at FROM posts
-         WHERE slug IN (${PICKS.map(() => '?').join(',')}) AND is_private = 0 AND hidden = 0 AND ${liveSql('posts')}`
+        `SELECT p.slug, p.title, p.category, p.published_at, p.summary,
+                substr(p.content, 1, 400) AS excerpt_src, ${CONTENT_LEN} AS content_len,
+                ${TAG_AGG}
+         FROM posts p
+         WHERE p.slug IN (${PICKS.map(() => '?').join(',')}) AND p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}`
       )
       .bind(...PICKS)
       .all();
     const by = new Map(results.map((r) => [r.slug, r]));
-    return PICKS.map((s) => by.get(s)).filter(Boolean);
+    return PICKS.map((s) => by.get(s)).filter(Boolean).map((p) => ({
+      slug: p.slug,
+      title: p.title,
+      category: p.category,
+      published_at: p.published_at,
+      excerpt: p.summary || extractExcerpt(p.excerpt_src || '', 110),
+      reading: Math.max(1, Math.round(Number(p.content_len) / 400)),
+      tags: splitTagStr(p.tag_str),
+    }));
   } catch (e) {
     console.error('picks failed', e);
     return [];
@@ -1691,8 +1708,13 @@ function picksHtml(list) {
     .map(
       (p, i) => `<a class="pick" href="/p/${encodeURIComponent(p.slug)}">
         <span class="pick-n">${String(i + 1).padStart(2, '0')}</span>
-        <span class="pick-t">${esc(p.title)}</span>
-        <span class="pick-m">${esc(catName(p.category))}</span>
+        <span class="pick-t">${esc(p.title)}${
+          /* 摘要用 sp-x（style.css:2687 独立规则，单行 clamp + muted 12.5px）。
+             不能用 .excerpt：那条只挂在 .post-card 后代下，这里没有那个祖先。 */
+          p.excerpt ? `<span class="sp-x">${esc(p.excerpt)}</span>` : ''
+        }<span class="card-kicker">${(p.tags || []).slice(0, 2).map((t) => `<span class="card-tag">#${esc(t)}</span>`).join('')}${
+          p.published_at ? `<span class="tl-dim">${esc(fmtDay(p.published_at))}</span>` : ''
+        }${p.reading ? `<span class="tl-dim">${p.reading} 分钟</span>` : ''}</span></span>
       </a>`
     )
     .join('');

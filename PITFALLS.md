@@ -1307,6 +1307,17 @@
 
 ---
 
+## P-124 首页精选卡秃不是模板的问题，是查询没取列；预算只认本机实测
+
+- **现象**：首页「不知道从哪读起」三张卡只有序号 + 标题，下面的十张常规卡却带着「549 和 96 之间隔着两个变量」这种带数字/对照/结论的强文案。同一页两种信息密度，最该抓住新读者的位置反而最空。
+- **根因**：`pickPosts()` 只 `SELECT slug, title, category, published_at` 四列 —— 摘要、标签、阅读时长根本没进结果集，模板拿不到就没得渲染。这不是样式取舍，是数据缺口。老板要给「加日期/时长/标签」补 CSS 的想法当场被推翻：加规则也变不出没取回来的列。
+- **复现**：`curl` 首页 HTML 看 `<section class="picks">`，每条只有 `.pick-n` + `.pick-t` + `.pick-m`；把 `p.summary` 从 SELECT 拿掉，模板写得再满也是空摘要。
+- **断言**：`scripts/test-picks.mjs` 五条（P-124）：三篇 slug 固定有序、四列取全且 `p.summary` 优先、阅读时长共用 `CONTENT_LEN` 唯一源（api.js 里 export 一份、局部副本 0 份）、模板四个节点都在且不用 `.excerpt`、`.pick-m` 死规则已清。四次注入全红：sp-x 换成不存在的类 / 摘要列拿掉 / CONTENT_LEN 局部副本加回 / `.pick-m` 规则加回。
+- **边界**：① **落点按 SSR 链路，不按文件名**：这块在 `src/index.js` 的 `picksHtml()`，`public/index.html` 的 `card()` 只服务搜索/分页，首页首屏有 SSR 时 `load()` 根本不跑 —— 改 `index.html` 是白改一轮。② **`.excerpt` 只在 `.post-card` 后代下生效**，`.pick` 没有那个祖先，抄过去是死规则；独立规则 `.sp-x`（单行 clamp + muted 12.5px）才是正解 —— 类名的存在不等于规则生效，要看选择器链。③ **三篇 `summary_src` 实测全是 `manual`**（线上 D1 + 本地 D1 一致），摘要是手填导语且自带数字；正文首段 `extractExcerpt` 反而抽出 `结论` 标题残片和被吃掉的行内码，所以 `p.summary || extractExcerpt(...)` 的优先级不能反。④ **阅读时长同口径**：`CONTENT_LEN` 从 api.js 导出一份，`archiveData` / `listPosts` / `pickPosts` 共用；同一篇文章在列表和精选显示两个时长就是缺陷。⑤ **`GROUP_CONCAT` 顺序不保证**：与列表共用同一条 `TAG_AGG`，行为一致；断言不依赖标签顺序，快照类比对按集合而非字符串。⑥ **`.pick-m` 元素删了就把规则一起删**：空规则是给后来者的误导线索，和「看起来是事实但已经不是」同一族。删掉一处 `var(--muted)` 后 TC-44 影响面从 152 同步降到 151。⑦ **预算以本机 `npm run check:size` 实测为准，不引用会话里记过的数**：这一轮实测 `style.css` gzip 50202 / 上限 50500（余量 298 B），老板此前一直引的 38926 / 74 B 是旧取样 —— 活的反例。余量会被无声吃掉（十几轮从 38906 涨到 50202），「先 probe 再决定」在新规则块上已经等于没戏。⑧ 改 CSS 必跑 `npm run build:sri` 并重启 dev server，否则 integrity 对不上、浏览器拦新样式。
+- **出处**：`src/index.js`（`PICKS` / `pickPosts` / `picksHtml` / `applyList` 的 `<!--LIST-->` 注入）、`src/api.js`（导出 `CONTENT_LEN` / `TAG_AGG` / `splitTagStr`，删两处局部 `CONTENT_LEN` 副本）、`public/style.css`（`.picks` / `.pick` / `.sp-x` / `.pick-m` 清理）、`src/theme-contract.js`（TC-44 影响面 152 → 151）、`src/assets.gen.js`（build:sri 重算）、`scripts/test-picks.mjs`。
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：
