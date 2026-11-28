@@ -2178,7 +2178,7 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
      正文会掉进 232px 那一列 —— 整页压成一条竖排，页面上却什么都不报错。 */
   .post-article > .post-toc { grid-column: 1; }
   .post-article > .post-main { grid-column: 2; min-width: 0; }
-  /* 1080–1599 挤不下第三条 300px 栏：右栏落到正文下面、并排两格。
+  /* 1080–1399 挤不下第三条 300px 栏：右栏落到正文下面、并排两格。
      列位置钉在第 2 列（不是 1/-1）：横跨整格会从目录那列的左边缘起排，
      和正文卡错开 232+56，看着像两套栅格。 */
   .post-article > .post-side {
@@ -2186,27 +2186,21 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px; align-items: start;
   }
+  /* 文章不属于任何系列时右栏只有「相关文章」一张卡，落在第 1 格 ——
+     右半边空 338px，看着像另一张卡加载失败。铺满整栏。 */
+  .post-article > .post-side > :only-child { grid-column: 1 / -1; }
   .post-article > .post-tail { grid-column: 2; min-width: 0; }
 }
 
-/* 宽屏只放宽容器，不再放宽正文。
-   正文固定 660：17px 中文一行约 38.8 字 / 72ch，英文长行也不会顶到 81ch；
-   窄屏守住、宽屏放开等于白守。 */
-@media (min-width: 1440px) {
-  main.wrap-post { max-width: var(--frame); }
-  /* 行间距不能跟着列间距走 110：这一档右栏落在正文下面，行缝 110 会在
-     右栏与评论区之间留出一大段空底。列 110、行 56。 */
-  .post-article { grid-template-columns: 232px minmax(0, 660px); gap: 56px 110px; }
-}
-
-/* 右栏只从 1600 起出现，这一档以下是容不下，不是没做：
-   frame 1280（1440 档）减掉 .wrap 左右各 22 的内边距只剩 1236，
-   而 232 目录 + 660 正文 + 300 右栏 = 1192，两条缝一共只剩 44px —— 
-   一缝 22px，可正文卡自己还向外扩 40px，卡片会直接压到目录和右栏上。
-   到 1600 档 frame 1408（可用 1364）才够：232 + 56 + 660 + 56 + 300 = 1304，两侧各余 30。
-   1280 一档宁可把右栏落到正文下面并排两格，也不缩正文列宽（T-11 锁着 660）。 */
-@media (min-width: 1600px) {
-  main.wrap-post { max-width: var(--frame); }
+/* 右栏从 1400 起出现，不是 1600。
+   原来卡在 1600，是因为文章页跟着全站 --frame 走：1440 档 frame 1280 减两侧内边距
+   只剩 1236，232 + 56 + 660 + 56 + 300 = 1304 放不下。但文章页本来就有自己的容器
+   （.wrap-post），没必要陪着首页一起窄 —— 只把它放宽到 1360（可用 1316）就够，
+   余 12 像素，比 1600 档的余 60 紧，但两缝各有 16px 落在正文卡外扩的 40 之外，白卡不粘连。
+   代价是视口 1400 时页边距只剩 20，这一档本来就是小众宽度，换来 1440 三列。
+   1280 一档仍让右栏落到正文下面：缩正文列宽被 T-11 锁着，压目录到 200 会掉字。 */
+@media (min-width: 1400px) {
+  main.wrap-post { max-width: 1360px; }
   .post-article { grid-template-columns: 232px minmax(0, 660px) 300px; gap: 56px; }
   .post-article > .post-side {
     grid-column: 3; grid-row: 1;
@@ -2214,6 +2208,11 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
     align-self: start; position: sticky; top: 84px;
   }
   .post-toc { justify-self: start; width: 232px; }
+}
+
+/* 更宽只把容器再放开 48px，三列与粘性右栏沿用上一档 */
+@media (min-width: 1600px) {
+  main.wrap-post { max-width: var(--frame); }
 }
 
 /* 标题锚点：hover 才出现，平时不占视觉重量；负 margin 让它挂在正文左侧留白里 */

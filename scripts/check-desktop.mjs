@@ -17,7 +17,10 @@
  *   · 手机形态（[P-115]）：390 卡片横排、图占卡宽 25%–42%、卡高 ≤130、首页总高 ≤3600；
  *     720/1024 两列紧凑卡；1440 仍 16:9 大封面、data-device=mouse
  *   · 1920 文章页：正文仍 660px；三列（目录/正文/右栏），右栏 300px 且不压正文卡
- *     （[P-112] 右栏只在 ≥1600 出现：1280 档可用宽 1236 放不下 232+660+300+两条 40 的缝）
+ *   · 1440 文章页：同样三列。文章页有自己的容器（.wrap-post），不必跟着全站 frame=1280 走；
+ *     放宽到 1360 后 232+56+660+56+300 = 1304 ≤ 1316，右栏从 1400 起就位。
+ *     （[P-112] 原判据是「右栏只在 ≥1600」，那是跟着 frame 走的代价，不是物理限制）
+ *   · 1399 文章页仍两列：断点写低一档，1366 上正文卡会被右栏压住
  *   · 1920 归档页：右栏 300px、有内容、贴框架右边界；行内元信息贴右边界
  *     （[P-113] 「右栏在」不等于「右侧不空」：时间线仍两行堆叠时元信息全挤在左边）
  *   · 所有页面：无横向溢出，CSS 真的加载了（--frame 非空）
@@ -199,7 +202,7 @@ check('桌面封面仍 16:9', !!deskTouch.coverW && !!deskTouch.cardH
   && Math.abs(deskTouch.coverH / deskTouch.coverW - 0.5625) <= 0.04,
   `${deskTouch.coverW}×${deskTouch.coverH}`);
 
-for (const [name, path] of [['归档', '/archive'], ['栏目', '/categories'], ['文章', postPath]]) {
+for (const [name, path] of [['归档', '/archive'], ['栏目', '/categories']]) {
   const d = await measure(path, 1920);
   console.log(`\n${name} @1920px`);
   check('CSS 已加载', !!d.bgToken);
@@ -218,17 +221,40 @@ for (const [name, path] of [['归档', '/archive'], ['栏目', '/categories'], [
        这条盯的是行内：元信息离行右边界只剩 padding，说明标题那列撑满了整行。 */
     check('行内元信息贴右边界', d.tlMetaGap !== null && d.tlMetaGap <= 12, `差 ${d.tlMetaGap}px`);
   }
-  if (name === '文章') {
-    check('正文仍 660px', d.body?.w === 660, `${d.body?.w}px`);
-    /* 三列 = 目录 / 正文 / 右栏。以前第三列是个空占位（只为把正文拨回中间），
-       现在放系列目录与相关文章，判据同时验「列数没塌」和「右栏真的是 300」——
-       只看列数的话，第三列缩成 120 也照样绿。 */
-    check('三列：目录 / 正文 / 右栏', d.articleCols === 3, `${d.articleCols} 列`);
-    check('右栏 300px', d.postSide?.w === 300, `${d.postSide?.w}px`);
-    check('右栏不压正文卡', !!d.postSide && !!d.body && d.postSide.l - (d.body.r + 40) >= 0,
-      `栏左 ${d.postSide?.l} / 卡右 ${d.body ? d.body.r + 40 : '?'}`);
-  }
 }
+
+/* 文章页三档分开验：1920 / 1440 都要三列，1399 必须还是两列。
+   三列 = 目录 / 正文 / 右栏；只看列数不够 —— 第三列缩成 120 也照样是三列，
+   所以同时验右栏 300 与「不压正文卡」。
+   正文卡向右外扩 40px，右边沿用 body.r + 40，与 .post-main::before 的 inset 同源。 */
+const postWide = await measure(postPath, 1920);
+console.log('\n文章 @1920px');
+check('CSS 已加载', !!postWide.bgToken);
+check('无横向溢出', postWide.overflow <= 1, `${postWide.overflow}px`);
+check('正文仍 660px', postWide.body?.w === 660, `${postWide.body?.w}px`);
+check('三列：目录 / 正文 / 右栏', postWide.articleCols === 3, `${postWide.articleCols} 列`);
+check('右栏 300px', postWide.postSide?.w === 300, `${postWide.postSide?.w}px`);
+check('右栏不压正文卡', !!postWide.postSide && !!postWide.body && postWide.postSide.l - (postWide.body.r + 40) >= 0,
+  `栏左 ${postWide.postSide?.l} / 卡右 ${postWide.body ? postWide.body.r + 40 : '?'}`);
+
+/* 1440 是主流桌面宽度。右栏落在正文下面的排法下，一篇长文的相关文章在第 15000px，
+   等于不存在 —— 这条验的就是「1440 也已经在第三列」。
+   间距门槛 12 而不是 0：两缝各 56，扣掉 40 的外扩还剩 16，白卡之间必须留得下呼吸。 */
+const post1440 = await measure(postPath, 1440);
+console.log('\n文章 @1440px');
+check('三列：目录 / 正文 / 右栏', post1440.articleCols === 3, `${post1440.articleCols} 列`);
+check('右栏 300px', post1440.postSide?.w === 300, `${post1440.postSide?.w}px`);
+check('右栏不压正文卡', !!post1440.postSide && !!post1440.body && post1440.postSide.l - (post1440.body.r + 40) >= 12,
+  `栏左 ${post1440.postSide?.l} / 卡右 ${post1440.body ? post1440.body.r + 40 : '?'}`);
+check('正文仍 660px', post1440.body?.w === 660, `${post1440.body?.w}px`);
+check('无横向溢出', post1440.overflow <= 1, `${post1440.overflow}px`);
+
+/* 断点下一档必须仍然两列：1400 的规则若写低到 1330，1366 的容器只有 1180（可用 1136），
+   1304 的硬需求放不下，正文卡会直接压到右栏上。 */
+const postNarrow = await measure(postPath, 1399);
+console.log('\n文章 @1399px（断点边界）');
+check('仍两列（右栏落底）', postNarrow.articleCols === 2, `${postNarrow.articleCols} 列`);
+check('无横向溢出', postNarrow.overflow <= 1, `${postNarrow.overflow}px`);
 
 await browser.close();
 console.log(fails ? `\n✗ ${fails} 项桌面框架断言失败` : '\n✓ 桌面框架断言全部通过');

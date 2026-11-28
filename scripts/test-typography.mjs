@@ -47,13 +47,14 @@ ok(`T-01 正文内容宽 ${textW}px（.wrap ${maxW} - 2×${padX}）= 660px / 38.
    45.9 个中文字 / 88ch —— 断言落在被覆盖的那一层上，等于没测。
    判据挂在两处独立来源：.wrap 的可用宽（T-01 已算）与宽屏列宽，必须相等。 */
 const wideCols = blocks.filter((b) => b.sel === '.post-article' && /grid-template-columns/.test(b.body));
-assert.ok(wideCols.length >= 4, `正文列规则只找到 ${wideCols.length} 条（基础 + 1080/1440/1600），判据失效`);
-/* 三个断点各有自己的列声明；一个写错就能让该档行宽跑掉，而 T-01 全绿。
-   独立计数锁住「确实有三档」，再逐档比 .wrap 的可用宽。 */
+assert.ok(wideCols.length >= 3, `正文列规则只找到 ${wideCols.length} 条（基础 + 1080/1400），判据失效`);
+/* 会改写行宽的断点各有自己的列声明；一个写错就能让该档行宽跑掉，而 T-01 全绿。
+   独立计数锁住「确实有两档写了 px」（基础那条是 minmax(0,1fr)，不含 px，被下面滤掉）；
+   1600 档只放宽容器、列宽沿用 1400 的，不需要自己再写一遍 —— 这条数到 3 才是漏写。 */
 const pxCols = wideCols
   .map((b) => [...b.body.matchAll(/minmax\(\s*0\s*,\s*(\d+)px\s*\)/g)].map((m) => Number(m[1])))
   .filter((s) => s.length);
-assert.equal(pxCols.length, 3, `只解析到 ${pxCols.length} 个固定列断点，应有 3 个（1080/1440/1600）`);
+assert.equal(pxCols.length, 2, `只解析到 ${pxCols.length} 个固定列断点，应有 2 个（1080/1400）`);
 for (const cols of pxCols) {
   assert.deepEqual(
     cols,
@@ -61,7 +62,7 @@ for (const cols of pxCols) {
     `宽屏正文列 ${cols.join(',')}px ≠ .wrap 可用宽 ${textW}px —— 正文行宽被媒体查询改掉了，T-01 看不见`
   );
 }
-ok(`T-11 [P-096] 三档宽屏正文列都为 ${textW}px，与 .wrap 可用宽同源`);
+ok(`T-11 [P-096] 两档宽屏正文列都为 ${textW}px，与 .wrap 可用宽同源`);
 
 /* ---------- T-12 全站数字等宽：声明必须落在 body，不能只落在后台 ---------- */
 
