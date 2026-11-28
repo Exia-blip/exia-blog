@@ -264,12 +264,23 @@ const boot = (stored, search, defaults) => {
     RegExp,
     Math,
     matchMedia: mm,
-    window: { __THEME_DEFAULT__: defaults, __ASSET_H__: JSON.parse(THEME_ASSETS), matchMedia: mm },
+    window: {
+      __THEME_DEFAULT__: defaults,
+      __ASSET_H__: JSON.parse(THEME_ASSETS),
+      matchMedia: mm,
+      innerWidth: 1024,
+      addEventListener() {},
+    },
     document: {
       documentElement: {
         attrs: {},
         setAttribute(k, v) {
           this.attrs[k] = v;
+        },
+        /* boot 现在也会读 data-device 做幂等判断（只在变化时才写属性），
+           沙箱缺 getAttribute 会让整段 boot 断在这里，主题那半边也跟着不执行。 */
+        getAttribute(k) {
+          return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null;
         },
       },
       getElementById: () => null,

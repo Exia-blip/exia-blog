@@ -46,7 +46,26 @@ export const THEME_BOOT =
   'if(L){if(L.getAttribute(\'href\')===h)return;document.head.removeChild(L)}' +
   "if(document.getElementById('tcss-'+t))return;" +
   "var S=document.createElement('link');S.id='tcss-'+t;S.rel='stylesheet';" +
-  'if(a.i)S.integrity=a.i;S.href=h;document.head.appendChild(S)})()})();';
+  'if(a.i)S.integrity=a.i;S.href=h;document.head.appendChild(S)})();' +
+  /* 设备类别挂在 <html data-device="touch|mouse"> 上，首帧前定好（跟主题同一个理由：
+     放 DOMContentLoaded 里做，上一帧会按另一套排法先画一遍）。
+     判据是「指针粗」或「窄」，与 CSS 里那两条媒体查询同源：
+       · 版式切换靠 @media (max-width:720px)
+       · 触屏修饰靠 @media (hover:none) and (pointer:coarse)
+     这里这份只是给 JS 与调试用（比如需要按设备挑图、决定侧栏默认展开），
+     CSS 不依赖它 —— 脚本被拦、爬虫不执行 JS，版式仍是手机形态。
+     不做 UA 分流：站点是 s-maxage=300 的共享边缘缓存，按 UA 出两份 HTML
+     就得 Vary: User-Agent，命中率会被劈成 N 份，代价远大于收益。 */
+  "var dc=!!(window.matchMedia&&matchMedia('(pointer: coarse)').matches);" +
+  "function dset(){var t=dc||window.innerWidth<=720?'touch':'mouse';" +
+  "if(d.getAttribute('data-device')!==t)d.setAttribute('data-device',t)}" +
+  'dset();' +
+  /* 旋转屏幕或拖窗口跨过 720 时要跟着换，否则属性与版式会打架 */
+  /* 沙箱（scripts/test-theme-contract.mjs 的 runInNewContext）没有 addEventListener：
+     真实浏览器永远有，但这里不能让一句监听的注册把整段 boot 打断 —— 主题那半边
+     在上面已经跑完了，抛错会把后面的调用一并吞掉。 */
+  "if(window.addEventListener)window.addEventListener('resize',dset,{passive:true});" +
+  '})();';
 
 /**
  * 一段可直接塞进 <head> 的引导脚本。

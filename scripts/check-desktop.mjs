@@ -14,6 +14,8 @@
  *     （[P-111] 白卡版式：加 300 右栏后单卡从 675 落到 516，门槛随版式重定，
  *      继续守的是「不是 660 窄带」而不是某个具体像素）
  *   · 390 首页：仍单列、页脚竖排、汉堡出现；移动端没被桌面框架带跑
+ *   · 手机形态（[P-115]）：390 卡片横排、图占卡宽 25%–42%、卡高 ≤130、首页总高 ≤3600；
+ *     720/1024 两列紧凑卡；1440 仍 16:9 大封面、data-device=mouse
  *   · 1920 文章页：正文仍 660px；三列（目录/正文/右栏），右栏 300px 且不压正文卡
  *     （[P-112] 右栏只在 ≥1600 出现：1280 档可用宽 1236 放不下 232+660+300+两条 40 的缝）
  *   · 1920 归档页：右栏 300px、有内容、贴框架右边界；行内元信息贴右边界
@@ -36,9 +38,9 @@ const browser = await puppeteer.launch({
   args: ['--no-first-run', '--disable-gpu'],
 });
 
-async function measure(path, width) {
+async function measure(path, width, touch = false) {
   const page = await browser.newPage();
-  await page.setViewport({ width, height: 900, deviceScaleFactor: 1 });
+  await page.setViewport({ width, height: 900, deviceScaleFactor: 1, isMobile: touch, hasTouch: touch });
   const u = new URL(path, ORIGIN);
   u.searchParams.set('cb', String(Date.now()));
   await page.goto(u.href, { waitUntil: 'networkidle2', timeout: 30000 });
@@ -50,6 +52,9 @@ async function measure(path, width) {
       return { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) };
     };
     const cards = [...document.querySelectorAll('.post-card')].slice(0, 4).map((el) => Math.round(el.getBoundingClientRect().width));
+    const firstCard = document.querySelector('main.home .post-card');
+    const firstCover = document.querySelector('main.home .card-cover');
+    const r = (el) => (el ? el.getBoundingClientRect() : null);
     const list = document.querySelector('.post-list');
     return {
       frame: getComputedStyle(document.documentElement).getPropertyValue('--frame').trim(),
@@ -82,6 +87,13 @@ async function measure(path, width) {
       })(),
       heroMain: box('.hero-main'),
       heroFeature: box('.hero-feature'),
+      /* 手机形态的判据：卡片是横排（图占卡宽 30% 上下）、不是大封面在上 */
+      device: document.documentElement.getAttribute('data-device'),
+      cardH: firstCard ? Math.round(r(firstCard).height) : null,
+      cardW: firstCard ? Math.round(r(firstCard).width) : null,
+      coverW: firstCover ? Math.round(r(firstCover).width) : null,
+      coverH: firstCover ? Math.round(r(firstCover).height) : null,
+      docH: document.body.scrollHeight,
     };
   });
   await page.close();
@@ -121,13 +133,52 @@ for (const width of [1920, 1440, 1080]) {
 const wide = await measure('/', 1920);
 check('1920 档 frame=1408', wide.frame === '1408px', wide.frame);
 
-const mobile = await measure('/', 390);
-console.log('\n首页 @390px');
+const mobile = await measure('/', 390, true);
+console.log('\n首页 @390px（触屏）');
 check('CSS 已加载', !!mobile.bgToken);
 check('无横向溢出', mobile.overflow <= 1, `${mobile.overflow}px`);
 check('列表仍单列', mobile.listDisplay !== 'grid' && mobile.cards[0] < 390, `${mobile.listDisplay} / 首卡 ${mobile.cards[0]}px`);
 check('页脚竖排', mobile.footerDir === 'column', mobile.footerDir);
 check('汉堡可见', mobile.burger !== 'none', mobile.burger);
+/* 手机形态：卡片从「大封面在上」换成「左图右文」。判据挂在几何上而不是
+   「有没有某条 CSS」—— 图宽占卡宽 25%–42% 且卡高 ≤130 只可能在横排下成立；
+   大封面走 16:9 时卡高是 315（改版前实测），这两个数不会同时命中。 */
+check('设备判定为触屏', mobile.device === 'touch', mobile.device);
+/* 横排的本质判据是「图撑满卡高」（flex row + align-items:stretch），
+   比例区间只保证图不喧宾夺主。只验比例会漏：图有 max-width 246，
+   卡片回到 block 时 246/676 仍落在 25%–42% 里，看着像通过了。 */
+check('卡片横排（图高 ≈ 卡高）',
+  !!mobile.coverH && !!mobile.cardH && Math.abs(mobile.coverH - mobile.cardH) <= 2,
+  `图高 ${mobile.coverH} / 卡高 ${mobile.cardH}`);
+check('图宽占卡宽 25%–42%',
+  !!mobile.coverW && !!mobile.cardW && mobile.coverW / mobile.cardW >= 0.25 && mobile.coverW / mobile.cardW <= 0.42,
+  `图 ${mobile.coverW} / 卡 ${mobile.cardW}`);
+check('卡片高度 ≤ 130px', mobile.cardH !== null && mobile.cardH <= 130, `${mobile.cardH}px`);
+/* 5937 是「大封面一屏一张」时的页高，2889 是横排后的页高。这条守的是密度，
+   不是某个具体像素：只要还在一屏一张，这个数就回 5000 以上。 */
+check('首页总高 ≤ 3600px（密度没退回一屏一张）', mobile.docH <= 3600, `${mobile.docH}px`);
+
+/* 平板/窄桌面：两列紧凑卡。这一档以前是「单列大卡居中在 704 的窄带里」 */
+const narrow = await measure('/', 720);
+console.log('\n首页 @720px');
+check('两列紧凑卡', narrow.listDisplay === 'grid' && narrow.cols === 2, `${narrow.listDisplay} / ${narrow.cols} 列`);
+check('卡片仍是横排', !!narrow.coverH && !!narrow.cardH && Math.abs(narrow.coverH - narrow.cardH) <= 2,
+  `图高 ${narrow.coverH} / 卡高 ${narrow.cardH}`);
+
+const tablet = await measure('/', 1024, true);
+console.log('\n首页 @1024px（触屏平板）');
+/* 同一宽度、两种输入方式：版式都按宽度走，但 data-device 要如实标注，
+   JS 侧才能据此决定手势与图片策略 */
+check('设备判定为触屏', tablet.device === 'touch', tablet.device);
+check('两列紧凑卡', tablet.listDisplay === 'grid' && tablet.cols === 2, `${tablet.listDisplay} / ${tablet.cols} 列`);
+
+const deskTouch = await measure('/', 1440);
+console.log('\n首页 @1440px（鼠标）');
+check('设备判定为鼠标', deskTouch.device === 'mouse', deskTouch.device);
+/* 桌面没被手机形态污染：封面仍是 16:9 大图（高/宽 ≈ 0.5625） */
+check('桌面封面仍 16:9', !!deskTouch.coverW && !!deskTouch.cardH
+  && Math.abs(deskTouch.coverH / deskTouch.coverW - 0.5625) <= 0.04,
+  `${deskTouch.coverW}×${deskTouch.coverH}`);
 
 for (const [name, path] of [['归档', '/archive'], ['栏目', '/categories'], ['文章', postPath]]) {
   const d = await measure(path, 1920);

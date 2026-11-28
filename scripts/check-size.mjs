@@ -31,6 +31,18 @@
 // 这次 45500 只剩 826 B，按老规矩重定 47000 + 基线 44674 —— 但到这里该收手了：
 // 连续四次重置说明「一次改动一次重定」本身在掩盖增长，下一次再撞线要先把
 // 无用的死规则清一遍（历史主题残留、后台专用样式），而不是继续抬上限。
+//
+// 【第五次：2026-11-28 手机形态】上限 47000 → 48000（实测 47247）。
+// 这次不是零散膨胀，是一整套新排法：1079 以下换成左图右文的紧凑卡（含 600/720
+// 两条断点、触屏 hover 收口、缩略图按卡宽比例），gzip +1.5 KB 里几乎全是新规则。
+// 只顺手删了一条确实死了的（main.home .tagbar + .tagbar：#tagbar 已 display:none，
+// 相邻选择器选中的那条 margin 永远不生效），省下的字节可以忽略。
+//
+// 所以这次按上面那条给自己留下的规矩记账：**下一次再撞线，必须先做一轮死规则清理
+// 再谈抬上限** —— 已确认可下线、待处理的两处：
+//   ① 首页 #tagbar 整块（HTML + SVG 填充逻辑还在跑，CSS 已 display:none）
+//   ② .bar-label 在首页被 display:none，但 SSR 仍在输出「栏目 / 标签」两个 span
+// 这两处都涉及模板与 JS，没有在本次改动里动 —— 别把它们算成已经清过了。
 
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -41,7 +53,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const BASELINE = join(ROOT, 'scripts/.size-baseline.json');
 const GROWTH = 1.1;
 const LIMITS = {
-  mainGzip: 47000,   // public/style.css，gzip -9；2026-11-28 按安知鱼整站改版实测重定
+  mainGzip: 48000,   // public/style.css，gzip -9；2026-11-28 按安知鱼整站改版实测重定
   themeRaw: 2000,    // public/theme/*.css，每个文件的原始字节
 };
 

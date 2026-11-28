@@ -2942,7 +2942,6 @@ main.home .hero p#hero-sub { position: relative; margin: 0; color: color-mix(in 
 main.home .toolbar { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
 main.home .toolbar .search input { border: 0; background: var(--bg-soft); }
 main.home .tagbar { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
-main.home .tagbar + .tagbar { margin-top: -4px; }
 main.home .tagbar .bar-label { display: none; }
 main.home .tagbar .tag { border: 0; background: var(--bg-soft); padding: 3px 9px; }
 main.home .tagbar .tag:hover, main.home .tagbar .cat-chip { background: var(--accent-soft); color: var(--accent); }
@@ -3154,3 +3153,106 @@ main.desk .tax-cell { border-color: var(--line); }
   main.desk #arch-body, main.desk .tax-section { padding: 16px; }
 }
 
+
+/* ============ 手机形态：一套独立的紧凑版式 ============
+   桌面那套是给 1400px 画布设计的：16:9 大封面撑满 516px、一张卡 400 多像素高。
+   压到 390 宽，它就变成「一屏一张卡」——实测首页要滑 5937px 才到底，第一屏
+   全给了横幅和推荐卡，一条文章都看不见。这里不是把桌面版缩小，是换一套排法：
+   左缩略图 + 右标题的紧凑行。390 上一屏四到五条，768 平板上也不再一张卡占满。
+
+   断点 1079 跟右侧栏下移的断点是同一个：1080 以下本来就只有一列，
+   而单列大卡在 768 和 1024 上更糟（封面 660×370，一屏连一张都看不全）。
+   1024 尤其明显 —— 它在 900 以上，会掉进「既不双列、又不紧凑」的空档，
+   bodyH 从 2779 涨回 7097。版式切换一律走媒体查询，不依赖 JS 挂的
+   data-device：脚本被拦、爬虫不执行 JS，手机形态也照样生效。 */
+
+/* 1080 以下容器不再卡在 704：那是正文窄列的宽度（660 + 两侧 22），
+   桌面上只有 main.desk.wrap 换成了 --frame，窄档一直是 704 ——
+   1024 下整片主区 704 居中，两侧各空 160，卡片再紧凑也是坐在一条窄带里。 */
+@media (max-width: 1079px) {
+  main.desk.wrap { max-width: none; }
+  main.home .post-list { gap: 10px; }
+  main.home .post-card { display: flex; flex-direction: row; align-items: stretch; }
+  /* 缩略图按卡片宽度的比例给（34%），不按视口宽度：
+     卡宽在 390 是 358、768 是 724、900–1079 双列是 420–510，
+     用 vw 算出来的图在 768 上只有 148，右边文字区空出 500 —— 卡片被拉成一条。
+     34% 在三档上分别是 122 / 246 / 160 左右，图文比例一致，且图始终看得清。 */
+  main.home .card-cover {
+    flex: 0 0 34%; min-width: 104px; max-width: 246px;
+    align-self: stretch; height: auto; aspect-ratio: auto;
+  }
+  main.home .card-cover .thumb { height: 100%; }
+  main.home .card-body {
+    display: flex; flex: 1 1 auto; flex-direction: column;
+    justify-content: center; min-width: 0; padding: 10px 12px;
+  }
+  main.home .card-kicker { margin-bottom: 4px; font-size: 11px; }
+  main.home .card-cat { padding: 1px 7px; }
+  /* 标签在缩略图旁边会把标题挤成一列两三个字，而分类胶囊已经说了同一件事 */
+  main.home .card-tag { display: none; }
+  main.home .post-card h2 {
+    margin-bottom: 5px; font-size: 14.5px; line-height: 1.45;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* 摘要在窄卡里最多挤出两行，信息量还不如分类 + 日期，却多占 40px */
+  main.home .post-card .excerpt { display: none; }
+  main.home .card-meta { gap: 8px; font-size: 11.5px; }
+  /* 只留日期 + 阅读时长：字数和评论数是这行里的第三、四项 */
+  main.home .card-meta > span:nth-child(n + 3) { display: none; }
+  main.home .picks { padding: 11px 14px 4px; }
+  .pick { padding: 6px 0; }
+  main.home .toolbar { margin-bottom: 10px; padding: 8px 10px; }
+  main.home .tagbar { margin-bottom: 10px; padding: 6px 10px; }
+}
+
+/* 720–1079 排两列紧凑卡。这一档容器已经放宽（704 那条上限只在桌面正文列上），
+   单列会拉成一条 700–1000 宽的长横条：图 246、文字 500，标题一行，右半边全空。
+   两列每张 350–510，正好等于手机上一张卡的宽度，同一套排法并排两条。
+   切点 720 是量出来的下限：600 起两列时每列 278、文字区只剩 148，
+   标题一行摆不下 11 个字（「CI 夹具：缓存与增量构」就要断行加省略号），
+   整列看着像被切碎的标签。720 时文字区 186、13.5px 字号正好 13 字/行，
+   两行能交代完一个中文标题。600–719 回到单列，卡 608 宽、标题一行放得下。 */
+@media (min-width: 720px) and (max-width: 1079px) {
+  main.home .post-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+}
+
+/* 720–767 的卡只有 332 宽，文字区 186px，14.5px 一行只放得下 12 个字；
+   降到 13.5px 能放 13 字，两行截断才落在词与词之间。
+   再窄单列时卡是 358–608 宽，文字区 ≥211，不用缩 —— 手机上 14.5 读着更稳。 */
+@media (min-width: 720px) and (max-width: 767px) {
+  main.home .post-card h2 { font-size: 13.5px; line-height: 1.5; }
+}
+
+@media (max-width: 720px) {
+  /* 横幅：第一屏该看见「站名 + 一句话 + 入口」，不是半屏渐变 */
+  main.home { padding-top: 10px; }
+  main.home .hero { padding-bottom: 10px; }
+  .hero-main { padding: 20px 18px 22px; border-radius: 12px; }
+  main.home .hero h1 { margin-bottom: 8px; font-size: 26px; line-height: 1.3; }
+  main.home .hero p#hero-sub { font-size: 14px; line-height: 1.6; }
+  .hero-kicker { margin-bottom: 8px; font-size: 11px; letter-spacing: 0.14em; }
+  .hero-acts { gap: 8px; margin-top: 16px; }
+  .hero-btn {
+    display: inline-flex; align-items: center;
+    min-height: 42px; padding: 10px 15px; font-size: 13px;
+  }
+  /* 主入口独占一行：拇指够得着，另两个次要入口并排在下一行 */
+  .hero-btn.b-blue { flex: 1 0 100%; justify-content: center; }
+  .hero-btn.b-orange, .hero-btn.b-green { flex: 1 1 0; justify-content: center; min-width: 0; }
+  /* 推荐卡与列表第一条是同一篇：手机上留着它只换来多滑一屏 */
+  .hero-feature { display: none; }
+}
+
+/* 触屏（含平板）不靠悬停提示，也不需要位移反馈：
+   卡片 hover 上浮在手指上永远不触发，反倒会在松手后留一帧错位。 */
+@media (hover: none) and (pointer: coarse) {
+  main.home .post-card:hover { transform: none; box-shadow: var(--shadow); }
+  main.home .post-card:hover .thumb { transform: none; }
+  main.home .picks .pick:hover { transform: none; }
+  /* 手指点下去要看得见：用 :active 代替 :hover 做反馈 */
+  main.home .post-card:active { transform: scale(0.995); }
+  .hero-btn:active { filter: brightness(0.96); }
+  /* iOS 的灰色高亮方块会盖住圆角 */
+  main.home .post-card, .hero-btn, .hero-feature { -webkit-tap-highlight-color: transparent; }
+}
