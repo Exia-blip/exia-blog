@@ -2,7 +2,6 @@
 // 前三项是纯前端补钩子（不动 SSR/落库 HTML），靠静态钩子锁定；标签配色函数直接跑。
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
-import { tagClass, avatarTone } from '../public/avatar.js';
 
 const post = readFileSync('public/post.html', 'utf8');
 const index = readFileSync('public/index.html', 'utf8');
@@ -51,25 +50,20 @@ assert.match(css, /@media print[\s\S]*?code-wrap\.folded pre\.code-block\s*\{[^}
 assert.match(css, /\.gutter[^}]*user-select:\s*none/, '行号列不可选中（复制不带行号）');
 ok('代码块折叠/语言提示/点行号复制，文章页与编辑器预览双接线');
 
-// ---------- L3-4 标签云配色：前后端同一函数 ----------
-const bars = server.match(/function renderListBars\([\s\S]*?\n\}/)?.[0] || '';
-assert.ok(bars.includes('tagClass(t.name, t.count)'), 'SSR 标签栏未用 tagClass');
-assert.ok(!/`class="tag" href="\/tag\//.test(bars), 'SSR 标签栏仍在用裸 tag class');
-assert.ok(index.includes('tagClass(t.name, t.count)'), '前端未用 tagClass');
-assert.ok(index.includes("from '/avatar.js'"), '前端未引入 avatar.js');
-// 纯函数行为：色相复用头像哈希、权重按数量分档、输入转义由调用方 esc 负责
-// 同名标签的色相后缀应与头像哈希一致（tw-tN vs ava-tN）
-assert.equal(tagClass('访客', 1).split(' ')[1], avatarTone('访客').replace('ava-', 'tw-'));
-assert.match(tagClass('访客', 1), /^tag tw-t\d tw-w1$/);
-assert.match(tagClass('x', 6), /tw-w3$/, '6 篇以上应最重档');
-assert.match(tagClass('x', 3), /tw-w2$/, '3 篇应中档');
-assert.match(tagClass('x', 0), /tw-w1$/, '0 篇应轻档');
-assert.equal(tagClass('同一标签', 5).split(' ')[1], tagClass('同一标签', 99).split(' ')[1], '同名标签色相恒定');
+// ---------- L3-4 标签筛选栏整块下线（2026-11-28） ----------
+/* 这条栏长期是「SSR 在拼、客户端在填、CSS 在藏」的三重空转：template 有 div、
+   renderListBars 有分支、loadTags() 有 innerHTML、样式表有 display:none。
+   四条链都有产物、页面上一片空白。整块删掉后，下面三条守它别被谁的复制粘贴带回来。
+   （原来这里守的是「SSR 与前端共用 tagClass，避免两套配色」—— 出口只剩一处，
+     那个漂移风险随之消失，tagClass 函数也一起删了。） */
+assert.ok(!server.includes('<!--TAGBAR-->'), 'SSR 仍在渲染已下线的标签筛选栏');
+assert.ok(!index.includes('id="tagbar"'), '首页模板仍有 #tagbar 容器');
+assert.ok(!/loadTags\s*\(/.test(index), '标签栏的下线没清干净（首页仍在调用 loadTags）');
 // [P-088] 标签云已单色：不再按名字上色（十档色板与 5 色轮换都删了）。
 // 反向断言 —— 只要有人往 CSS 里塞回一处 --tw 定义就会红。
 assert.ok(!/--tw\s*:/.test(css), '标签云已单色，不应再有 --tw 色相定义');
 assert.ok(!/\.tag\[class\*="tw-t"\]/.test(css), '不应再有按 tw-t 上色的选择器');
-ok('标签类名与头像哈希同源，但样式侧不再按名上色');
+ok('标签筛选栏三处一致下线，CSS 侧也不再有按名上色');
 
 // ---------- iframe 懒加载兜底：前端补钩子，不碰 SSR ----------
 // 消毒白名单不放行 iframe（clean.js 剥掉），站内正文尚无真实嵌入；

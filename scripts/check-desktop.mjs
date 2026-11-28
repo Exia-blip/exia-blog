@@ -49,7 +49,7 @@ async function measure(path, width, touch = false) {
       const el = document.querySelector(sel);
       if (!el) return null;
       const r = el.getBoundingClientRect();
-      return { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) };
+      return { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width), h: Math.round(r.height) };
     };
     const cards = [...document.querySelectorAll('.post-card')].slice(0, 4).map((el) => Math.round(el.getBoundingClientRect().width));
     const firstCard = document.querySelector('main.home .post-card');
@@ -94,6 +94,14 @@ async function measure(path, width, touch = false) {
       coverW: firstCover ? Math.round(r(firstCover).width) : null,
       coverH: firstCover ? Math.round(r(firstCover).height) : null,
       docH: document.body.scrollHeight,
+      /* 侧栏折叠：开合状态读 [open] 属性（CSS 改不了它），
+         内容在不在读 .side-fold-body 里还剩几张卡 —— 收起不等于删掉。 */
+      sideFoldOpen: document.querySelector('.side-fold')?.open ?? null,
+      foldBar: box('.side-fold-bar'),
+      foldBarDisplay: document.querySelector('.side-fold-bar')
+        ? getComputedStyle(document.querySelector('.side-fold-bar')).display
+        : '',
+      sideKids: document.querySelectorAll('.side-fold-body > .widget').length,
     };
   });
   await page.close();
@@ -125,6 +133,10 @@ for (const width of [1920, 1440, 1080]) {
     check('右侧栏 300px', d.side?.w === 300, `${d.side?.w}px`);
     check('横幅两栏（右卡窄于主卡）', !!d.heroMain && !!d.heroFeature && d.heroMain.w > d.heroFeature.w, `${d.heroMain?.w} / ${d.heroFeature?.w}`);
     check('页脚横向排布', d.footerDir === 'row', d.footerDir);
+    /* 桌面不折叠：summary 隐藏 + details 恒开。只验其中一个不够 ——
+       summary 藏起来而 details 是收的，右栏会变成一条 300×0 的空槽。 */
+    check('桌面侧栏不折叠', d.sideFoldOpen === true && d.foldBarDisplay === 'none',
+      `open=${d.sideFoldOpen} / 折叠条 ${d.foldBarDisplay}`);
   }
   if (width === 1080) check('桌面断点已启用', d.frame === '1180px', d.frame);
   if (width === 1440) check('1440 档 frame=1280', d.frame === '1280px', d.frame);
@@ -157,6 +169,13 @@ check('卡片高度 ≤ 130px', mobile.cardH !== null && mobile.cardH <= 130, `$
 /* 5937 是「大封面一屏一张」时的页高，2889 是横排后的页高。这条守的是密度，
    不是某个具体像素：只要还在一屏一张，这个数就回 5000 以上。 */
 check('首页总高 ≤ 3600px（密度没退回一屏一张）', mobile.docH <= 3600, `${mobile.docH}px`);
+/* 侧栏折叠：390 上三块（作者卡/标签/最近）默认收起，只留一条 50px 的折叠条。
+   三件事分开验 —— 收起（open=false）、折叠条够高能点（≥44）、
+   内容还在（三张卡仍在 DOM 里，只是没渲染）。只看页高会漏掉「三块被整个删了」。 */
+check('侧栏默认收起', mobile.sideFoldOpen === false, `open=${mobile.sideFoldOpen}`);
+check('折叠条可见且 ≥44px', mobile.foldBarDisplay !== 'none' && (mobile.foldBar?.w || 0) > 100 && (mobile.foldBar?.h || 0) >= 44,
+  `${mobile.foldBarDisplay} / ${mobile.foldBar?.w}×${mobile.foldBar?.h}`);
+check('三块卡仍在（收起≠删掉）', mobile.sideKids === 3, `${mobile.sideKids} 张`);
 
 /* 平板/窄桌面：两列紧凑卡。这一档以前是「单列大卡居中在 704 的窄带里」 */
 const narrow = await measure('/', 720);

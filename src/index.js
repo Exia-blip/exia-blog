@@ -6,7 +6,7 @@ import { themeCssTag, themeCssPath, getSite } from './settings.js';
 import { themeBootTag } from './themeboot.js';
 import { extractExcerpt, readingTime, renderBody, tocOf } from '../public/md.js';
 import { coverOf, autoThumb, isAutoCover, ogCoverOf, thumbOf } from './cover.js';
-import { avatarSrc, avatarTone, safeWebsite, tagClass } from '../public/avatar.js';
+import { avatarSrc, avatarTone, safeWebsite } from '../public/avatar.js';
 import { rankRelated } from './related.js';
 import { sanitizeHtml } from './clean.js';
 import { makeNonce, applyNonce, securityHeaders, obfuscateEmail } from './security.js';
@@ -1876,9 +1876,9 @@ function fillSeo(body, site, url) {
   return stripped.replace('<!--SEO-->', block);
 }
 
-/* 首页顶部那两条筛选栏（栏目 / 标签）直出到 HTML。
+/* 首页顶部那条栏目筛选栏直出到 HTML（标签那条 2026-11-28 整块下线，见下）。
 
-   它们原来是两个空 div，等 app.js 拉完 /api/categories 再 innerHTML 填进去。
+   它原来是个空 div，等 app.js 拉完 /api/categories 再 innerHTML 填进去。
    代价是首屏已经画完、读者开始看了，整块列表突然往下推 90 多像素 ——
    实测 0.0176 的 CLS 全部来自这里（图片的 width/height 早就补齐了）。
 
@@ -1887,9 +1887,8 @@ function fillSeo(body, site, url) {
    客户端拿到 SSR 内容后只改选中态，不再整体重绘。 */
 function renderListBars(body, counts, tags, url) {
   const needCat = body.includes('<!--CATBAR-->');
-  const needTag = body.includes('<!--TAGBAR-->');
   const needSideTags = body.includes('<!--SIDETAGS-->');
-  if (!needCat && !needTag && !needSideTags) return body;
+  if (!needCat && !needSideTags) return body;
 
   const path = url ? url.pathname : '';
   const curCat = (path.match(/^\/cat\/([^/]+)/) || [])[1] || '';
@@ -1904,21 +1903,9 @@ function renderListBars(body, counts, tags, url) {
           counts.get(c.slug) || 0
         }</a>`
     ).join('');
-    out = out.replace(
-      '<!--CATBAR-->',
-      `<span class="bar-label">栏目</span><a class="tag" href="/"${hl(!curCat && !curTag)}>全部</a>${rows}`
-    );
-  }
-  if (needTag) {
-    const rows = (tags || [])
-      .map(
-        (t) =>
-          `<a class="${tagClass(t.name, t.count)}" href="/tag/${encodeURIComponent(t.name)}"${hl(curTag === t.name)}>#${esc(t.name)} ${
-            t.count
-          }</a>`
-      )
-      .join('');
-    out = out.replace('<!--TAGBAR-->', `<span class="bar-label">标签</span><a class="tag" href="/"${hl(!curTag)}>全部</a>${rows}`);
+    /* 不再输出 <span class="bar-label">栏目</span>：首页那条 CSS 一直把它 display:none，
+       印出去的只是一个不显示的标签。整条链（SSR 输出 / CSS 隐藏）一起删。 */
+    out = out.replace('<!--CATBAR-->', `<a class="tag" href="/"${hl(!curCat && !curTag)}>全部</a>${rows}`);
   }
   if (needSideTags) {
     const side = (tags || [])
@@ -1948,7 +1935,9 @@ async function injectTheme(env, res, url) {
   const catsP =
     body.includes('<!--CATS-->') || body.includes('<!--CATBAR-->') ? catCounts(env) : Promise.resolve(new Map());
   const tagsP =
-    body.includes('<!--TAGS-->') || body.includes('<!--TAGBAR-->') ? tagsData(env.DB).catch(() => []) : Promise.resolve(null);
+    body.includes('<!--TAGS-->') || body.includes('<!--SIDETAGS-->')
+      ? tagsData(env.DB).catch(() => [])
+      : Promise.resolve(null);
   // 列表只依赖模板和 URL，不依赖站点设置，所以这里就能先发车
   const listP = listQuery(env, url);
 

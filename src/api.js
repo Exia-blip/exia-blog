@@ -747,7 +747,8 @@ export async function handleApi(env, request, url, ctx) {
 
   /* ---- 标签云 ----
      唯一一个「每次打开页面都会打过来」的只读接口：/categories 是静态壳原样返回，
-     标签云由前端拉，不像首页那样有 SSR 直出的 <!--TAGBAR--> 可以先接住。
+     标签云由前端拉，不像首页那样有 SSR 直出的 <!--SIDETAGS--> 可以先接住
+     （首页那条标签筛选栏 2026-11-28 删了，侧栏标签仍是直出）。
      所以它值一份边缘缓存 —— json() 默认 no-store 是给鉴权接口用的安全默认，
      这一条没有用户维度（只查 is_private=0 AND hidden=0），可以共享。
      口径直接复用 pageCacheControl()：浏览器 max-age=0 每次校验、边缘 300 秒、

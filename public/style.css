@@ -355,13 +355,12 @@ main:focus { outline: none; }
 .search-clear[hidden] { display: none; }
 .search-clear:hover { color: var(--fg); background: var(--line); }
 
-/* min-height 让分类/标签栏在接口回来前也占着位，避免内容整体往上一跳 */
+/* min-height 让分类栏在接口回来前也占着位，避免内容整体往上一跳 */
 .tagbar { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 26px; align-items: center; min-height: 26px; }
-.tagbar + .tagbar { margin-top: -14px; }
 
-/* 窄屏：标签云改成单行横滑。
-   二十多个标签换行要占掉五排，首屏被压得一篇正文都看不见 ——
-   读者打开首页想看的是文章，不是标签墙。横滑只占两排，
+/* 窄屏：分类改成单行横滑。
+   栏目一多换行要占掉两三排，首屏被压得一篇正文都看不见 ——
+   读者打开首页想看的是文章，不是栏目墙。横滑只占一排，
    右缘渐隐一下，暗示后面还有。 */
 @media (max-width: 720px) {
   main.wrap.home .tagbar {
@@ -375,23 +374,15 @@ main:focus { outline: none; }
     mask-image: linear-gradient(90deg, #000 92%, transparent);
   }
   main.wrap.home .tagbar::-webkit-scrollbar { display: none; }
-  main.wrap.home .tagbar + .tagbar { margin-top: 9px; }
   main.wrap.home .tagbar > * { flex: 0 0 auto; }
 }
-.bar-label { font-size: 12.5px; color: var(--muted); margin-right: 2px; }
 .cat-chip { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 a.cat-chip:hover { filter: brightness(0.96); }
 
-/* 标签云不再上色。
-   早先按标签名哈希取十色（复用评论头像那套函数），色相落在一个 5px 圆点上 ——
-   但一排彩色圆点彼此抵消，等于没有强调色；色相按名字哈希也没有语义，
-   读者无法从中读出任何东西。按「去掉一个元素信息没少就去掉」，
-   色板、圆点、按色 hover 全部删除，只剩字重分档：
-   文章越多字号越重，这是这条栏里唯一真实的信息。
-   avatar.js 仍会输出 tw-tN 类名（与 ava-tN 同名色相），CSS 侧不再消费，
-   要恢复按名着色时从这里往上加，不要另起一份。 */
-.tag.tw-w2 { font-size: 12.5px; font-weight: 500; }
-.tag.tw-w3 { font-size: 13px; font-weight: 600; }
+/* 标签云的字重分档（.tag.tw-w2 / .tw-w3）随首页那条标签筛选栏一起下线：
+   .tag 现在只剩栏目栏的「全部」与 cat-chip，没有按文章数分档的地方。
+   历史：先删了按名取色的十色板（一排彩色圆点彼此抵消，色相按名字哈希也没语义），
+   只剩字重；再后来整条栏都没了。要恢复，从这里往上加，不要另起一份。 */
 
 /* 栏目页 */
 .tax-section { margin-bottom: 40px; }
@@ -2939,16 +2930,46 @@ main.home .hero p#hero-sub { position: relative; margin: 0; color: color-mix(in 
 .home-shell { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
 .home-main { min-width: 0; }
 .home-side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 76px; }
+
+/* ---- 侧栏折叠（窄屏）----
+   作者卡 / 标签 / 最近 三块在 390 上是列表之后再延伸约 700px 的内容，
+   滑到底的人才看得见 —— 等于没有。窄屏收进一个 details：默认收起，点开才占位。
+
+   · summary 在桌面 display:none，details 恒为 open（模板里就带 open，窄屏 JS 才移除）；
+     反过来的写法（模板不带 open、桌面 CSS 展开）不成立：CSS 改不了 details 的开合。
+   · 走 <details> 不走 checkbox hack：键盘可操作、aria-expanded 自带、
+     脚本被拦时三块仍是展开的 —— 退回改版前的样子，不是丢内容。
+   · 开合状态挂在 [open] 属性上，check-desktop 直接读它，不靠计算样式。 */
+.side-fold-body { display: flex; flex-direction: column; gap: 16px; }
+/* 默认（桌面）不显示折叠条，靠 details 的 open 展示内容 */
+.side-fold-bar { display: none; list-style: none; }
+.side-fold-bar::-webkit-details-marker { display: none; }
+@media (max-width: 1079px) {
+  /* 折叠条自成一张卡：50px 高是拇指目标，和下面三块留 10px 的缝 */
+  .side-fold-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    min-height: 50px; padding: 0 14px; margin-bottom: 10px;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: var(--card); box-shadow: var(--shadow);
+    font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  .side-fold-bar i { font-style: normal; font-weight: 400; font-size: 12px; color: var(--muted); }
+  /* 箭头用字符，省三条 border 拼三角；收起朝下=可展开，展开朝上=可收起 */
+  .side-fold-bar::after {
+    content: "▾"; flex: 0 0 auto; color: var(--muted); font-size: 11px;
+    transition: transform 0.18s ease;
+  }
+  .side-fold[open] .side-fold-bar::after { transform: rotate(180deg); }
+  .side-fold-body { gap: 10px; }
+}
 main.home .toolbar { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
 main.home .toolbar .search input { border: 0; background: var(--bg-soft); }
 main.home .tagbar { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
-main.home .tagbar .bar-label { display: none; }
 main.home .tagbar .tag { border: 0; background: var(--bg-soft); padding: 3px 9px; }
 main.home .tagbar .tag:hover, main.home .tagbar .cat-chip { background: var(--accent-soft); color: var(--accent); }
 
 /* 精选条横跨两列：留在左列会让第一行错位，右列第一张卡悬在半空 */
 main.home .picks { grid-column: 1 / -1; padding: 13px 18px 6px; border-radius: 12px; }
-main.home #tagbar { display: none; }
 
 /* 双列大卡 */
 main.home .post-list { gap: 16px; }

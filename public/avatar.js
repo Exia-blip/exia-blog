@@ -50,11 +50,3 @@ function hashTone(s) {
 export function avatarTone(name = '') {
   return `ava-t${hashTone(name)}`;
 }
-
-/* 标签云配色：色相复用同一个哈希（换设备/刷新同色，和评论头像风格统一），
-   权重按文章数分三档。返回 class 串由 SSR 与前端两处共用，避免各写一套漂移。 */
-export function tagClass(name = '', count = 0) {
-  const n = Number(count) || 0;
-  const w = n >= 6 ? 3 : n >= 3 ? 2 : 1;
-  return `tag tw-t${hashTone(name)} tw-w${w}`;
-}

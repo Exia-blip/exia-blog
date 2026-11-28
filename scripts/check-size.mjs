@@ -39,10 +39,17 @@
 // 相邻选择器选中的那条 margin 永远不生效），省下的字节可以忽略。
 //
 // 所以这次按上面那条给自己留下的规矩记账：**下一次再撞线，必须先做一轮死规则清理
-// 再谈抬上限** —— 已确认可下线、待处理的两处：
-//   ① 首页 #tagbar 整块（HTML + SVG 填充逻辑还在跑，CSS 已 display:none）
-//   ② .bar-label 在首页被 display:none，但 SSR 仍在输出「栏目 / 标签」两个 span
-// 这两处都涉及模板与 JS，没有在本次改动里动 —— 别把它们算成已经清过了。
+// 再谈抬上限**。
+//
+// 【2026-11-28 手机侧栏折叠，清账】上面记的两处已清干净，三头一起：
+//   ① 首页 #tagbar：模板里的 div 删了、renderListBars 的 <!--TAGBAR--> 分支删了、
+//      loadTags() 的填充删了、`main.home #tagbar{display:none}` 删了。SSR 一直在拼、
+//      客户端一直在填、CSS 一直在藏 —— 三条链都没有产物，是纯耗。
+//   ② .bar-label 两个 span：SSR 不再输出，`.bar-label` 全局规则与首页那条 display:none 一起删。
+//   连带删掉的还有 `.tagbar + .tagbar`（第二条栏没了，相邻选择器永远不命中）。
+// 折算下来 gzip 少了约 300 B，折叠新增约 900 B（details 结构 + 折叠条 + 两条媒体查询），
+// 净 +594 → 47851。**上限没有动，仍是 48000**：这次增长是有意的功能，不是膨胀。
+// 余量只剩 149 B，下一次再动 CSS 必须先看这里 —— 别顺手把上限当默认答案。
 
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';

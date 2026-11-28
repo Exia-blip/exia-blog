@@ -1219,6 +1219,17 @@
 
 ---
 
+## P-116 手机端侧栏该收起，不是删掉 —— 但 CSS 打不开 details
+
+- **现象**：P-115 把手机列表压到 2287px 之后，作者卡 / 标签 / 最近三块仍然整块摆在列表下面：390 上它们从 2287 再往下延伸 **650px**（`.side-fold-body` 实测高 650），滑到那儿的读者基本不存在。桌面 300px 右栏里这三块是合理的（一屏能并排看），手机上它们只是「复制了一份桌面结构」。
+- **根因**：`.home-side` 在 ≤1079 从 `position:sticky` 的右栏变成单列尾部，但**没有任何地方决定「它还该不该占位置」**。三块 `section.widget` 各自有边框、阴影、16px 间距，堆在列表之后就是一个 650px 的尾巴。删掉不行（作者卡是站点身份、最近是导航入口），只能折叠。
+- **复现**：`node scripts/check-desktop.mjs`，或直接量：`document.querySelector('.side-fold-body').getBoundingClientRect().height` → 650。改后 390 页高 2287 → 展开 2937（点一下折叠条），收起态下 `.side-fold` 只剩 60px。
+- **断言**：`check-desktop.mjs` 四条 —— 390：`sideFoldOpen === false`、折叠条 `display !== none` 且宽 > 100 / 高 ≥ 44、`.side-fold-body > .widget` 仍是 3 张；1920：`sideFoldOpen === true` 且折叠条 `display === 'none'`。**开合状态读 `[open]` 属性而不是计算样式**：CSS 改不了 details 的开合，读高度或 `display` 只能验到「卡片在不在」，验不到「是不是默认收起」。注入验证两次：① 注释掉 JS 的 `syncFold()` → 「侧栏默认收起」红（open=true），其余不动；② 把桌面那条 `display:none` 改成 `flex` → 「桌面侧栏不折叠」红。
+- **边界**：① **不能让 CSS 展开 details**：模板写 `open` 是唯一可靠的开态，想让「桌面展开、手机收起」就必须有一处 JS 在小屏移除 `open`（`matchMedia('(max-width:1079px)')` + `change` 监听，跨断点时跟着切）。反过来（模板不带 `open`、桌面用 CSS 展开）不成立 —— `details:not([open])` 的内容不渲染，`display:block` 覆盖不了。② **模板必须带 `open`**：脚本被 CSP 拦、爬虫不执行 JS、或 JS 抛在 `syncFold` 之前时，三块仍是展开的 —— 退化成改版前的样子，不是丢内容。这是选 `<details>` 而不是 checkbox hack 的主要理由（还附带键盘可操作与 `aria-expanded`）。③ **打印不受影响**：`@media print` 里 `.home-side` 本来就有 `display:none !important`，收起态不会漏印半张卡；也因此**没有**为折叠新增第二段 `@media print`（T-08 只许一段）。④ **改完 CSS 必须 `npm run build:sri` 且重启 dev server**：这次漏了重启，浏览器按旧 integrity 拦掉新 CSS，症状是**整站样式全丢**（`--frame` 为空、30 条断言同时红、折叠条 computed `display` 是 UA 默认的 `list-item`），看起来像 CSS 语法错误或选择器写错 —— 实际是哈希没跟上。⑤ **不要用 python 文本模式改 CSS**：Windows 下 `open(..., 'w')` 会把整个文件 LF 改成 CRLF（3287 行全变），diff 变成全文重写；改样式一律用编辑器工具或 `newline=''`，改完 `python -c "print(open(p,'rb').read().count(b'\r\n'))"` 复核一遍。
+- **出处**：`public/index.html`（`<details class="side-fold" open>` + `syncFold()`）、`public/style.css`（`.side-fold-bar` 默认 `display:none`，`max-width:1079` 里才是卡片形态）、`scripts/check-desktop.mjs`（`sideFoldOpen` / `foldBar` / `sideKids`）、P-115（手机形态）、P-112（先把几何算清楚再决定放哪）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

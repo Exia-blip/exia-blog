@@ -52,8 +52,6 @@
            结果首屏渲染完再过一两百毫秒整块内容往下推 90 多像素 —— CLS 全在这儿。 -->
       <div class="tagbar" id="catbar"><!--CATBAR--></div>
 
-      <div class="tagbar" id="tagbar"><!--TAGBAR--></div>
-
       <div class="post-list" id="list" aria-live="polite">
         <!--LIST-->
       </div>
@@ -62,24 +60,32 @@
     </section>
 
     <aside class="home-side" aria-label="站点信息">
-      <section class="widget author-widget">
-        <div class="aw-cover"><span class="aw-dot"></span></div>
-        <div class="aw-avatar" id="aw-avatar" aria-hidden="true">E</div>
-        <b class="aw-name" id="aw-name">Exia Blog</b>
-        <p class="aw-desc" id="aw-desc">写字的地方</p>
-        <div class="aw-links">
-          <a href="https://github.com/Exia-blip" target="_blank" rel="noopener noreferrer">GitHub</a>
-          <a href="/rss.xml">RSS</a>
+      <!-- 手机上三块收进 <details>：默认收起，点一下才占位置。
+           模板里带 open，脚本被拦或停用时三块照样是展开的（退回改版前的样子，
+           不是丢内容）；桌面 summary 直接 display:none，details 恒开。 -->
+      <details class="side-fold" id="side-fold" open>
+        <summary class="side-fold-bar"><span>站点信息</span><i>作者 · 标签 · 最新</i></summary>
+        <div class="side-fold-body">
+          <section class="widget author-widget">
+            <div class="aw-cover"><span class="aw-dot"></span></div>
+            <div class="aw-avatar" id="aw-avatar" aria-hidden="true">E</div>
+            <b class="aw-name" id="aw-name">Exia Blog</b>
+            <p class="aw-desc" id="aw-desc">写字的地方</p>
+            <div class="aw-links">
+              <a href="https://github.com/Exia-blip" target="_blank" rel="noopener noreferrer">GitHub</a>
+              <a href="/rss.xml">RSS</a>
+            </div>
+          </section>
+          <section class="widget">
+            <h2 class="wg-title">标签</h2>
+            <div class="side-tags" id="side-tags"><!--SIDETAGS--></div>
+          </section>
+          <section class="widget">
+            <h2 class="wg-title">最近</h2>
+            <ul class="side-recent" id="side-recent"><!--SIDERECENT--></ul>
+          </section>
         </div>
-      </section>
-      <section class="widget">
-        <h2 class="wg-title">标签</h2>
-        <div class="side-tags" id="side-tags"><!--SIDETAGS--></div>
-      </section>
-      <section class="widget">
-        <h2 class="wg-title">最近</h2>
-        <ul class="side-recent" id="side-recent"><!--SIDERECENT--></ul>
-      </section>
+      </details>
     </aside>
   </div>
 </main>
@@ -87,13 +93,21 @@
 <script type="module">
 import { api, fmtDate, esc, mountHeader, toast, site } from '/app.js';
 import { autoThumb } from '/cover.js';
-import { tagClass } from '/avatar.js';
 
 const listEl = document.getElementById('list');
-const tagbarEl = document.getElementById('tagbar');
 const catbarEl = document.getElementById('catbar');
 const pagerEl = document.getElementById('pager');
 const qInput = document.getElementById('q');
+
+/* 侧栏折叠：只在窄屏收起。模板带 open（见 aside 那里的注释），这里按断点同步，
+   跨过 1079 时跟着切 —— 从手机拉到桌面，正文旁边不该只剩一条「站点信息」。 */
+const foldEl = document.getElementById('side-fold');
+if (foldEl) {
+  const mq = matchMedia('(max-width: 1079px)');
+  const syncFold = () => { foldEl.open = !mq.matches; };
+  syncFold();
+  if (mq.addEventListener) mq.addEventListener('change', syncFold);
+}
 
 // 路由：/tag/名字 或 /?q=
 const pathParts = location.pathname.split('/').filter(Boolean);
@@ -288,42 +302,35 @@ function renderPager(pages, total) {
     ${page < pages ? `<a class="btn sm" href="${qs(page + 1)}">下一页 →</a>` : ''}`;
 }
 
-/* 这两条筛选栏服务端已经画好了（src/index.js 的 renderListBars）。
+/* 栏目筛选栏服务端已经画好了（src/index.js 的 renderListBars）。
    这里再 innerHTML 一遍，内容虽然一样，浏览器仍要重新布局一次 ——
    而这一下正是 CLS 的来源。SSR 给出来了就不再碰；只有 SSR 没给
-   （接口挂了、或者模板换了别的版本）才落回客户端渲染。 */
-const ssrBars = { cat: catbarEl.childElementCount > 0, tag: tagbarEl.childElementCount > 0 };
+   （接口挂了、或者模板换了别的版本）才落回客户端渲染。
+   标签筛选栏 2026-11-28 整块删掉了：`main.home #tagbar{display:none}`
+   一直挂着，SSR 在渲染、客户端在填充、CSS 在隐藏，三头都白跑。 */
+const ssrBar = catbarEl.childElementCount > 0;
 
 async function loadCats() {
-  if (ssrBars.cat) return;
+  if (ssrBar) return;
   try {
     const { categories } = await api('/api/categories');
     if (!categories.length) { catbarEl.innerHTML = ''; return; }
     catbarEl.innerHTML =
-      `<span class="bar-label">栏目</span>` +
       `<a class="tag" href="/" style="${!currentCat && !currentTag ? 'background:var(--accent-soft);color:var(--accent)' : ''}">全部</a>` +
       categories.map((c) => `<a class="tag cat-chip" href="/cat/${encodeURIComponent(c.slug)}" title="${esc(c.desc || '')}"
         style="${currentCat === c.slug ? 'background:var(--accent-soft);color:var(--accent)' : ''}">${esc(c.name)} ${c.count}</a>`).join('');
   } catch {}
 }
 
-async function loadTags() {
-  if (ssrBars.tag) return;
+async function loadSideTags() {
+  const side = document.getElementById('side-tags');
+  if (!side || side.childElementCount) return;
   try {
     const { tags } = await api('/api/tags');
-    if (!tags.length) return;
-    tagbarEl.innerHTML =
-      `<span class="bar-label">标签</span>` +
-      `<a class="tag" href="/" style="${!currentTag ? 'background:var(--accent-soft);color:var(--accent)' : ''}">全部</a>` +
-      tags.map((t) => `<a class="${tagClass(t.name, t.count)}" href="/tag/${encodeURIComponent(t.name)}"
-        style="${currentTag === t.name ? 'background:var(--accent-soft);color:var(--accent)' : ''}">#${esc(t.name)} ${t.count}</a>`).join('');
-    const side = document.getElementById('side-tags');
-    if (side && !side.childElementCount) {
-      side.innerHTML = tags
-        .slice(0, 12)
-        .map((t) => `<a class="side-tag" href="/tag/${encodeURIComponent(t.name)}">#${esc(t.name)}<i>${t.count}</i></a>`)
-        .join('');
-    }
+    side.innerHTML = tags
+      .slice(0, 12)
+      .map((t) => `<a class="side-tag" href="/tag/${encodeURIComponent(t.name)}">#${esc(t.name)}<i>${t.count}</i></a>`)
+      .join('');
   } catch {}
 }
 
@@ -380,7 +387,7 @@ function applyQuery() {
 
 mountHeader(currentTag ? 'tag' : currentCat ? 'cat' : 'home');
 loadCats();
-loadTags();
+loadSideTags();
 
 // 文章列表与分页已经由服务端渲染好了，只有搜索要走接口
 const BOOT = window.__LIST__;
