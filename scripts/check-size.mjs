@@ -50,6 +50,17 @@
 // 折算下来 gzip 少了约 300 B，折叠新增约 900 B（details 结构 + 折叠条 + 两条媒体查询），
 // 净 +594 → 47851。**上限没有动，仍是 48000**：这次增长是有意的功能，不是膨胀。
 // 余量只剩 149 B，下一次再动 CSS 必须先看这里 —— 别顺手把上限当默认答案。
+//
+// 【第六次：2026-11-28 审计 P1 五条】上限 48000 → 49000（实测 48681）。
+// 先按上面那条规矩清死规则，再谈抬：
+//   ① 代码块的右缘渐隐从 ::after 覆盖层换成 mask（P-119），覆盖层与它的
+//      `.md .code-wrap{position:relative}` 一起删了 —— 覆盖层还要按 .code-head 的
+//      高度定位，没有头部的块本来就错位，等于删掉一段「只在部分情况下对」的规则。
+//   ② 按「CSS 里出现的类名 × 全仓库引用」扫了一遍零引用类名：**0 个**。
+//      唯一命中 ava-t0..t9 是 avatar.js 的 `ava-t${hashTone(name)}` 拼出来的动态名，
+//      不是死类。这次没有可清的存货了。
+// 新增的五条全是真规则：代码块 mask（4 条）、行内代码两档（3 条 + 媒体查询）、
+// 卡片留两行（1 条 + 媒体查询）、评论表单窄屏单列、目录+回顶胶囊（8 条）。gzip +1.4 KB。
 
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -60,7 +71,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const BASELINE = join(ROOT, 'scripts/.size-baseline.json');
 const GROWTH = 1.1;
 const LIMITS = {
-  mainGzip: 48000,   // public/style.css，gzip -9；2026-11-28 按安知鱼整站改版实测重定
+  mainGzip: 49000,   // public/style.css，gzip -9；2026-11-28 审计 P1 实测 48681
   themeRaw: 2000,    // public/theme/*.css，每个文件的原始字节
 };
 

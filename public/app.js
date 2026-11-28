@@ -375,14 +375,18 @@ export function lazyIframes(root = document) {
 }
 
 /* 代码块横向滚动标记。
-   渐隐阴影不能常驻：短代码块根本没有可滚动的量，常驻阴影会让它看起来"右边还有内容"。
-   所以按 scrollWidth 判一次，滚到右端再把阴影撤掉。scroll 事件不冒泡，只能捕获。 */
+   渐隐不能常驻：短代码块根本没有可滚动的量，常驻会让它看起来"右边还有内容"。
+   所以按 scrollWidth 判一次，滚到右端再撤掉。scroll 事件不冒泡，只能捕获。
+   at-end 要和 overflowing 在同一次判定里落 —— 只在 scroll 回调里写的话，
+   首屏就已经滚到末尾的块（编辑器里预览、锚点跳转后）会一直挂着渐隐。 */
 export function bindCodeScroll(root = document) {
   const marks = () => {
     for (const wrap of root.querySelectorAll('.code-wrap')) {
       const pre = wrap.querySelector('pre.code-block');
       if (!pre) continue;
-      wrap.classList.toggle('overflowing', pre.scrollWidth - pre.clientWidth > 4);
+      const over = pre.scrollWidth - pre.clientWidth > 4;
+      wrap.classList.toggle('overflowing', over);
+      wrap.classList.toggle('at-end', !over || pre.scrollLeft + pre.clientWidth >= pre.scrollWidth - 4);
     }
   };
   root.addEventListener(
@@ -406,6 +410,56 @@ export function bindCodeScroll(root = document) {
   );
   marks();
   return marks;
+}
+
+/* 行内代码折行：窄屏默认整段不折（"Server-Timing" 断在连字符上，胶囊会裂成两截），
+   只有「确实放不下」的才放开。
+   判据必须是测量而不是字数：等宽字体里全角、连字符、字母占的宽度都不一样，
+   按字符数估会把 24 个宽字符当成 24 个窄字符。
+   测的是「这一行里还剩多少地方」，不是「它自己有多宽」——
+   前面紧跟一个 `、` 时，避头尾规则不允许在它之前断行，77px 的代码照样会被挤出右边界，
+   而它的宽度远小于容器。所以拿元素右缘和所在块的内容右缘比。
+   做法：先给全部挂上 nowrap 的测量类 → 一次读布局 → 再一次性回写。
+   读写分开只触发两次布局；逐元素「读一个写一个」会踩强制同步布局。 */
+export function bindInlineCode(root = document) {
+  const NARROW = 641; // 与 style.css 里 640 那条断点同源
+  const mark = () => {
+    const items = [...root.querySelectorAll('.md code')].filter((c) => !c.closest('pre'));
+    if (!items.length) return;
+    const narrow = innerWidth < NARROW;
+    if (!narrow) {
+      for (const c of items) c.classList.remove('code-keep', 'code-long');
+      return;
+    }
+    for (const c of items) c.classList.add('code-keep');
+    /* 所在块的「内容右缘」：clientWidth 不含边框，clientLeft 是左内边距 */
+    const blockOf = (el) => {
+      for (let n = el.parentElement; n; n = n.parentElement) if (n.clientWidth) return n;
+      return null;
+    };
+    const rows = items.map((c) => {
+      const box = blockOf(c);
+      if (!box) return { c, fits: true };
+      const br = box.getBoundingClientRect();
+      const contentRight = br.left + box.clientLeft + box.clientWidth;
+      return { c, fits: c.getBoundingClientRect().right <= contentRight + 1 };
+    });
+    for (const { c, fits } of rows) {
+      c.classList.toggle('code-keep', fits);
+      c.classList.toggle('code-long', !fits);
+    }
+  };
+  let t = 0;
+  addEventListener(
+    'resize',
+    () => {
+      clearTimeout(t);
+      t = setTimeout(mark, 180);
+    },
+    { passive: true }
+  );
+  mark();
+  return mark;
 }
 
 /* 表格横向滚动标记 —— 和代码块同一套判据，但对象不同。

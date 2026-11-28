@@ -551,9 +551,18 @@ a.cat-chip:hover { filter: brightness(0.96); }
    这是继承来的，不是谁写在这儿的，所以只能显式摘（P-058）。 */
 .md code, .md pre, .md pre code { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 /* 行内代码默认不折行是刻意的（"Ctrl/Cmd + S" 不该被拆断），
-   但整条报错原文这种超长标识符在窄屏会把整页撑宽，所以窄屏放开折行。 */
+   但窄屏放不下时会把整页撑宽。两档由 app.js 的 bindInlineCode 量出来（P-119）：
+   放得下 → .code-keep 整段不折；真放不下 → .code-long 才 anywhere + clone。
+   没 JS 时退回 break-word，只在整段放不下时才断。 */
 @media (max-width: 640px) {
-  .md code { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+  .md code {
+    white-space: normal; word-break: normal; overflow-wrap: break-word;
+  }
+  .md code.code-keep { white-space: nowrap; }
+  .md code.code-long {
+    white-space: normal; overflow-wrap: anywhere;
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  }
 }
 .md .code-wrap {
   margin: 1.5em 0; border: 1px solid var(--line); border-radius: 11px; overflow: hidden; background: var(--bg-soft);
@@ -702,6 +711,11 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .cmt-form { display: grid; gap: 9px; margin-top: 22px; padding: 16px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
 .cmt-form .row { display: flex; gap: 9px; flex-wrap: wrap; }
 .cmt-form .row input { flex: 1; min-width: 130px; }
+/* 窄屏三框并一行时内容宽只剩 108px，placeholder 被截、输邮箱也挤：改单列（P-119） */
+@media (max-width: 640px) {
+  .cmt-form .row { flex-direction: column; }
+  .cmt-form .row input { min-width: 0; }
+}
 .cmt-form textarea { min-height: 110px; resize: vertical; }
 /* 蜜罐：真人看不见，自动填表的脚本会填。位置挪出视口而不是 display:none，
    某些脚本会跳过 display:none 的字段，反而不填了。 */
@@ -2318,11 +2332,12 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 .md .code-meta { display: inline-flex; align-items: center; gap: 8px; }
 .md .code-ln { font-size: 10.5px; color: var(--muted); opacity: .85; letter-spacing: 0; }
 /* 长代码折叠：默认展开，点「收起」限高并给底部渐隐提示还有内容。
-   渐隐用 ::after 覆盖层，不动 pre 的横向滚动（bindCodeScroll 依赖它）。 */
+   渐隐走 mask 而不是覆盖层 —— bindCodeScroll 依赖 pre 自己的横向滚动，
+   覆盖层挂在 pre 上会跟着内容一起滚。 */
 .md .code-wrap.folded pre.code-block {
   max-height: 168px; overflow-y: hidden;
-  -webkit-mask-image: linear-gradient(#000 72%, transparent);
-  mask-image: linear-gradient(#000 72%, transparent);
+  -webkit-mask-image: var(--fade-b);
+  mask-image: var(--fade-b);
 }
 .md .fold-btn {
   background: none; border: 0; color: var(--muted); cursor: pointer;
@@ -2373,21 +2388,34 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 }
 
 
-/* ============ 窄屏目录：右下浮动按钮 + 底部抽屉 ============ */
+/* ============ 窄屏目录：右下浮动胶囊 + 底部抽屉 ============
+   胶囊两段：左开目录、右回顶。以前目录与 .back-top 各浮一个，390 下竖叠 102px，
+   盖掉正文一行（P-119）。有胶囊时独立回顶收起；不支持 :has 就退回旧观感。 */
 .mtoc-btn {
-  position: fixed; right: 16px; bottom: 78px; z-index: 95;
-  display: none; align-items: center; gap: 6px;
-  height: 40px; padding: 0 14px 0 11px; border-radius: 999px;
+  position: fixed; right: 16px; bottom: 18px; z-index: 95;
+  display: none; align-items: stretch;
+  height: 40px; border-radius: 999px; overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
   background: color-mix(in srgb, var(--card) 92%, transparent);
   backdrop-filter: blur(10px); box-shadow: var(--shadow);
-  color: var(--fg-soft); font-family: var(--mono); font-size: 11.5px; letter-spacing: .06em;
   opacity: 0; transform: translateY(8px); pointer-events: none;
   transition: opacity .18s, transform .18s;
 }
 .mtoc-btn.on { opacity: 1; transform: none; pointer-events: auto; }
+/* 两段都是真 <button>：一个按钮包两段就得靠坐标猜意图 */
+.mtoc-btn > button {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 12px; border: 0; background: none; cursor: pointer;
+  color: var(--fg-soft); font-family: var(--mono); font-size: 11.5px; letter-spacing: .06em;
+}
+.mtoc-btn > button:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.mtoc-open { padding-left: 11px !important; }
+.mtoc-top { border-left: 1px solid color-mix(in srgb, var(--line) 85%, transparent) !important; }
 .mtoc-btn svg { width: 14px; height: 14px; }
 .mtoc-btn .n { color: var(--muted); }
+@media (max-width: 1079px) {
+  body:has(.mtoc-btn) .back-top { display: none; }
+}
 
 .mtoc {
   position: fixed; inset: 0; z-index: 120; display: none;
@@ -2527,7 +2555,6 @@ mark {
    长代码必然要横滚，但原生滚动条在 macOS 上默认不显示、在 Windows 上又粗又突兀，
    读者常常以为「这行就是被截断了」。三件事：细滚动条常显、滚到头时右侧渐隐消失、
    横向滚动不把整页带着一起滚（overscroll-behavior）。 */
-.md .code-wrap { position: relative; }
 .md pre.code-block {
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
@@ -2540,13 +2567,22 @@ mark {
   border-radius: 4px;
 }
 .md pre.code-block::-webkit-scrollbar-thumb:hover { background: var(--muted); }
-/* 右侧渐隐：只在「确实还能往右滚」时出现，滚到头自动撤掉，
-   免得到一个永远存在的阴影让人误以为还有内容。 */
-.md .code-wrap.overflowing:not(.at-end)::after {
-  content: ''; position: absolute; top: 31px; right: 1px; bottom: 1px; width: 26px;
-  background: linear-gradient(90deg, transparent, var(--bg-soft));
-  pointer-events: none;
+/* 渐隐只有两种形态：右缘（横向还能滚）、底缘（折叠态还有下文）。抽成变量，
+   两态同时成立就叠两层 —— mask 默认 add 合成，取的是「两边都可见才算可见」。
+   用 mask 不用覆盖层：覆盖层要按 .code-head 的高度定位（无头的块会错位），
+   还得自己画一块 --bg-soft，主题一换就露馅（P-119）。 */
+.md pre.code-block {
+  --fade-r: linear-gradient(to right, #000 calc(100% - 30px), transparent);
+  --fade-b: linear-gradient(#000 72%, transparent);
 }
+.md .code-wrap.overflowing pre.code-block { -webkit-mask-image: var(--fade-r); mask-image: var(--fade-r); }
+.md .code-wrap.folded.overflowing pre.code-block {
+  -webkit-mask-image: var(--fade-r), var(--fade-b);
+  mask-image: var(--fade-r), var(--fade-b);
+}
+.md .code-wrap.overflowing.at-end pre.code-block { -webkit-mask-image: none; mask-image: none; }
+/* 滑到末尾只撤横向那层：底部渐隐是折叠态自己的事 */
+.md .code-wrap.folded.overflowing.at-end pre.code-block { -webkit-mask-image: var(--fade-b); mask-image: var(--fade-b); }
 
 /* ============ 搜索空结果 ============
    一句话提示撑满一整块空白，太浪费了：把关键词回显、给两条出口，
@@ -2941,6 +2977,12 @@ main.home .card-cat { padding: 2px 9px; border-radius: 999px; background: var(--
 main.home .card-tag { color: var(--muted); }
 main.home .post-card h2 { margin: 0 0 7px; font-family: var(--sans); font-size: 17px; font-weight: 700; line-height: 1.5; letter-spacing: -0.01em; }
 main.home .post-card .excerpt { margin: 0 0 12px; color: var(--muted); font-size: 13.5px; line-height: 1.68; }
+/* 同一行的卡必须一样高：缺摘要短 57px、单行标题再短 25px，grid 会拉齐整行、
+   封面跟着变高（P-119）。标题与摘要各留两行；≤1079 是横排紧凑卡，不套。 */
+@media (min-width: 1080px) {
+  main.home .post-card h2 { min-height: calc(2 * 1.5em); }
+  main.home .post-card .excerpt { min-height: calc(2 * 1.68em); }
+}
 main.home .card-meta { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 12px; }
 main.home .sk-card { overflow: hidden; border-radius: 12px; }
 

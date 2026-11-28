@@ -19,7 +19,7 @@ import { edgeGet, edgePut, EDGE_TTL, EDGE_SWR, pageCacheControl } from './cache.
 import { THEME_BG as THEME_COLOR } from './assets.gen.js';
 import { THEME_BG_DARK } from './assets.gen.js';
 import { timedDb, withServerTiming } from './timing.js';
-import { CATS, catBySlug, catName, normalizeCat } from './taxonomy.js';
+import { CATS, catBySlug, catName, normalizeCat, foldTags } from './taxonomy.js';
 import { normalizePagePath } from './routes.js';
 import { NUMBER_GROUPS, allNumbers, numberStats } from './numbers.js';
 
@@ -450,7 +450,7 @@ export function renderComments(rows, total, viewer = null) {
         <label class="sr-only" for="cmt-website">网站（可选）</label>
         <div class="row" id="guest-fields">
           <input id="cmt-name" type="text" name="name" placeholder="昵称 *" maxlength="40" autocomplete="nickname" required>
-          <input id="cmt-email" type="email" name="email" placeholder="联系邮箱 *（不公开，仅博主可见）" maxlength="120" autocomplete="email" required>
+          <input id="cmt-email" type="email" name="email" placeholder="邮箱 *（不公开）" title="不公开，仅博主可见" maxlength="120" autocomplete="email" required>
           <input id="cmt-website" type="url" name="website" placeholder="网站（可选）" maxlength="200">
         </div>
         <label class="sr-only" for="cmt-content">评论内容（必填）</label>
@@ -1579,7 +1579,10 @@ function postCard(p, i = 0) {
   return `<a class="post-card" href="/p/${encodeURIComponent(p.slug)}"><div class="card-cover">${cover}</div><div class="card-body">${
     kicker ? `<div class="card-kicker">${kicker}</div>` : ''
   }<h2>${esc(p.title)}${p.is_private ? ' <span class="tiny muted">私密</span>' : ''}</h2>${
-    p.excerpt ? `<p class="excerpt">${esc(p.excerpt)}</p>` : ''
+    /* 摘要节点恒出：以前只给有摘要的文章渲染，缺摘要的卡就短两行，
+       grid 把那一行拉齐、封面被拉高 —— 一行里三种卡片高度。
+       空串留在里面，占位交给 CSS（见 style.css 的 min-height 注释）。 */
+    `<p class="excerpt">${p.excerpt ? esc(p.excerpt) : ''}</p>`
   }<div class="card-meta"><span>${esc(fmtDay(p.published_at || p.created_at))}</span><span>${p.reading} 分钟</span>${
     p.words ? `<span>${p.words} 字</span>` : ''
   }${p.comments ? `<span>${p.comments} 条评论</span>` : ''}</div></div></a>`;
@@ -2462,7 +2465,11 @@ async function serveSitemap(env, request) {
         .join('\n')
     : `  <url><loc>${origin}/series</loc></url>`;
 
-  const tagUrls = tags
+  /* 标签行按别名折叠后再出地址：存量的 cf / cloudflare 两行会让同一个页面
+     在 sitemap 里登记两次，而其中一条马上会被 301 走 —— 重复登记是明确的质量扣分。 */
+  const tagRows = foldTags(tags, { name: 'n', count: 'c', last: 'last' });
+
+  const tagUrls = tagRows
     .filter((t) => t.c > 0)
     .map((t) => `  <url><loc>${origin}/tag/${encodeURIComponent(t.n)}</loc>${lm(t.last)}</url>`)
     .join('\n');

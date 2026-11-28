@@ -59,6 +59,7 @@ import {
   catName,
   normalizeTag,
   normalizeTags,
+  foldTags,
   isSeedTag,
 } from './taxonomy.js';
 
@@ -397,7 +398,9 @@ export async function tagsData(db) {
        GROUP BY t.name ORDER BY count DESC, t.name ASC`
     )
     .all();
-  return results;
+  /* 存量别名行（cf / cloudflare）在这里合并成一条：写入侧 normalizeTag 只管新的，
+     库里那两行是 ALTER 之前留下的，标签云与 /api/tags 都会原样吐出去。 */
+  return foldTags(results);
 }
 
 /* ---------- 友链（接口与 /friends 的 SSR 共用） ---------- */

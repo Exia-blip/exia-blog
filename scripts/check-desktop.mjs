@@ -337,6 +337,128 @@ if (tb) {
   await tblPage.close();
 }
 
+/* ---------- 2026-11-28 审计 P1 的真实渲染验证 ----------
+   这一批的对方物同样是浏览器算出来的东西：mask 写着但被别条规则压住看不出来，
+   卡片「留两行」留没留只有量高度才知道，行内代码断没断只有数 client rects 才知道。 */
+console.log('\nP1 修复 · 真浏览器');
+
+/* ④ 卡片同高：摘要恒出 + 两行留白之后，一行里的卡不能再有三种高度 */
+for (const w of [1440, 1920]) {
+  const pg = await browser.newPage();
+  await pg.setViewport({ width: w, height: 900 });
+  await pg.goto(`${ORIGIN}/?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+  const hs = await pg.evaluate(() => {
+    const cards = [...document.querySelectorAll('main.home .post-card')];
+    const covers = [...document.querySelectorAll('main.home .card-cover')];
+    return {
+      h: [...new Set(cards.map((c) => Math.round(c.getBoundingClientRect().height)))],
+      cover: [...new Set(covers.map((c) => Math.round(c.getBoundingClientRect().height)))],
+    };
+  });
+  check(`首页 @${w} 卡片单一高度`, hs.h.length === 1, `${hs.h.length} 种：${hs.h.slice(0, 4).join('/')}`);
+  check(`首页 @${w} 封面同高（没被 grid 拉伸补齐）`, hs.cover.length === 1, `${hs.cover.slice(0, 4).join('/')}`);
+  await pg.close();
+}
+
+/* ⑤ 代码块右缘渐隐 + 滑到末尾撤掉。390 下找第一篇真有溢出代码的文章 */
+let codePg = null;
+let codeGot = null;
+for (const p of postLinks) {
+  const pg = await browser.newPage();
+  await pg.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+  await pg.goto(`${ORIGIN}${p}?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+  await new Promise((r) => setTimeout(r, 400));
+  const got = await pg.evaluate(() => {
+    for (const wrap of document.querySelectorAll('.code-wrap')) {
+      const pre = wrap.querySelector('pre.code-block');
+      if (!pre || pre.scrollWidth - pre.clientWidth <= 4) continue;
+      const cs = getComputedStyle(pre);
+      return {
+        cls: wrap.className,
+        mask: cs.maskImage || cs.webkitMaskImage || '',
+        after: getComputedStyle(wrap, '::after').backgroundImage || '',
+      };
+    }
+    return null;
+  });
+  if (got) { codePg = pg; codeGot = { ...got, path: p }; break; }
+  await pg.close();
+}
+check('找到溢出代码块样本', !!codeGot, codeGot ? `${codeGot.path}` : '首页前 6 篇都没有溢出代码块');
+if (codeGot) {
+  check('溢出代码块有右缘渐隐（mask 在 pre 上）', /linear-gradient\(to right/.test(codeGot.mask), codeGot.mask.slice(0, 40));
+  /* 旧的覆盖层是按 .code-head 高度定位的，撤掉之后 ::after 不该再画东西 */
+  check('不再用 ::after 覆盖层', !codeGot.after || codeGot.after === 'none', codeGot.after.slice(0, 32));
+  await codePg.evaluate(() => {
+    const pre = document.querySelector('.code-wrap.overflowing pre.code-block');
+    if (pre) pre.scrollLeft = pre.scrollWidth;
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  const endMask = await codePg.evaluate(() => {
+    const wrap = document.querySelector('.code-wrap');
+    const pre = wrap && wrap.querySelector('pre.code-block');
+    return { cls: wrap ? wrap.className : '', mask: pre ? getComputedStyle(pre).maskImage : '' };
+  });
+  check('代码块滑到末尾撤掉渐隐', /at-end/.test(endMask.cls) && endMask.mask === 'none', `${endMask.cls} / ${endMask.mask}`);
+  /* ⑥ 行内代码：放得下的一律不断，断了的只能是真放不下的长串 */
+  const inl = await codePg.evaluate(() => {
+    const codes = [...document.querySelectorAll('.md code')].filter((c) => !c.closest('pre'));
+    const split = codes.filter((c) => c.getClientRects().length > 1);
+    return {
+      total: codes.length,
+      keep: codes.filter((c) => c.classList.contains('code-keep')).length,
+      splitShort: split.filter((c) => c.textContent.trim().length <= 12).map((c) => c.textContent.trim()).slice(0, 4),
+      over: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  check('行内代码无横向溢出', inl.over <= 1, `${inl.over}px`);
+  check('短行内代码不再被拆行', inl.splitShort.length === 0, inl.splitShort.join(' / ') || '无');
+  await codePg.close();
+}
+
+/* ⑦ 窄屏浮层：只剩一条 40px 的胶囊，独立的回顶按钮收起 */
+const fabPg = await browser.newPage();
+await fabPg.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+await fabPg.goto(`${ORIGIN}${postPath}?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+await fabPg.evaluate(() => scrollTo({ top: 2000 }));
+await new Promise((r) => setTimeout(r, 400));
+const fab = await fabPg.evaluate(() => {
+  const pill = document.querySelector('.mtoc-btn');
+  const top = document.querySelector('.back-top');
+  const box = (e) => (e ? { h: Math.round(e.getBoundingClientRect().height), bottom: Math.round(innerHeight - e.getBoundingClientRect().bottom) } : null);
+  return {
+    pill: box(pill),
+    pillOn: pill ? pill.classList.contains('on') : false,
+    segs: pill ? pill.querySelectorAll('button').length : 0,
+    topDisp: top ? getComputedStyle(top).display : 'none',
+  };
+});
+check('有目录胶囊', !!fab.pill && fab.pillOn, JSON.stringify(fab.pill));
+check('胶囊只有一行高', !!fab.pill && fab.pill.h <= 44, `${fab.pill?.h}px`);
+check('胶囊贴底（不再给回顶留位置）', !!fab.pill && fab.pill.bottom <= 24, `距底 ${fab.pill?.bottom}px`);
+check('胶囊拆成两段', fab.segs === 2, `${fab.segs} 段`);
+check('独立回顶按钮已收起', fab.topDisp === 'none', fab.topDisp);
+await fabPg.close();
+
+/* ⑧ 评论邮箱 placeholder 在 390 下不被截：文字宽度必须小于输入框内容宽 */
+const phPg = await browser.newPage();
+await phPg.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+await phPg.goto(`${ORIGIN}${postPath}?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+const ph = await phPg.evaluate(() => {
+  const i = document.querySelector('#cmt-email');
+  if (!i) return null;
+  const cs = getComputedStyle(i);
+  const c = document.createElement('canvas').getContext('2d');
+  c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  return {
+    box: i.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
+    text: c.measureText(i.placeholder).width,
+    ph: i.placeholder,
+  };
+});
+check('评论邮箱 placeholder 放得下', !!ph && ph.text <= ph.box, ph ? `${Math.round(ph.text)} / ${Math.round(ph.box)}px 「${ph.ph}」` : '找不到 #cmt-email');
+await phPg.close();
+
 await browser.close();
 console.log(fails ? `\n✗ ${fails} 项桌面框架断言失败` : '\n✓ 桌面框架断言全部通过');
 process.exit(fails ? 1 : 0);

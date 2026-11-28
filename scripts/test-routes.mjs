@@ -30,6 +30,19 @@ eq('/Archive', '/archive');
 // 两种情况叠在一起：一次跳完，不要 /Tag/x/ → /tag/x/ → /tag/x 两跳
 eq('/Tag/Cloudflare/', '/tag/cloudflare');
 
+// 标签别名：TAG_ALIAS 只管新写入，别名归并之前写下的链接要靠这里收敛。
+// 大小写与别名也要一次跳完（不许 /Tag/JS → /tag/js → /tag/javascript）。
+eq('/tag/cf', '/tag/cloudflare');
+eq('/tag/CF', '/tag/cloudflare');
+eq('/tag/js/', '/tag/javascript');
+eq('/Tag/NodeJS', '/tag/javascript');
+eq('/tag/md', '/tag/markdown');
+// 正名自己不再动，否则每次访问都多一次 301
+eq('/tag/javascript', '/tag/javascript');
+eq('/tag/cloudflare', '/tag/cloudflare');
+// 不是别名的标签原样留下（库里合法的自定义标签不能被改写）
+eq('/tag/server-timing', '/tag/server-timing');
+
 // 资源路径一律不碰：R2 键与静态文件名大小写敏感
 eq('/img/u/ABC.svg', '/img/u/ABC.svg');
 eq('/thumbs/01.webp', '/thumbs/01.webp');

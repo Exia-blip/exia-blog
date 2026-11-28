@@ -112,6 +112,38 @@ export function normalizeTag(input) {
   return TAG_ALIAS[t] || t;
 }
 
+/* 只做别名替换，不 trim / 不小写 / 不截断 —— 给「路径重定向」用。
+   走 normalizeTag 会把超过 24 字的标签截到 24 字，而库里那条是按原样存的，
+   于是 301 会把人送到一个不存在的地址上；截断只该发生在写入侧。 */
+export function tagAlias(input) {
+  const t = String(input || '');
+  return TAG_ALIAS[t.toLowerCase()] || t;
+}
+
+/* 读侧折叠：写入侧 normalizeTag 挡住了新的别名，但库里可能还躺着存量的
+   「cf」与「cloudflare」两行（ALTER 之前建的标签不受写入校验）。
+   两条同义标签在标签云里并排出现，读者会以为站里真有两套分类；
+   sitemap 也会把同一个页面登记两次。这里按规范化名字合并、计数相加，
+   顺序与原来一致（按计数降序，同数按名字）。
+   字段名可传：tagsData 用 name/count，sitemap 的行是 n/c/last。 */
+export function foldTags(rows = [], { name = 'name', count = 'count', last = '' } = {}) {
+  const out = new Map();
+  for (const r of rows || []) {
+    const key = normalizeTag(r[name]);
+    if (!key) continue;
+    const prev = out.get(key);
+    if (!prev) {
+      out.set(key, { ...r, [name]: key, [count]: Number(r[count]) || 0 });
+      continue;
+    }
+    prev[count] += Number(r[count]) || 0;
+    if (last && String(r[last] || '') > String(prev[last] || '')) prev[last] = r[last];
+  }
+  return [...out.values()].sort(
+    (a, b) => b[count] - a[count] || String(a[name]).localeCompare(String(b[name]))
+  );
+}
+
 /* 去重 + 归并 + 限长；超过 limit 的部分不静默丢弃，交给调用方提示 */
 export function normalizeTags(list, limit = 8) {
   const out = [];

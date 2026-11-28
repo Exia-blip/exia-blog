@@ -2,13 +2,13 @@
  *   npm run build:sri
  * 测试里有一条会校验这份表与磁盘文件是否同步，忘了跑会被发版闸门拦下。 */
 export const ASSET_HASH = {
-  'app.js': { v: 'c3f06975b7', i: 'sha384-LDcEz5vGC/sVo1PincPYw3FkOsj3XyQfSUXbo5QWyqOE52sLVz53wOXxsmz+SJh1' },
+  'app.js': { v: '0b412ac5a9', i: 'sha384-zVVeqk8rrgBNO5kR9C3+gLH5dwP1BDMhQTjVdM74RsswxNsUtrwR9ZLDpTra2xnB' },
   'avatar.js': { v: '13fb3a7d52', i: 'sha384-rXytu9LqUdAgLzs0wUtX3S00WHDVx4x6bQcHWKiyJ9LH1RAi4y9Eg55+Kl/yfQxE' },
   'boot.js': { v: '01956cba31', i: 'sha384-HBkR6v0RAqcZuzTEUq/AclQFoVoal510gO9NSk+rapSaAWZ+ZlxtycWK44pU8B7v' },
   'copy-notice.js': { v: '37005dfb02', i: 'sha384-06Z7i5AdTVLQWI4ZBpM38rD7urKygjw0ubrO4MHxvqcxw6uAe/Xy6MVyApYMrs4j' },
   'cover.js': { v: 'df82152a9d', i: 'sha384-A3lOG3f+LLp59TfT44W10oVZGE+h+s9Yl5/xBZhE80fk8zuyMXhMOcpF+aMGpe8u' },
   'md.js': { v: '092666ed13', i: 'sha384-SmrOod4zV8EQrLRzEbhQKez9axG19fmHK0uVCP7NaDbssUvRYGpYtKgEkRYxyvkv' },
-  'style.css': { v: '51e3bee035', i: 'sha384-Qv0836IQfqPjE72wGYBSPli49vEJIsGls/FAFwPgBbJ2V6W4VG1iykr/S8aL/zwr' },
+  'style.css': { v: '401d2859a7', i: 'sha384-X/2liGHmxQigsfeAHgUmzAVIBkamxiXCNp22iYqN23vuq2teR3ow18wGI4FlHn8m' },
   'theme.js': { v: 'b24b1a75ed', i: 'sha384-pgmU0hYbYxCZqlKp/bo1SamfMf/J7v5qSyFV2ZG3gVHfkH+4HmqaiDSm4HZMfaAd' },
   'theme/edge.css': { v: '18f0168a05', i: 'sha384-IJ9batbCjnWqKiATkQs5U0uh3cZovNgRLCapKmB8s7uxs3BVbkcKiFkSCHO2NVyn' },
   'theme/forest.css': { v: 'eab1d253af', i: 'sha384-YMY12usuy6CTrV+ZqS99Pymn97IKzALhSGQ4iV3jhffMG/VVRNiYr1j+wI02gaZp' },

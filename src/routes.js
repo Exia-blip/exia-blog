@@ -1,10 +1,12 @@
 /* 路径规范化：把「差一个字符就 404」的 URL 收敛到规范形式。
  *
- * 两种情况，一条规则解决：
+ * 三种情况，一条规则解决：
  *   1) 尾部斜杠 —— /p/editor-autosave/ → /p/editor-autosave
  *      来源：手滑、工具自动补、爬虫拼接、从别的站复制过来
  *   2) 大小写 —— /tag/Cloudflare → /tag/cloudflare
  *      来源：外链手写、编辑器自动首字母大写、引用时改了大小写
+ *   3) 标签别名 —— /tag/cf → /tag/cloudflare
+ *      来源：别名归并之前写的标签链接（TAG_ALIAS 只管新写入，旧行可能还在库里）
  *
  * 一律 301，不在内部静默改写。理由：同一篇文章只该有一个地址。
  * 内部改写能让两条 URL 都返回 200，但 sitemap、canonical、外链统计会分裂成两份；
@@ -13,6 +15,8 @@
  * 只处理站内自己的页面路由。`/img/`、`/thumbs/`、静态资源文件名（app.js、style.css、
  * R2 对象键）大小写敏感 —— 动它们不是修 404，是制造 404。
  */
+
+import { tagAlias } from './taxonomy.js';
 
 const PAGE_PREFIX = /^\/(p|tag|cat)\//i;
 const ARCHIVE = /^\/archive(\/|$)/i;
@@ -30,7 +34,17 @@ export function normalizePagePath(path) {
   if (p.includes('%')) return p;
 
   // 页面前缀：把整段小写化（slug 与标签名在库里全部小写，见 seed 白名单）
-  if (PAGE_PREFIX.test(p) || ARCHIVE.test(p)) return p.toLowerCase();
+  if (PAGE_PREFIX.test(p) || ARCHIVE.test(p)) {
+    const lowered = p.toLowerCase();
+    /* 标签再走一步别名：/tag/cf 与 /tag/cloudflare 是同一批文章，
+       不收敛就是两个地址各自 200，标签云里还会并排两个入口。 */
+    if (lowered.startsWith('/tag/')) {
+      const seg = lowered.slice(5);
+      const canon = tagAlias(seg);
+      if (canon !== seg) return `/tag/${canon}`;
+    }
+    return lowered;
+  }
 
   // 根级单段（/about、/editor、/editor-autosave 这类，文件与 slug 全小写）
   if (/^\/[^/]+$/.test(p)) return p.toLowerCase();

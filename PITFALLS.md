@@ -1252,6 +1252,17 @@
 
 ---
 
+## P-119 「不可见」的三种成因：提示太弱、节点缺失、判据错层
+
+- **现象**：11-28 审计的 P1 六条，现象散在五个页面，根因只有三类。① 390 宽下 20 个代码块 17 个溢出，`::after` 那层阴影弱到看不出来；② 首页卡片 367 / 425 / 450 三种高度混排；③ 窄屏行内代码把 `Server-Timing` 裂成「Server-」「Timing」，胶囊边框断成两截；④ 评论邮箱 placeholder 在 203px 的框里被截成「（不公开，仅」；⑤ 文章页右下角目录与回顶两个浮层竖叠 102px，盖掉正文一行；⑥ `/api/tags` 里 `cf:1` 与 `cloudflare:7` 并存（存量行，`TAG_ALIAS` 只在写入时生效）。
+- **根因**：① `::after` 挂在 `.code-wrap` 上，`top:31px` 是按 `.code-head` 的高度写死的 —— 没有头部的块位置就错，而且它自己得画一块 `--bg-soft` 当底色，主题一换就对不上；真正该做的是把渐隐作用在内容上（mask 挂在滚动容器 `pre` 上）。② 摘要节点是条件渲染的（`p.excerpt ? … : ''`），没摘要的卡少两行，grid 把整行拉到最高那张，短卡靠「封面被拉高」补齐 —— 于是同一行里出现三种高度，而封面 `16/9` 本该是固定的。③ 窄屏那档写的是 `overflow-wrap:anywhere` + `word-break:break-word`，任何位置都能断，连字符处自然断，胶囊是一整个 inline box，断了就裂成两截。④ 三个 `input` 在 390 宽下 `flex:1` 挤成 108px 内容宽，placeholder 18 个字约 250px —— 文案和容器都不是这条的错，是「三个并一行」这个排法在窄屏不成立。⑤ 目录胶囊与全站 `.back-top` 各自 `position:fixed`，一个 `bottom:78`、一个 `bottom:18`，没人负责它们的相对位置。⑥ 读写两侧不对称：写入走 `normalizeTag()` 收敛到别名，读路径直接 `GROUP BY t.name` 把库里原样吐出去，存量行不需要任何人做错就一直存在。
+- **复现**：`document.querySelector('.code-wrap.overflowing')` 在 390 下存在但 `getComputedStyle(pre,'::after')` 全透明看不出；`[...document.querySelectorAll('main.home .post-card')].map(c=>c.getBoundingClientRect().height)` 出现三个值；`getClientRects().length > 1` 即被拆行的行内代码；`i.clientWidth - padding` 与 `measureText(placeholder)` 比大小；两个浮层的 `getBoundingClientRect().bottom` 差 60 且都压在正文上；`SELECT name FROM tags` 里出现 `TAG_ALIAS` 的键。
+- **断言**：`scripts/test-visual-fixes.mjs`（P1 五条源码守卫：mask 变量在、覆盖层没了、placeholder ≤10 字且窄屏单列、`.code-keep`/`.code-long` 两档、摘要节点非条件渲染 + 两条 min-height 同在 1080 档、胶囊 `bottom:18` + `:has` 收掉 `.back-top`）；`scripts/test-tag-names.mjs`（`foldTags` 折叠、sitemap 字段名折叠、`tagAlias` 不截断）；`scripts/test-routes.mjs`（`/tag/cf` → `/tag/cloudflare` 一次跳完）；`scripts/check-desktop.mjs`（真浏览器：1440/1920 卡片与封面各只有一种高度、390 代码块 mask 计算值 + 滑到末尾 `none`、行内代码短串不拆行、胶囊 40px 两段 + 独立回顶 `display:none`、邮箱 placeholder 文字宽 ≤ 内容宽）。注入验证七次：撤 mask / placeholder 改回长文 / `anywhere` 回到通配 / 摘要回条件渲染 / 胶囊回 `bottom:78` / `foldTags` 直接 return / `tagAlias` 改走 `normalizeTag` —— 各自变红。
+- **边界**：① **「放不下才断」必须测量，不能按字数猜**：等宽字里全角、连字符、字母宽度都不同；而且要量「这一行还剩多少地方」而不是「它有多宽」—— 前面紧跟一个 `、` 时避头尾规则不允许在它之前断行，77px 的代码照样被挤出右边界（实测右缘 426 > 视口 390）。判据取 `元素右缘 vs 所在块内容右缘`。② **`body:has(.mtoc-btn)` 是降级而非必需**：不支持的浏览器会退回「两个浮层都显示」，是旧观感，不是坏掉；别为了兼容去 JS 里复制一份同样的判断。③ **`mask` 多层的默认合成是 add**，等价于「两层都可见才算可见」—— 折叠态（纵向）与溢出态（横向）同时成立时必须显式写两层，否则后出现的规则整条盖掉前一条。④ **卡片留高只对桌面双列档**：≤1079 是 130px 的横排紧凑卡，`min-height` 一加就破版（`check-desktop` 的 130 那条会红）。⑤ **只改 placeholder 是治标**：把 18 字改 8 字只是把问题推给下一个更长的文案，同时把窄屏三个框改单列，判据才从「文案够短」变成「放得下」。
+- **出处**：`public/style.css`（code mask、inline code 两档、card min-height、cmt-form 单列、mtoc 胶囊）、`public/app.js`（`bindCodeScroll` 的 at-end、`bindInlineCode`）、`public/post.html`（胶囊两段）、`src/index.js`（`postCard` 恒出摘要、placeholder、sitemap 折叠）、`public/index.html`（客户端卡片同口径）、`src/taxonomy.js`（`foldTags` / `tagAlias`）、`src/routes.js`（别名 301）、`src/api.js`（`tagsData` 折叠）、`scripts/test-visual-fixes.mjs`、`scripts/test-tag-names.mjs`、`scripts/test-routes.mjs`、`scripts/check-desktop.mjs`、`scripts/check-size.mjs`（第六次上限重定）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

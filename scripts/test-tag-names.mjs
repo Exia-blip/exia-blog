@@ -12,6 +12,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { report } from './pitfall-check.mjs';
+import { foldTags, tagAlias } from '../src/taxonomy.js';
 
 const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const MIG_DIR = join(ROOT, 'migrations');
@@ -31,6 +32,11 @@ const t = (name, fn, id = '') => {
 const assert = {
   ok: (v, m = 'false') => { if (!v) throw new Error(m); },
   equal: (a, b, m = '') => { if (a !== b) throw new Error(m || `${a} !== ${b}`); },
+  deepEqual: (a, b, m = '') => {
+    const x = JSON.stringify(a);
+    const y = JSON.stringify(b);
+    if (x !== y) throw new Error(m || `${x} !== ${y}`);
+  },
 };
 
 const migFiles = readdirSync(MIG_DIR).filter((f) => f.endsWith('.sql')).sort();
@@ -122,6 +128,38 @@ t('NOCASE 查询能命中大小写不同的存量行', () => {
   const row = db.prepare('SELECT id FROM tags WHERE name COLLATE NOCASE = ?').get('Cloudflare');
   assert.ok(row && row.id, 'NOCASE 查不到 Cloudflare');
   db.close();
+});
+
+/* ---------- 读取侧折叠：存量别名行不进标签云、不进 sitemap ---------- */
+t('读取侧把别名行折成一条（cf + cloudflare）', () => {
+  const out = foldTags([
+    { name: 'cloudflare', count: 7 },
+    { name: 'cf', count: 1 },
+    { name: 'js', count: 2 },
+    { name: 'javascript', count: 5 },
+  ]);
+  assert.deepEqual(out, [
+    { name: 'cloudflare', count: 8 },
+    { name: 'javascript', count: 7 },
+  ]);
+});
+
+t('sitemap 的行字段（n/c/last）也能折，last 取最新', () => {
+  const out = foldTags(
+    [
+      { n: 'cf', c: 1, last: '2026-01-01' },
+      { n: 'cloudflare', c: 2, last: '2026-03-05' },
+    ],
+    { name: 'n', count: 'c', last: 'last' }
+  );
+  assert.deepEqual(out, [{ n: 'cloudflare', c: 3, last: '2026-03-05' }]);
+});
+
+t('路径别名只换名、不截断也不小写（截断会 301 到不存在的地址）', () => {
+  assert.equal(tagAlias('CF'), 'cloudflare');
+  assert.equal(tagAlias('server-timing'), 'server-timing');
+  const long = 'a'.repeat(30);
+  assert.equal(tagAlias(long), long, 'tagAlias 把长标签截短了');
 });
 
 function hitsIn(text, re) {
