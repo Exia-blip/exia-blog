@@ -6,7 +6,7 @@
 //   body 背景 rgb(24,23,29) alpha=1 → 只断言 alpha=1，不绑具体颜色（亮/暗主题都该不透明）
 // 用法：node scripts/check-css-baseline.mjs [base]
 import puppeteer from 'puppeteer-core';
-import { resolveChrome } from './chrome.mjs';
+import { resolveChrome, CHROME_ARGS } from './chrome.mjs';
 import { report } from './pitfall-check.mjs';
 
 const base = (process.argv[2] || 'http://127.0.0.1:8799/').replace(/\/$/, '');
@@ -14,7 +14,7 @@ const CHROME = resolveChrome();
 const browser = await puppeteer.launch({
   executablePath: CHROME,
   headless: 'new',
-  args: ['--no-sandbox', '--no-first-run', '--disable-gpu'],
+  args: CHROME_ARGS,
 });
 
 let fail = 0;

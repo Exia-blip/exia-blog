@@ -9,7 +9,7 @@
  * 需要本地装 Chrome。跑本地时用 --q 指定一个确实能命中的关键词。
  */
 import puppeteer from 'puppeteer-core';
-import { resolveChrome } from './chrome.mjs';
+import { resolveChrome, CHROME_ARGS } from './chrome.mjs';
 
 const CHROME = resolveChrome();
 const base = (process.argv[2] || 'http://127.0.0.1:8788').replace(/\/$/, '');
@@ -30,7 +30,7 @@ const t = (ok, name, extra = '') => {
 };
 const bust = (u) => u + (u.includes('?') ? '&' : '?') + '__t=' + Date.now();
 
-const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox'] });
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: CHROME_ARGS });
 
 /* ---------- 搜索：高亮 + 空结果 ---------- */
 {

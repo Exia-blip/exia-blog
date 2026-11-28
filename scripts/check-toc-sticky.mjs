@@ -11,14 +11,14 @@
 //
 // 用法：node scripts/check-toc-sticky.mjs [url]
 import puppeteer from 'puppeteer-core';
-import { resolveChrome } from './chrome.mjs';
+import { resolveChrome, CHROME_ARGS } from './chrome.mjs';
 import { report } from './pitfall-check.mjs';
 
 const url = process.argv[2] || 'http://127.0.0.1:8788/p/ci-fixture';
 const browser = await puppeteer.launch({
   executablePath: resolveChrome(),
   headless: 'new',
-  args: ['--no-sandbox'],
+  args: CHROME_ARGS,
 });
 const page = await browser.newPage();
 await page.setViewport({ width: 1440, height: 900 });

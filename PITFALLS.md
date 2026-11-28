@@ -1197,6 +1197,17 @@
 
 ---
 
+## P-114 CI 红在「顶栏换行」，但页面上根本没换行 —— 判据把 2px 读成了两行
+
+- **现象**：2026-11-27 连续三次 CI 全红（`87f5573` / `5de3685` / `2200e5e`），`check` job 全绿，失败的是 `browser` job，收口一句「失败 1 组：顶栏不换行」。日志里 660 / 700 / 760 / 820 / 900 / 1024 / 1280 / 1440 **八个宽度全部**标 `行数 2`，可同时打印的「横向溢出 无」「抽屉 否」都是正常值，头高 61（改版前 59）。本地一条命令就能复现，但打开页面看：导航明明是一行。
+- **根因**：两件事叠在一起，且互相掩护。① **特异度**：整站换风那段写的是 `nav.top a, nav.top button { padding: 8px 13px }`，特异度 0,1,1；基线里早有一条 `nav.top a, nav.top button, nav.top .active { padding: 6px 11px }`，其中 `.active` 对当前页那项是 0,2,1 —— 后写但特异度低，压不住。于是「首页」仍按 6px 11px 排，高 37，旁边六项 41；`align-items: center` 把它垂直居中，top 就差 2px。视觉症状是**选中胶囊比旁边矮一圈**（截图对比才看得出来）。② **判据**：`check-nav` 当时用 `new Set(links.map(a => Math.round(a.getBoundingClientRect().top))).size` 当行数，任何同行内的垂直居中差都会被读成「换行」。于是 2px 的 padding 差被放大成「8 个宽度全换行」这种听起来完全不同的结论 —— 查的人会去查 flex-wrap、查字体、查宽度，而真凶是 padding。
+- **复现**：`node scripts/check-nav.mjs http://127.0.0.1:8787/`。改前每档都是 `行数 2  头高 61`；在页面里逐个量 7 个链接，只有首页 `top 12 / h 37 / padding 6px 11px`，其余六项 `top 10 / h 41 / padding 8px 13px`。把换风段的选择器补上 `.active, [aria-current="page"]` 后立刻回到 `行数 1  高度差 0`。
+- **断言**：`check-nav.mjs` 把一件事拆成两条独立判据 —— **行数**（top 聚簇，容差 4px）+ **行内高度差 ≤ 1px**。前者抓真折行，后者抓「某一项 padding/font-size 跟别人不一样」。两次注入验证都做了：① 把换风段改回只写 `nav.top a` → `高度差 4` 变红，且**不再**误报「换行」（说明两条判据真的分开了）；② 注入 `nav.top { max-width: 320px }` → `行数 4` 变红，说明容差没有把真折行吞掉。
+- **边界**：① 容差只能是「同一行内垂直居中差异」的量级（这里取 4px）。放到行高（41px）级别就会把真折行判成一行 —— 这是 P-075 那条「判据要挂可机械判定的东西」的反面用法：容差越大越像在掩盖问题，4px 的依据是「高度差 × 居中」最大也就 padding 差那么多。② 同一份日志里还混着一条 `TimeoutError: Timed out after 30000 ms while waiting for the WS endpoint URL to appear`，**那是另一个问题**（GitHub runner 的 `/dev/shm` 只有 64MB，页面变大后 Chrome 渲染进程写满共享内存直接死，launcher 只看到「没等到 WS 地址」）。两个问题在同一个 job 里，一个断言失败、一个环境崩溃，混着读最容易把环境问题当页面问题查。已把 `--disable-dev-shm-usage` 等参数收敛成 `scripts/chrome.mjs` 的 `CHROME_ARGS`，CI 跑的五个脚本统一引用。③ 这类「改版时新规则特异度低于旧规则」的坑不会报错，只会让新样式**部分不生效**：改 `:root` token 之外的值（padding / font-size / 圆角）时，先 grep 一遍同名选择器有没有更具体的旧规则。
+- **出处**：`public/style.css`（换风段的 `nav.top` 三条）、`scripts/check-nav.mjs`（行数聚簇 + 高度差）、`scripts/chrome.mjs`（`CHROME_ARGS`）、`.github/workflows/ci.yml` 的 `browser` job、P-108（判据 vs 注释）、P-109（注入验证）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

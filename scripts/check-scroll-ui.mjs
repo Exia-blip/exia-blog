@@ -3,7 +3,7 @@
 //
 // 用法：node scripts/check-scroll-ui.mjs [url]
 import puppeteer from 'puppeteer-core';
-import { resolveChrome } from './chrome.mjs';
+import { resolveChrome, CHROME_ARGS } from './chrome.mjs';
 
 const url = process.argv[2] || 'http://127.0.0.1:8788/p/blog-markdown-xss';
 const CHROME = resolveChrome();
@@ -15,7 +15,7 @@ const t = (ok, name, extra = '') => {
   else { fail++; console.log('  FAIL ' + name + (extra ? '  ' + extra : '')); }
 };
 
-const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox'] });
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: CHROME_ARGS });
 const page = await browser.newPage();
 // 静态壳用版本号做缓存 key，dev 下版本号不变 —— 开着缓存会读到改动前的 HTML，
 // 于是「改坏了也显示 ok」

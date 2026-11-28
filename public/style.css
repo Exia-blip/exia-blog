@@ -2858,7 +2858,15 @@ header.site { box-shadow: 0 2px 12px rgba(44, 45, 48, 0.05); }
 header.site .inner { height: 60px; }
 .brand { font-family: var(--sans); font-weight: 700; }
 nav.top { margin-left: auto; margin-right: auto; }
-nav.top a, nav.top button { border-radius: 9px; padding: 8px 13px; }
+/* 必须把 .active / [aria-current] 一起写进来：基线那条是
+   `nav.top a, nav.top button, nav.top .active { padding: 6px 11px }`，对选中项的特异度
+   是 0,2,1，比这里的 `nav.top a`（0,1,1）高 —— 只写 a 的话，选中项仍吃 6px 11px，
+   胶囊比旁边矮 4px，同一行里垂直居中差 2px。视觉上是「首页那个胶囊缩了一圈」，
+   而 check-nav 按 top 数行会把这个 2px 读成「换行」——8 个宽度全红就是这么来的。 */
+nav.top a, nav.top button, nav.top .active, nav.top [aria-current="page"] {
+  border-radius: 9px;
+  padding: 8px 13px;
+}
 nav.top .active, nav.top [aria-current="page"] { background: var(--accent); color: #fff; }
 
 /* ---- 首屏横幅 ---- */
