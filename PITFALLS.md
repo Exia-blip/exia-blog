@@ -1274,6 +1274,17 @@
 
 ---
 
+## P-121 派生实体没有实体表：给 6 个字符串建 CRUD，不如往 settings 塞一条 JSON
+
+- **现象**：审计 P2 第 13 条修完版式后，系列页仍只有「共 4 篇 · 最近更新」，读者进来看不到这条线讲什么。库里 `posts.series` 是自由文本，`GROUP BY` 出来的「系列」没有任何地方能存描述。
+- **根因**：系列不是实体，是派生视图。选项看似三个 —— 建 `series` 表 / 在 `posts` 上加 `series_intro` / 写死在代码里 —— 但前两个把「6 个字符串的说明」抬成一等公民，要连带 CRUD、孤儿行、缓存失效、迁移闸门；第三个让改一句话等于发版。真正需要的是「后台可改、即时生效、有一处能读」。
+- **复现**：写一条简介后刷新页面仍是旧的（读缓存没失效）；或后台提示保存成功但 `/series/<name>` 的 JSON-LD 里根本没有 `description`；或普通作者打开系列面板看到管理员输入框，点了 403。
+- **断言**：`scripts/test-series-intro.mjs` 18 条。`node:sqlite` 真跑存储层（写→读回、**写完立刻读必须拿到新值**、坏 JSON 不 500、不存在的系列名拒写、120 字上限、空值删键与改名死键清理），路由/渲染/后台用行首锚定 + 唯一计数锁接线。九次注入全红：漏清缓存 / 超长不拒 / 死键不清 / 鉴权降级为 `requireUser` / 漏 `bust` / 公开接口不回传 intro / `page-sub` 漏 `esc` / LD 漏 `description` / 后台缺输入框。
+- **边界**：① **写路径必须直读 DB 再写回**，不能走 30s 读缓存 —— 否则一次保存把上一版 JSON 写回去，界面说成功、内容没变。② 简介在**写入层**只去控制字符、不转义，`page-sub` 出口统一 `esc()`；写入层转义会让库里存 HTML 原文，换一个出口就漏。③ `meta description` 走 `seriesShell` 的 `esc(desc)`，`page-sub` 走已转义的 `sub`，两处口径不同，别把 `esc` 从一个挪到另一个。④ `GET /api/series` 是公开接口，简介本来就在页面上是公开信息，随它回传省一个鉴权端点；**写**才必须 `requireAdmin`。⑤ 系列改名/删空后旧键靠「下一次保存时按现存系列集合过滤」回收，不需要定时清理任务。⑥ 不为 6 个字符串建表不等于永远不建：真要系列封面、独立 slug 或系列级 RSS 时，从这条 JSON 迁到表仍是一次性脚本，成本不比现在直接建表高。
+- **出处**：`src/series-meta.js`（`KEY` / 30s TTL / `normalizeSeriesName` / `normalizeSeriesSummary` / `parseSeriesMeta` / `setSeriesSummary`）、`src/api.js`（`PUT /api/series/meta` 与 `GET /api/series` 的 intro 回填）、`src/index.js`（`serveSeriesPage` 四处、`serveSeriesIndex` 一行）、`public/editor.html`（`view-series` 双区 + `loadSeriesOptions` + 保存监听）、`public/style.css`（`.si-*`）、`scripts/test-series-intro.mjs`、`AUDIT-2026-11-28.md`（方案 A 的取舍记录）。
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

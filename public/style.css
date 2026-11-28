@@ -1072,6 +1072,13 @@ input.invalid, textarea.invalid {
 }
 .series-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .series-chip .tiny { opacity: .7; }
+/* 系列简介：一线一框一按钮。窄屏名字独占一行，输入与按钮不挤到 100px 以下 */
+.si-box { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.si-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.si-name { flex: 0 0 150px; font-size: 12.5px; overflow-wrap: anywhere; }
+.si-input { flex: 1 1 240px; min-width: 0; }
+.si-save { flex: 0 0 auto; padding: 6px 12px; }
+@media (max-width: 640px) { .si-row { flex-wrap: wrap; } .si-name { flex: 1 1 100%; } }
 .admin-main .preview:empty::before {
   content: '正文会在这里实时渲染'; display: block; margin-top: 38%;
   text-align: center; font-size: 13px; color: var(--muted); opacity: .55;

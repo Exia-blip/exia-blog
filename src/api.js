@@ -26,6 +26,7 @@ import { notifyForComment } from './webhook.js';
 import { logAudit } from './audit.js';
 import { checkFriends } from './cron.js';
 import { getSite, setSite, THEME_IDS, MODE_IDS } from './settings.js';
+import { getSeriesMeta, setSeriesSummary, MAX_SUMMARY } from './series-meta.js';
 import { refreshSummary, generateSummary, contentHash, hasAI } from './ai.js';
 import { recordPv, recordEvent } from './stats.js';
 import { postCacheDrop } from './postcache.js';
@@ -822,7 +823,7 @@ export async function handleApi(env, request, url, ctx) {
     });
   }
 
-    /* ---- 系列列表（编辑器下拉 + 文章页系列目录都靠它） ---- */
+    /* ---- 系列列表（编辑器下拉 + 系列简介回填都靠它） ---- */
   if (path === '/series' && method === 'GET') {
     const { results } = await db
       .prepare(
@@ -832,7 +833,37 @@ export async function handleApi(env, request, url, ctx) {
          GROUP BY series ORDER BY updated_at DESC`
       )
       .all();
-    return json({ ok: true, series: results });
+    /* 简介本身是公开数据（系列页上就印着），所以随这个公开接口一起回传，
+       后台不必再开一个带鉴权的 GET 端点。写仍然只走管理员。 */
+    const meta = await getSeriesMeta(env);
+    return json({
+      ok: true,
+      series: results.map((r) => ({ ...r, intro: meta[r.name] || '' })),
+    });
+  }
+
+  /* ---- 系列简介（管理员）：写 settings 里的一条 JSON，不是 posts 的一列 ---- */
+  if (path === '/series/meta' && method === 'PUT') {
+    const { res } = await requireAdmin(env, request);
+    if (res) return res;
+
+    const rb = await readBody(request, path);
+    if (rb.res) return rb.res;
+    const out = await setSeriesSummary(env, rb.body.name, rb.body.summary);
+    if (!out.ok) {
+      const messages = {
+        'empty-name': '系列名不能为空',
+        'too-long': `简介太长（限 ${MAX_SUMMARY} 字）`,
+        'unknown-series': '没有这个系列',
+        'too-many': '简介条目太多',
+        db: '保存失败，请稍后重试',
+      };
+      return err(messages[out.reason] || '保存失败', out.reason === 'db' ? 503 : 400);
+    }
+    /* bust 会枚举全部 series 路径，简介改动同时影响 /series 与 /series/<name>。
+       进程内那份由 setSeriesSummary 自己失效，两层都要清。 */
+    if (ctx) ctx.waitUntil(bust(url, [], [], db).catch(() => {}));
+    return json({ ok: true, name: out.name, summary: out.summary });
   }
 
 /* ---- 单篇文章 ---- */

@@ -234,7 +234,7 @@
 </section>
 
 <section class="view view-card" data-view="series" id="view-series">
-  <div class="view-head"><span>只对当前这篇文章生效</span></div>
+  <div class="view-head"><span>上半：这篇文章属于哪个系列 · 下半：系列简介（管理员）</span></div>
   <div class="view-body">
     <div class="field">
       <label>系列（可选）</label>
@@ -249,6 +249,7 @@
     </div>
 
     <div class="series-list" id="series-list"></div>
+    <div class="si-box" id="series-intros" hidden></div>
   </div>
 </section>
 
@@ -1642,7 +1643,8 @@ async function loadTaxonomy() {
   } catch {}
 }
 
-/* 已有系列塞进 datalist：连载不靠记忆，避免「自建博客实录」和「自建博客实录 」变成两个系列 */
+/* 已有系列塞进 datalist：连载不靠记忆，避免「自建博客实录」和「自建博客实录 」变成两个系列。
+   同一个接口还带回 intro：简介回填走它，不再开一个 GET 端点（写才需要管理员）。 */
 async function loadSeriesOptions() {
   try {
     const { series } = await api('/api/series');
@@ -1655,6 +1657,20 @@ async function loadSeriesOptions() {
         ? series.map((x) => `<button type="button" class="series-chip" data-name="${esc(x.name)}">${esc(x.name)} <span class="tiny muted">${x.count} 篇</span></button>`).join('')
         : '<span class="tiny muted">还没有系列，在上方填一个即可</span>';
     }
+    /* 简介是站点级信息，只有管理员能改；普通作者看到空框点了必然 403，
+       所以直接不渲染这一段，而不是渲染后禁用。 */
+    const box = $('series-intros');
+    const canEdit = !!(user && user.is_admin);
+    if (box) {
+      box.hidden = !canEdit || !(series || []).length;
+      box.innerHTML = canEdit
+        ? (series || []).map((x) => `<div class="si-row">
+            <span class="si-name">${esc(x.name)} <span class="tiny muted">${x.count} 篇</span></span>
+            <input type="text" class="si-input" data-series-intro="${esc(x.name)}" value="${esc(x.intro || '')}" maxlength="120" placeholder="可选 · 一句话说清这条线讲什么">
+            <button type="button" class="btn si-save" data-series-save="${esc(x.name)}">保存</button>
+          </div>`).join('')
+        : '';
+    }
   } catch {}
 }
 
@@ -1663,6 +1679,26 @@ $('series-list').addEventListener('click', (e) => {
   if (!chip) return;
   seriesEl.value = chip.dataset.name;
   seriesEl.focus();
+});
+
+$('series-intros').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-series-save]');
+  if (!btn) return;
+  const name = btn.dataset.seriesSave;
+  // 系列名可能含引号或斜杠，用 dataset 逐项比对，别把名字拼进选择器
+  const input = [...$('series-intros').querySelectorAll('[data-series-intro]')]
+    .find((x) => x.dataset.seriesIntro === name);
+  if (!input) return;
+  btn.disabled = true;
+  try {
+    const r = await api('/api/series/meta', { method: 'PUT', body: { name, summary: input.value } });
+    input.value = r.summary || ''; // 回写规范化结果（去控制字符 / 截到 120 字）
+    toast('系列简介已保存');
+  } catch (error) {
+    toast(error.message || '保存失败');
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 function setCategory(v) {

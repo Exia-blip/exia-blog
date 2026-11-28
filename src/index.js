@@ -50,6 +50,7 @@ import { postCacheGet, postCacheSet, postCacheDrop, postCacheStats } from './pos
 import { assetVersion, assetCacheControl, stampAssets } from './assets.js';
 import { ASSET_HASH } from './assets.gen.js';
 import { SITE_RELEASE } from './version.js';
+import { getSeriesMeta } from './series-meta.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ESC[c]);
@@ -885,6 +886,11 @@ async function serveSeriesPage(env, request, name) {
 
   if (!results.length) return await notFoundPage(env, request, '没有这个系列');
 
+  /* 简介存在 settings 的一条 JSON 里。没有就退回原来的模板文案 ——
+     宁可读到一句平实的「共 4 篇」，也不要拿首篇 summary 冒充整个系列。 */
+  const meta = await getSeriesMeta(env);
+  const intro = String(meta[name] || '').trim();
+
   const latest = results.reduce((a, p) => {
     const t = String(p.published_at || p.created_at || '');
     return t > a ? t : a;
@@ -903,6 +909,7 @@ async function serveSeriesPage(env, request, name) {
         '@id': `${canonical}#series`,
         name,
         url: canonical,
+        ...(intro ? { description: intro } : {}),
         inLanguage: 'zh-CN',
         numberOfEpisodes: results.length,
         hasPart: results.map((p, i) => ({
@@ -940,10 +947,12 @@ async function serveSeriesPage(env, request, name) {
       origin,
       title: name,
       kicker: '系列连载',
-      desc: `${name}：共 ${results.length} 篇，最近更新 ${fmtDay(latest)}。`,
+      desc: intro
+        ? `${intro}｜${name} 共 ${results.length} 篇`
+        : `${name}：共 ${results.length} 篇，最近更新 ${fmtDay(latest)}。`,
       canonical,
       ld,
-      sub: `共 ${results.length} 篇 · 最近更新 ${esc(fmtDay(latest))}`,
+      sub: intro ? esc(intro) : `共 ${results.length} 篇 · 最近更新 ${esc(fmtDay(latest))}`,
       list: mast + seriesRows(results),
     }), env),
     200,
@@ -962,13 +971,17 @@ async function serveSeriesIndex(env, request) {
   ).all();
 
   const canonical = `${origin}/series`;
+  const meta = await getSeriesMeta(env);
   const list = results.length
     ? `<ol class="series-page">${results
-        .map(
-          (s) => `<li><a href="/series/${encodeURIComponent(s.name)}">
-        <span class="sp-t">${esc(s.name)}</span>
-        <span class="sp-d">${s.n} 篇 · ${esc(fmtDay(s.latest))}</span></a></li>`
-        )
+        .map((s) => {
+          // 有简介才多一行：没填的系列保持原来的单行形态，不靠空 span 撑高度
+          const intro = String(meta[s.name] || '').trim();
+          const sub = intro ? `<span class="sp-x">${esc(intro)}</span>` : '';
+          return `<li><a href="/series/${encodeURIComponent(s.name)}">
+        <span class="sp-main"><span class="sp-t">${esc(s.name)}</span>${sub}</span>
+        <span class="sp-d">${s.n} 篇 · ${esc(fmtDay(s.latest))}</span></a></li>`;
+        })
         .join('')}</ol>`
     : '<p class="empty">还没有成系列的文章</p>';
 
