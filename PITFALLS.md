@@ -1330,6 +1330,17 @@
 
 ---
 
+## P-126 篇数口径：页面本来就自洽，缺的是跨出口对账
+
+- **现象**：老板记的是「栏目加起来 20、分页 20、实际公开 40，页面不解释这个差」。实测线上七出口全报 **21**：`/api/posts` total=21、`/api/categories` 四栏合计 21、sitemap `/p/` 21 条、RSS `<item>` 21、首页 / 归档 / 栏目页文案都是 21；`COUNT(*)` 全库 43。`40` 是真的，但来源是 `public/cards/` 的 **40 张标题卡**和两篇文章正文里的历史快照（`21-workers-blog-pillar.md` 写「20 篇」、`45-rin-permission-model.md` 写「线上 40 篇」）——不是任何一处实时篇数统计。
+- **根因**：数字本身没打架，但七个出口各写各的提取逻辑，没有跨出口对账；一处改了口径，其余六处不会报错、浏览器也看不出来。另有一处结构性差源：`src/api.js` 的 `/api/categories` 把未归类文章计入 `uncategorized`，而 `src/index.js` 的 `catCounts()` 用 `if (!slug) continue` 直接丢掉——现在没有未归类文章所以数字一致，将来有一篇就会差。
+- **复现**：`node scripts/check-counts-live.mjs` → `api=21 categories=21 sitemap=21 rss=21 home=21 archive=21 categoriesPage=21`。反证：`curl -s https://miu.sryze.cc/ | grep -o '共 [0-9]* 篇'` 与 `git tag` 无关，只反映公开闸门。
+- **断言**：`src/count-consistency.js` 纯函数 + `scripts/test-count-consistency.mjs` 十条（七出口各自漂移成别的数都红、全出口抽不到不算一致、未归类必须计入栏目合计），三次源码注入全红：去掉 `bad` 守卫 / `categories` 丢掉 `uncategorized` / sitemap 坏响应算 0 篇。`scripts/check-counts-live.mjs` 挂进 `check:live` 打真产物，恒定两条输出。
+- **边界**：① 篇数只认本机与线上实测，不引用会话里记过的数（P-124 同款活反例）。② **单出口抽不到时 `distinct` 也会多一个 NaN**，弱判据 `consistent===false` 照样绿 —— 得构造「七处全抽不到」让 `distinct` 只剩一个 NaN，才能证明 `bad` 真的参与了判定。③ 错误页不是 0 篇：`sitemap` / `rss` 先验根元素 `<urlset>` / `<rss>` 再数，否则 500 页会被静默读成「0 篇公开文章」。④ 失败时才冒出来的第二条断言会让报告条数随结果漂移，和 skip-as-pass 同族，改成恒输出。⑤ 未归类文章将来真出现时，线上对账会红，届时修 `src/index.js` 的 `catCounts()`；本轮不动页面结构与文案。
+- **出处**：`src/count-consistency.js`、`scripts/test-count-consistency.mjs`、`scripts/check-counts-live.mjs`、`package.json`（`test` / `check:live` 挂载）。
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：
