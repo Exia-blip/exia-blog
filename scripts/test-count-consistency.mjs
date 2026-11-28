@@ -1,7 +1,8 @@
 // P-126 篇数口径对账的离线断言：七个出口必须报同一个数，任一出口漂移都要红。
 // 数据级注入在样本上做；源码级注入（把 uncategorized 丢回 /api/categories）由外部命令做。
 import assert from 'node:assert/strict';
-import { COUNT_SOURCES, extractPostCount, reconcileCounts } from '../src/count-consistency.js';
+import { COUNT_SOURCES, extractPostCount, reconcileCounts, catTotalText } from '../src/count-consistency.js';
+import { readFileSync } from 'node:fs';
 
 const cases = [];
 const t = (name, fn) => cases.push([name, fn]);
@@ -87,6 +88,32 @@ t('未归类文章计入栏目合计，否则和 API total 差一截', () => {
   delete j.uncategorized;
   raw.categories = JSON.stringify(j);
   assert.equal(reconcileCounts(raw).consistent, false);
+});
+
+t('合计文案：无未归类时不加括注，有未归类时显式说明差', () => {
+  assert.equal(catTotalText(4, 21, 0), '4 个栏目 · 21 篇');
+  assert.equal(catTotalText(4, 20, 1), '4 个栏目 · 21 篇（含 1 篇未归类）');
+  assert.equal(catTotalText(4, 18, 3), '4 个栏目 · 21 篇（含 3 篇未归类）');
+  // 合计必须含未归类，否则四格加起来 20、合计也写 20，跟 API 的 21 对不上。
+  assert.notEqual(catTotalText(4, 20, 1), '4 个栏目 · 20 篇');
+});
+
+t('SSR 不丢未归类：catCounts 累计并带回 uncategorized', () => {
+  const idx = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+  const fn = idx.slice(idx.indexOf('async function catCounts(env) {'), idx.indexOf('\n}\n', idx.indexOf('async function catCounts(env) {')));
+  assert.ok(/if \(!slug\) \{[\s\S]*?uncategorized \+=[\s\S]*?continue/.test(fn), '未归类要累计而不是 continue');
+  assert.ok(!/if \(!slug\) continue/.test(fn), '旧的直接丢弃写法不能回来');
+  assert.ok(fn.includes('return { counts, uncategorized }'), '合计要随结果一起带回');
+  assert.ok(idx.includes('catTotalText(CATS.length, sum, catData.uncategorized)'), 'renderCats 要用同一份文案');
+});
+
+t('客户端不再自己求和，直接消费 API 的 totalText', () => {
+  const html = readFileSync(new URL('../public/categories.html', import.meta.url), 'utf8');
+  const m = html.match(/async function syncCatCounts\(\) \{([\s\S]*?)\n\}/);
+  assert.ok(m, '找不到 syncCatCounts');
+  assert.ok(/const \{ categories, totalText \}/.test(m[1]), '客户端要取 totalText');
+  assert.ok(m[1].includes('catTotal.textContent = totalText'), '合计要用 API 的文案');
+  assert.ok(!/reduce\(\(a, b\) => a \+ b\.count/.test(m[1]), '客户端不再自己求和');
 });
 
 let bad = 0;

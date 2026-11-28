@@ -52,6 +52,17 @@ export function extractPostCount(source, raw) {
 }
 
 /**
+ * 栏目页合计文案。四个格子只装已归类的文章，未归类的公开文章不在任何格子里 ——
+ * 合计必须把它们算进去，并显式说明差从哪来，否则「格子加起来 ≠ 合计」又是一处
+ * 页面自己解释不了的差。SSR 与客户端共用这一份，客户端直接消费 API 返回的 totalText。
+ */
+export function catTotalText(catCount, summed, uncategorized) {
+  const total = summed + uncategorized;
+  const base = `${catCount} 个栏目 · ${total} 篇`;
+  return uncategorized > 0 ? `${base}（含 ${uncategorized} 篇未归类）` : base;
+}
+
+/**
  * 对账结果：values 每个出口的数，bad 抽不到数的出口，consistent 是否全等。
  * 空集恒真是假绿形态之一——这里先要求七处都抽到整数，再判相等。
  */

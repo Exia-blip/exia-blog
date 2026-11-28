@@ -76,14 +76,15 @@ async function loadTags() {
 // 栏目数量随发文变化，SSR 那份可能已经旧了；这里静默对齐一次数字
 async function syncCatCounts() {
   try {
-    const { categories } = await api('/api/categories');
+    const { categories, totalText } = await api('/api/categories');
     if (!categories) return;
     for (const c of categories) {
       const el = document.querySelector(`#cat-grid a[href="/cat/${c.slug}"] .tax-count`);
       if (el) el.textContent = c.count;
     }
-    const sum = categories.reduce((a, b) => a + b.count, 0);
-    if (catTotal) catTotal.textContent = `${categories.length} 个栏目 · ${sum} 篇`;
+    // 合计文案由 API 用和 SSR 同一份纯函数生成，这里不再自己求和 —— 否则
+    // 未归类文章会在客户端合计里漏掉，SSR 和 API 三处又各说各的（P-126）。
+    if (catTotal && totalText) catTotal.textContent = totalText;
   } catch {}
 }
 

@@ -22,6 +22,7 @@ import { timedDb, withServerTiming } from './timing.js';
 import { CATS, catBySlug, catName, normalizeCat, foldTags } from './taxonomy.js';
 import { normalizePagePath } from './routes.js';
 import { NUMBER_GROUPS, allNumbers, numberStats } from './numbers.js';
+import { catTotalText } from './count-consistency.js';
 
 /* 首屏顶栏色：SSR 就按系统偏好出两条，CSS/JS 到手前也不会亮瞎一下。
    值都从构建期的 --bg 派生，三个 head 出口共用这一处，不许各写一份常量。 */
@@ -1794,9 +1795,12 @@ function applyList(body, res) {
    栏目就四个，哪怕暂时没有文章也该出现在页面上（空栏目比缺栏目好解释），
    顺便让栏目页对爬虫是一张有内容的目录页，而不是「加载中…」。 */
 /* 栏目计数单独拿出来：它和文章列表、站点设置互不依赖，
-   在 injectTheme 里一起发出去才能真的并行（原来是一个 await 接一个）。 */
+   在 injectTheme 里一起发出去才能真的并行（原来是一个 await 接一个）。
+   未归类的公开文章不计入任何格子，但要单独带出来给合计 —— 和 /api/categories
+   的 uncategorized 同一口径，否则 SSR 的「N 个栏目 · M 篇」会比 API 少一截。 */
 async function catCounts(env) {
   const counts = new Map();
+  let uncategorized = 0;
   try {
     const { results } = await env.DB.prepare(
       `SELECT category, COUNT(*) AS count FROM posts
@@ -1804,19 +1808,23 @@ async function catCounts(env) {
     ).all();
     for (const r of results) {
       const slug = normalizeCat(r.category);
-      if (!slug) continue;
+      if (!slug) {
+        uncategorized += Number(r.count) || 0;
+        continue;
+      }
       counts.set(slug, (counts.get(slug) || 0) + (Number(r.count) || 0));
     }
   } catch (e) {
     console.error('cat ssr failed', e);
   }
-  return counts;
+  return { counts, uncategorized };
 }
 
 /* 纯字符串拼装，不再碰数据库 —— 数据由调用方并行取好传进来 */
-function renderCats(body, counts, tags) {
+function renderCats(body, catData, tags) {
   if (!body.includes('<!--CATS-->') && !body.includes('<!--TAGS-->')) return body;
 
+  const counts = catData.counts;
   const cells = CATS.map(
     (c) => `<a class="tax-cell cat-cell" href="/cat/${c.slug}">
       <span class="tax-name">${esc(c.name)}<span class="cat-slug">${esc(c.slug)}</span></span>
@@ -1828,7 +1836,7 @@ function renderCats(body, counts, tags) {
   const sum = [...counts.values()].reduce((a, b) => a + b, 0);
   let out = body
     .replace('<!--CATS-->', cells)
-    .replace('<!--CAT-TOTAL-->', `${CATS.length} 个栏目 · ${sum} 篇`);
+    .replace('<!--CAT-TOTAL-->', catTotalText(CATS.length, sum, catData.uncategorized));
 
   /* 标签云也直出：/tag/* 页面的唯一入口就是这里，
      客户端渲染等于把整个标签体系对爬虫关掉。 */
@@ -1961,7 +1969,8 @@ function fillSeo(body, site, url) {
    数据本来就是现成的：injectTheme 为了别的页面已经在并行取栏目计数和标签云，
    这里只是真的把它们用掉，不额外增加一次 D1 往返。
    客户端拿到 SSR 内容后只改选中态，不再整体重绘。 */
-function renderListBars(body, counts, tags, url) {
+function renderListBars(body, catData, tags, url) {
+  const counts = catData.counts;
   const needCat = body.includes('<!--CATBAR-->');
   const needSideTags = body.includes('<!--SIDETAGS-->');
   if (!needCat && !needSideTags) return body;
@@ -2009,7 +2018,9 @@ async function injectTheme(env, res, url) {
      现在先全部发出去，最慢的那条决定总时长。 */
   const siteP = getSite(env);
   const catsP =
-    body.includes('<!--CATS-->') || body.includes('<!--CATBAR-->') ? catCounts(env) : Promise.resolve(new Map());
+    body.includes('<!--CATS-->') || body.includes('<!--CATBAR-->')
+      ? catCounts(env)
+      : Promise.resolve({ counts: new Map(), uncategorized: 0 });
   const tagsP =
     body.includes('<!--TAGS-->') || body.includes('<!--SIDETAGS-->')
       ? tagsData(env.DB).catch(() => [])

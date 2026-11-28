@@ -63,6 +63,7 @@ import {
   foldTags,
   isSeedTag,
 } from './taxonomy.js';
+import { catTotalText } from './count-consistency.js';
 
 /* ---------- 小工具 ---------- */
 
@@ -793,6 +794,7 @@ export async function handleApi(env, request, url, ctx) {
       counts.set(slug, (counts.get(slug) || 0) + (Number(r.count) || 0));
     }
 
+    const summed = [...counts.values()].reduce((a, b) => a + b, 0);
     return json({
       ok: true,
       categories: CATS.map((c) => ({
@@ -803,6 +805,8 @@ export async function handleApi(env, request, url, ctx) {
         count: counts.get(c.slug) || 0,
       })),
       uncategorized,
+      // 合计文案只在这里生成一次；SSR 和客户端都消费它，不再各算各的。
+      totalText: catTotalText(CATS.length, summed, uncategorized),
     });
   }
 
