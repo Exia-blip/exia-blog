@@ -224,7 +224,7 @@ t('P3-17 首页卡圆角走 --radius，没有写死的 12px', () => {
     .map((m) => m[1]).find((r) => /border-radius/.test(r)) || '';
   assert.ok(/border-radius:\s*var\(--radius\)/.test(home), `首页卡没有走 token：${home.slice(0, 80)}`);
   assert.ok(!/border-radius:\s*12px/.test(home), '首页卡还写死 12px（plum 18px / ink 5px 会被吃掉）');
-  assert.ok(/--radius:\s*12px/.test(rule(':root')), '基准半径定义没了');
+  assert.ok(/--radius:\s*10px/.test(rule(':root')), '基准半径不是 10px');
 }, 'P-122');
 
 t('P3-18 首页卡 hover 不位移、封面不缩放，只留边框与底色', () => {
@@ -244,6 +244,26 @@ t('P3-19 打印：代码块浅灰底，token 洗白后仍划得出边界', () =>
   assert.ok(/background:\s*#f5f5f5\s*!important/.test(block), '打印代码块没有浅灰底（和纸面融成一片）');
   assert.ok(/--bg-soft:\s*#fff\s*!important/.test(pr), 'token 洗白段没了（浅灰底的前提）');
 }, 'P-122');
+
+t('P3-20 圆角分层：大容器 10 / 小元素 6 / 形状 999+50%，七套主题 token 同值', () => {
+  /* 独立计数：只数 border-radius 的数值，不数 padding/margin 里的 12px —— 后者不能动 */
+  const nums = [...css.matchAll(/border-radius:\s*(\d+)px/g)].map((m) => Number(m[1]));
+  const stray = nums.filter((n) => n !== 10 && n !== 6 && n !== 999);
+  assert.equal(stray.length, 0, `还有 ${stray.length} 处没归层：${[...new Set(stray)].sort((a,b)=>a-b).join('/')}px`);
+  /* 形状类是形状差异，不是圆角混乱：999 胶囊 + 50% 圆点必须留着 */
+  /* 下界取当前基线计数而不是「有几个意思一下」：>=20 时改掉一个 50% 仍是绿，等于没守 */
+  assert.ok(nums.filter((n) => n === 999).length >= 17, '胶囊圆角被撤了');
+  assert.ok((css.match(/border-radius:\s*50%/g) || []).length >= 24, '圆形 50% 被撤了');
+  assert.ok(nums.filter((n) => n === 10).length >= 62, '大容器档没成为主值');
+  /* 主题 token 若各自保留 5/16/18，走 var(--radius) 的那 10 处会和硬编码 10px 打架 —— 主题内两套大圆角 */
+  const files = ['public/style.css', ...['edge','forest','ink','mono','ocean','plum'].map((n) => `public/theme/${n}.css`)];
+  for (const f of files) {
+    const src = readFileSync(join(ROOT, f), 'utf8');
+    assert.ok(/--radius:\s*10px/.test(src), `${f} 的 --radius 不是 10px（主题内会出现两套大容器圆角）`);
+  }
+  /* 首页卡已在上一条走 token，token 归一后它必须真的算成 10px */
+  assert.ok(/--radius:\s*10px/.test(rule(':root')), '基准 :root 的 --radius 没归一');
+}, 'P-123');
 
 console.log(fails.length ? `\n✗ ${fails.length} 项视觉修复断言失败` : '');
 process.exit(fails.length ? 1 : 0);

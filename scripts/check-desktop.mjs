@@ -602,6 +602,46 @@ check('作者卡头像不是渐变图', !!aw && aw.avaImg === 'none', aw ? aw.av
 check('作者卡头像是字母砖', !!aw && /^[A-Z0-9]$/.test(aw.avaText), aw ? `「${aw.avaText}」` : '');
 await awPg.close();
 
+/* ⑭ 圆角分层 + 首页卡 hover 不位移（P-123 / P-122）：
+   文本断言只能证明「写了 10px」，证不了它没被更高优先级压住 —— 这里量计算样式。 */
+const radPg = await browser.newPage();
+await radPg.setViewport({ width: 1440, height: 900 });
+await radPg.goto(`${ORIGIN}/?cb=${Date.now()}`, { waitUntil: 'networkidle2', timeout: 30000 });
+await radPg.waitForSelector('main.home .post-card');
+const rad = await radPg.evaluate(() => {
+  const radius = (sel) => {
+    const el = document.querySelector(sel);
+    return el ? getComputedStyle(el).borderTopLeftRadius : 'MISSING';
+  };
+  const card = document.querySelector('main.home .post-card');
+  return {
+    card: radius('main.home .post-card'),
+    widget: radius('.widget'),
+    cat: radius('main.home .card-cat'),
+    top: card ? card.getBoundingClientRect().top + window.scrollY : 0,
+  };
+});
+check('首页大卡圆角算成 10px', rad.card === '10px', rad.card);
+check('右栏组件圆角算成 10px', rad.widget === '10px', rad.widget);
+check('分类胶囊保持 999px', rad.cat === '999px', rad.cat);
+await radPg.hover('main.home .post-card');
+await new Promise((r) => setTimeout(r, 260));
+const radHover = await radPg.evaluate(() => {
+  const c = document.querySelector('main.home .post-card');
+  return { top: c.getBoundingClientRect().top + window.scrollY, tf: getComputedStyle(c).transform };
+});
+check('首页卡 hover 不位移', Math.abs(radHover.top - rad.top) < 1 && radHover.tf === 'none',
+  `${(radHover.top - rad.top).toFixed(1)}px / ${radHover.tf}`);
+await radPg.close();
+
+const radCodePg = await browser.newPage();
+await radCodePg.setViewport({ width: 1440, height: 900 });
+await radCodePg.goto(`${ORIGIN}/p/worker-render-549-to-96?cb=${Date.now()}`, { waitUntil: 'networkidle2', timeout: 30000 });
+await radCodePg.waitForSelector('.md code');
+const codeRadius = await radCodePg.$eval('.md code', (e) => getComputedStyle(e).borderTopLeftRadius);
+check('行内代码小圆角算成 6px', codeRadius === '6px', codeRadius);
+await radCodePg.close();
+
 await browser.close();
 console.log(fails ? `\n✗ ${fails} 项桌面框架断言失败` : '\n✓ 桌面框架断言全部通过');
 process.exit(fails ? 1 : 0);

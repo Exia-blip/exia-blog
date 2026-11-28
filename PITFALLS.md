@@ -1296,6 +1296,17 @@
 
 ---
 
+## P-123 圆角归一要分层，不能一刀切；取样必须先绕缓存
+
+- **现象**：老板先据一份带 `anzhiyu` 的旧 CSS 判「简约只到四成」，后来发现自己用 `web_fetch` 抓了不带 query 的 `/style.css`，命中 CF 边缘旧副本；绕缓存后确认当前基线是 `theme: paper`、无 anzhiyu、无 body 光晕、打印块 981B。真正的问题是**圆角有 15 种取值**：`12px` 24 处、`10px` 20、`6px` 13、`8px` 12、`14px` 6、`9px` 5、`5px` 8……另有 `var(--radius)` 9 处、999px 17、50% 24。
+- **根因**：圆角数值分散在「大容器 / 小元素 / 形状」三种语义里，一刀切到 10px 会让 `5px`（代码角标）、`6px`（色点）、`8px`（小徽章）这 37 处变胖、边缘糊在一起；只改主表又会在 ink(5) / plum(18) 主题里留下「大容器 18px、小元素 6px」的新不一致。
+- **复现**：量 `getComputedStyle(el).borderTopLeftRadius`，同一页能同时出现 18 / 12 / 9 / 6 / 3px；切到 plum 主题后走 `var(--radius)` 的 10 处跟着变 18px，硬编码 12px 的 24 处不动 —— 主题内部自己就不齐。
+- **断言**：`scripts/test-visual-fixes.mjs` P-123：独立计数 `border-radius: Npx` 只剩 `{10,6,999}`，999 ≥17、50% ≥24、10px ≥62（**下界取基线值，不是「有几个意思一下」**），七套主题 + 基准的 `--radius` 全是 10px。源码注入 7 次全红（大容器回 12、小元素回 5、50%→10、999→10、10px→6、plum token 回 18、基准回 12）。`scripts/check-desktop.mjs` 加 5 条真浏览器判据（首页大卡 10、右栏组件 10、分类胶囊 999、行内代码 6、hover 位移 0.0px/none）；两次真浏览器注入全红（圆角回 12px、位移回 -3px）。
+- **边界**：① **判据下界不能随手取小**：第一版写 `>= 20` 守 50% 圆点，把一处改成 10px 后剩 23 处照样绿 —— 假绿。收紧到 ≥24（当前基线）才红；同理 999 用 ≥17、10px 用 ≥62。② **`padding` / `margin` 里的 12px 不能动**：批量替换必须锚 `border-radius:` 前缀，不能以数值全局替换。③ **主题 token 必须同值**：`--radius` 是 `CONTRACT_CORE` 的一环，七套文件各自定义；只改主表 `:root` 会让主题内部两套大容器圆角并存，所以七个主题文件一起改（代价：ink 的 5px 锐利、plum 的 18px 圆润被抹平，这是「归一」的必然取舍）。④ **取样纪律**：任何基于线上 CSS 的结论都必须绕缓存（带 query / cache-buster）并附 `/api/site` 的 `theme`、`mode` 佐证；单一 URL 的响应用在边缘缓存上不等于当前产物。⑤ TC-44 基线**没变**：圆角不在 `--muted` 影响面里，不要为了「同步基线」去改一个不需要改的数字。
+- **出处**：`public/style.css`（大容器 42 处 → 10px、小元素 27 处 → 6px、`:root --radius: 10px`）、`public/theme/*.css`（七个 `--radius` 全 10px）、`scripts/test-visual-fixes.mjs`（P-122 / P-123）、`scripts/check-desktop.mjs`（⑭ 圆角与 hover 真浏览器判据）、`src/theme-contract.js`（`--radius` 是 core token）。
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：
