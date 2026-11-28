@@ -255,7 +255,10 @@ async function syncTags(db, postId, content) {
   await db.prepare('DELETE FROM post_tags WHERE post_id = ?').bind(postId).run();
   for (const name of names) {
     await db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').bind(name).run();
-    const t = await db.prepare('SELECT id FROM tags WHERE name = ?').bind(name).first();
+    /* 必须按 NOCASE 查：tags 上有 idx_tags_name_nocase，写 'Cloudflare' 会被它挡掉
+       （INSERT OR IGNORE 静默失败），此时精确匹配 'Cloudflare' 查不到任何行，
+       标签就静默丢了。NOCASE 同时把历史上的 Cloudflare 命回 cloudflare 那条。 */
+    const t = await db.prepare('SELECT id FROM tags WHERE name COLLATE NOCASE = ?').bind(name).first();
     if (t) await db.prepare('INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (?,?)').bind(postId, t.id).run();
   }
   return names;
@@ -292,7 +295,7 @@ export async function tagHasLivePosts(env, name) {
     `SELECT 1 FROM tags t
      JOIN post_tags pt ON pt.tag_id = t.id
      JOIN posts p ON p.id = pt.post_id AND p.is_private = 0 AND p.hidden = 0 AND ${liveSql('p')}
-     WHERE t.name = ? LIMIT 1`
+     WHERE t.name COLLATE NOCASE = ? LIMIT 1`
   )
     .bind(name)
     .first();
@@ -431,7 +434,7 @@ export async function listPosts(db, { page = 1, size = 10, tag = '', cat = '', q
   const args = [];
 
   if (tag) {
-    where.push('p.id IN (SELECT pt.post_id FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE t.name = ?)');
+    where.push('p.id IN (SELECT pt.post_id FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE t.name COLLATE NOCASE = ?)');
     args.push(tag);
   }
   if (cat) {
@@ -1598,7 +1601,7 @@ export async function handleApi(env, request, url, ctx) {
       let targetId = idByName.get(to);
       if (!targetId) {
         await db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').bind(to).run();
-        targetId = (await db.prepare('SELECT id FROM tags WHERE name = ?').bind(to).first())?.id;
+        targetId = (await db.prepare('SELECT id FROM tags WHERE name COLLATE NOCASE = ?').bind(to).first())?.id;
         if (targetId) idByName.set(to, targetId);
       }
       if (!targetId) continue;

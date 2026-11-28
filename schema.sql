@@ -80,6 +80,9 @@ CREATE TABLE IF NOT EXISTS post_tags (
   PRIMARY KEY (post_id, tag_id)
 );
 CREATE INDEX IF NOT EXISTS idx_post_tags_tag ON post_tags(tag_id);
+-- 标签名大小写唯一：cloudflare / Cloudflare 只能是同一条。
+-- 表上的 UNIQUE(name) 是 BINARY 比较，拦不住这种重复；见 migrations/0007。
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_name_nocase ON tags(name COLLATE NOCASE);
 
 -- 评论（parent_id 为 NULL 是顶级，否则挂在顶级下，两级）
 CREATE TABLE IF NOT EXISTS comments (

@@ -120,7 +120,10 @@ const aligned = (d, label) => {
 
 // 文章页路径从首页真实卡片取，不写死编号
 const home = await fetch(`${ORIGIN}/`, { headers: { 'user-agent': 'desktop-audit/1.0' } });
-const postPath = (await home.text()).match(/href="(\/p\/[^"]+)"/)?.[1] || '/p/1';
+/* 存下来一次：后面表格样本还要从同一份 HTML 里取前几篇文章的链接。
+   Response.body 只能读一次，第二次 .text() 会抛 "Body has already been read"。 */
+const homeHtml = await home.text();
+const postPath = homeHtml.match(/href="(\/p\/[^"]+)"/)?.[1] || '/p/1';
 
 for (const width of [1920, 1440, 1080]) {
   const d = await measure('/', width);
@@ -255,6 +258,84 @@ const postNarrow = await measure(postPath, 1399);
 console.log('\n文章 @1399px（断点边界）');
 check('仍两列（右栏落底）', postNarrow.articleCols === 2, `${postNarrow.articleCols} 列`);
 check('无横向溢出', postNarrow.overflow <= 1, `${postNarrow.overflow}px`);
+
+/* ---------- 2026-11-28 审计 P0 的真实渲染验证 ----------
+   这三条的对方物都是「浏览器算出来的东西」，源码断言只能证明写了，证明不了生效：
+   横幅图被 object-fit 裁掉一半时 CSS 全对；表格的 mask 写着但被别的规则压住时也全对；
+   深色 filter 只在 data-mode 是 dark 时才命中，而 dark 是 JS 在首帧后设的。 */
+console.log('\n视觉修复 · 真浏览器');
+
+/* ① 栏目页横幅：本页首篇的缩略图，不是 1200×630 的 OG 图 */
+const catPage = await browser.newPage();
+await catPage.setViewport({ width: 1440, height: 900 });
+await catPage.goto(`${ORIGIN}/cat/log?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+const hero = await catPage.evaluate(() => {
+  const f = document.querySelector('.hero-feature');
+  const img = f && f.querySelector('.hf-img');
+  return { href: f?.getAttribute('href') || '', src: img?.getAttribute('src') || '' };
+});
+check('栏目页横幅指向本页首篇', /^\/p\//.test(hero.href), hero.href);
+check('栏目页横幅不用 OG 图', !!hero.src && !/og-default/.test(hero.src), hero.src.slice(0, 48));
+await catPage.close();
+
+/* ② 深色封面压暗：filter 必须落在卡片封面与横幅图上 */
+const darkPage = await browser.newPage();
+await darkPage.setViewport({ width: 1440, height: 900 });
+await darkPage.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+await darkPage.goto(`${ORIGIN}/?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+await new Promise((r) => setTimeout(r, 400));
+const dark = await darkPage.evaluate(() => {
+  const card = document.querySelector('.post-card .thumb');
+  const hf = document.querySelector('.hero-feature .hf-img');
+  return {
+    mode: document.documentElement.dataset.mode,
+    card: card ? getComputedStyle(card).filter : '',
+    hero: hf ? getComputedStyle(hf).filter : '',
+  };
+});
+check('深色模式已生效', dark.mode === 'dark', dark.mode);
+check('深色封面压暗到 0.7x', /brightness\(0?\.7/.test(dark.card), dark.card);
+check('深色横幅压暗但不过度', /brightness\(0?\.8/.test(dark.hero), dark.hero);
+await darkPage.close();
+
+/* ③ 手机表格：真溢出才挂类、右缘渐隐、滑到末尾撤掉。
+   首页第一篇不一定带表格（ci-fixture 就没有），所以从首页前 6 篇里找第一篇
+   真的有溢出表格的 —— 找不到就明确报失败，不用 ok(true) 糊过去（那是 skip-as-pass）。 */
+const postLinks = [...new Set([...homeHtml.matchAll(/href="(\/p\/[^"]+)"/g)].map((m) => m[1]))].slice(0, 6);
+let tblPage = null;
+let tb = null;
+for (const p of postLinks) {
+  const pg = await browser.newPage();
+  await pg.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+  await pg.goto(`${ORIGIN}${p}?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+  await new Promise((r) => setTimeout(r, 400));
+  const got = await pg.evaluate(() => {
+    const w = document.querySelector('.md .table-wrap');
+    if (!w) return null;
+    const cs = getComputedStyle(w);
+    return { over: w.scrollWidth - w.clientWidth, cls: w.className, mask: cs.maskImage || cs.webkitMaskImage || '' };
+  });
+  if (got && got.over > 4) { tblPage = pg; tb = { ...got, path: p }; break; }
+  await pg.close();
+}
+check('找到溢出表格样本', !!tb, tb ? `${tb.path} 溢出 ${tb.over}px` : '首页前 6 篇都没有溢出表格');
+if (tb) {
+  check('溢出表格标了 overflow', /overflowing/.test(tb.cls), tb.cls);
+  check('溢出表格有右缘渐隐', /linear-gradient/.test(tb.mask), tb.mask.slice(0, 44));
+  await tblPage.evaluate(() => {
+    const w = document.querySelector('.md .table-wrap');
+    if (w) w.scrollLeft = w.scrollWidth;
+  });
+  await new Promise((r) => setTimeout(r, 250));
+  const tbEnd = await tblPage.evaluate(() => {
+    const w = document.querySelector('.md .table-wrap');
+    const cs = getComputedStyle(w);
+    return { cls: w.className, mask: cs.maskImage || cs.webkitMaskImage || '' };
+  });
+  check('滑到末尾撤掉渐隐', /at-end/.test(tbEnd.cls) && /none/.test(tbEnd.mask),
+    `${tbEnd.cls} / ${tbEnd.mask}`);
+  await tblPage.close();
+}
 
 await browser.close();
 console.log(fails ? `\n✗ ${fails} 项桌面框架断言失败` : '\n✓ 桌面框架断言全部通过');

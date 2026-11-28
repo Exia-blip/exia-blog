@@ -1241,6 +1241,17 @@
 
 ---
 
+## P-118 标签归一要走「数据 / 写入 / 读取」三层；删死规则前先问测试
+
+- **现象**：11-28 全站审计的四条 P0，表面互不相干，实际是同一个形状 —— 修的是「一个产物」，但产物由两三个环节共同决定。① `/api/tags` 同时返回 `cloudflare:7` 与 `Cloudflare:1`，`/tag/Cloudflare` 301 到小写后只列 7 篇，那 1 篇点进去找不到；② `/cat/log`、`/tag/cloudflare` 的横幅右边是 `/og-default.jpg` 被 `object-fit:cover` 裁成「xia Blog」；③ 390 宽下表格 460px、容器 358px，手机不显示滚动条，读者以为只有两列；④ 深色模式 9 张浅色封面原样显示（`filter: none`），像一排发光灯箱。
+- **根因**：① 表上的 `UNIQUE(name)` 是 BINARY 比较，写入侧 `normalizeTag()` 到 11 月才 `toLowerCase()`，之前落库的 `Cloudflare` 一直留着；只把 `GROUP BY` 改成 `lower(name)` 会让标签云合并，但 `/tag/Cloudflare` 仍按精确名查、只列一半 —— 数据不并，查询改几处都只是把矛盾挪个位置。② `renderList` 里替换 hero-feature 的条件是 `res.base === '/'`，标签页/栏目页复用同一套骨架却没走这段，于是回落到静态壳写死的 OG 图。③ `.md table { min-width:460 }` 是**故意**的（不把四列压成每列两个字），缺的是「横向还有内容」的提示；手机 overlay 滚动条不给这个提示。④ 封面是脚本按标题生成的浅色渐变图，深色态没有任何处理。
+- **复现**：`SELECT name, COUNT(*) FROM tags GROUP BY lower(name) HAVING COUNT(*)>1`；`curl /cat/log | grep hf-img` 看到 `og-default.jpg`；390 宽下 `w.scrollWidth - w.clientWidth` = 102；深色 `getComputedStyle('.post-card .thumb').filter` = `none`。
+- **断言**：`scripts/test-tag-names.mjs`（六条，其中两条在 `node:sqlite` 内存库里真跑迁移：插 `cloudflare`/`Cloudflare`/两篇关联 → 跑 0007 → 断言只剩一条、关联 3 条、再插 `CLOUDFLARE` 必须抛错、重放幂等）；`scripts/test-visual-fixes.mjs`（三条源码守卫，判据是精确选择器 + 声明）；`scripts/check-desktop.mjs` 新增八条真浏览器断言（横幅 href 与 src、深色 mode + 两处 filter、表格 `overflowing` 类名 + mask 计算值 + 滚到末尾 `at-end` 撤渐隐）。注入验证五次：去掉并关联 / 索引去掉 NOCASE / `syncTags` 去掉 NOCASE / `at-end` 改名 / 压暗改 0.95 —— 各自变红。
+- **边界**：① **加了 NOCASE 唯一索引之后，`INSERT OR IGNORE` 会变成「静默失败」**：写 `Cloudflare` 被索引挡掉，紧接着 `SELECT id FROM tags WHERE name = ?` 精确查不到任何行，那个标签就从这篇文章上消失了 —— 比重复更糟。所以索引和 `WHERE name COLLATE NOCASE = ?` 必须同一次上线，`test-tag-names` 第 3 条守的就是这个。② **迁移与 `schema.sql` 要一起改**：`test-schema` 比对索引集合，少一处会红；`schema:apply:local` 要跑两次验幂等（三步 DELETE 第二次都无行可动）。③ **源码断言数语句时必须排除整行注释**：第一次注入是把 `INSERT OR IGNORE INTO post_tags` 注释掉，「三步都在」那条**仍然绿** —— 正则吃到了注释里的同一行字面量。这是「判据被自己的搜索域喂饱」的又一例（P-061 同族）；`hitsIn()` 改成先过滤 `/^\s*--/` 才抓住。④ **删 CSS 死规则要 grep scripts/**：`.side-toggle` 在 HTML/JS 里零引用，但 `test-admin-nav` 用精确串断言它存在 —— 断言本身就是消费方，删了当场红；`.sk-thumb` 只出现在种子文章正文的演示 HTML 里，也不是死类名。判断「死」要覆盖 public / src / scripts / *.sql，缺一个就误删。⑤ **mask 必须挂在滚动容器本身**：`mask-image` 相对元素 border-box，滚动时渐隐位置不动；在滚动容器里放 `position:absolute` 的伪元素会跟着内容一起滚，做不出固定的边缘提示。⑥ **空态要删 img 节点，不是 `display:none`**：eager 图照样发请求，空栏目页白下 100KB 的 1200×630。⑦ 恢复两条被误删的规则后体积撞线 48297，压注释到 **47822 / 48000** —— 按记账规矩先清再谈抬，这次没抬。
+- **出处**：`migrations/0007_tag_name_nocase.sql`、`schema.sql`、`src/api.js`（`syncTags` / `tagHasLivePosts` / 标签过滤 / 后台合并）、`src/index.js`（`renderList` 的 feat 与 is-empty 分支）、`public/app.js`（`bindTableScroll`）、`public/style.css`（mask、is-empty、深色 filter）、`scripts/test-tag-names.mjs`、`scripts/test-visual-fixes.mjs`、`scripts/check-desktop.mjs`、P-116（改完 CSS 要重启 dev）、P-114（判据要挂真几何）、P-061（搜索域投毒）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

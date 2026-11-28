@@ -195,8 +195,10 @@ async function load() {
     listEl.innerHTML = posts.map(card).join('');
     renderPager(pages, total);
 
-    /* 首屏横幅右侧跟着最新一篇走；标签/栏目/搜索页不抢这条位，保留归档入口。 */
-    if (!currentQ && !currentTag && !currentCat && page === 1) {
+    /* 首屏横幅右侧跟着本页最新一篇走。标签页 / 栏目页也填 —— 与 SSR 保持同一口径：
+       那边早就不看 res.base 了，客户端只对首页生效的话，接口降级时这两页会退回
+       静态壳里的 og-default（1200×630 塞进 428×292 会被裁坏）。搜索页不抢这条位。 */
+    if (!currentQ && page === 1) {
       const f = posts[0];
       const feat = document.getElementById('hero-feature');
       if (feat && f) {

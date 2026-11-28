@@ -1701,14 +1701,25 @@ function applyList(body, res) {
     .replace('<!--SIDERECENT-->', recent)
     .replace('</head>', `<script>window.__LIST__=${boot};</script></head>`);
 
-  /* 首屏横幅右侧：直接用第一篇文章，不再等客户端 ——— 有 SSR 列表时
-     index.html 的 load() 不会跑，等它填就是永远停在默认文案。 */
-  const feat = res.base === '/' && data.page === 1 ? data.posts[0] : null;
+  /* 首屏横幅右侧：用本页第一篇文章，不再等客户端 —— 有 SSR 列表时
+     index.html 的 load() 不会跑，等它填就是永远停在静态壳里的那张 og-default。
+     原来只对首页生效，于是 /cat/log、/tag/cloudflare 一直把 1200×630 的 OG 设计图
+     塞进 428×292 里 object-fit:cover 居中裁 —— 图上「Exia Blog」被切成「xia Blog」。
+     标签页 / 栏目页渲染的是同一套骨架，取本页第一篇才是对的。 */
+  const feat = data.page === 1 ? data.posts[0] : null;
   if (feat) {
     out = out
       .replace(/(<a class="hero-feature"[^>]*href=")[^"]*/, `$1/p/${encodeURIComponent(feat.slug)}`)
       .replace(/(<img class="hf-img"[^>]*src=")[^"]*/, `$1${esc(coverOf(feat))}`)
       .replace(/(<span class="hf-title" id="hf-title">)[\s\S]*?(<\/span>)/, `$1${esc(feat.title)}$2`);
+  } else if (res.base !== '/') {
+    /* 空栏目没有首篇可放，静态壳里那张 OG 图在 428×292 里依旧会被裁坏。
+       折成一块 token 底色的提示卡：图片节点直接去掉（留着 src 就是白下 100KB
+       的 1200×630），颜色全部走 token。 */
+    out = out
+      .replace('<a class="hero-feature"', '<a class="hero-feature is-empty"')
+      .replace(/<img class="hf-img"[^>]*>/, '')
+      .replace(/(<span class="hf-title" id="hf-title">)[\s\S]*?(<\/span>)/, '$1这个栏目还没有文章$2');
   }
 
   return { body: out, list: data };

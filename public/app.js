@@ -408,6 +408,43 @@ export function bindCodeScroll(root = document) {
   return marks;
 }
 
+/* 表格横向滚动标记 —— 和代码块同一套判据，但对象不同。
+   窄屏 .md table 有 min-width:460（见 style.css 的 max-width:640 段），
+   这是为了不把四列压成每列两个字。代价是表格比屏幕宽，而手机不显示滚动条，
+   读者会以为最后一列不存在（实测 20 个代码块 17 个溢出、表格同样）。
+   所以：真溢出才挂 overflowing，CSS 给右缘渐隐；滑到末尾再撤掉，
+   否则最后一列的右边缘会永远糊着一层。 */
+export function bindTableScroll(root = document) {
+  const marks = () => {
+    for (const wrap of root.querySelectorAll('.md .table-wrap')) {
+      const over = wrap.scrollWidth - wrap.clientWidth > 4;
+      wrap.classList.toggle('overflowing', over);
+      wrap.classList.toggle('at-end', !over || wrap.scrollLeft + wrap.clientWidth >= wrap.scrollWidth - 4);
+    }
+  };
+  /* scroll 不冒泡（和代码块一样），只能捕获。容器自己滚，target 就是 .table-wrap。 */
+  root.addEventListener(
+    'scroll',
+    (e) => {
+      const w = e.target;
+      if (!w || !w.classList || !w.classList.contains('table-wrap')) return;
+      w.classList.toggle('at-end', w.scrollLeft + w.clientWidth >= w.scrollWidth - 4);
+    },
+    true
+  );
+  let t = 0;
+  addEventListener(
+    'resize',
+    () => {
+      clearTimeout(t);
+      t = setTimeout(marks, 180);
+    },
+    { passive: true }
+  );
+  marks();
+  return marks;
+}
+
 /* 阅读进度偏好：位置 top/bottom + 开关。存本机，服务端配置不掺和。
    读取时做白名单，localStorage 被塞了脏值也不会给 body 挂上是非 class。 */
 const READ_KEY = 'x_readbar';

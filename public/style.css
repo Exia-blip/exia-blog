@@ -116,7 +116,6 @@ button, input, textarea, select {
 /* 704 - 2×22 = 660 正文宽：17px 中文一行约 38.8 字 / 72ch，
    中英混排与长代码行都能收住；三档宽屏列必须与这个数同源，见 T-11。 */
 .wrap { max-width: 704px; margin: 0 auto; padding: 0 22px; }
-.wrap-wide { max-width: 1180px; margin: 0 auto; padding: 0 22px; }
 
 /* 桌面框架：导航 1180 / 主区 704 / 页脚 760 三套宽度各说各话，宽屏上主区
    成了一条居中窄带。现在三处都读 --frame；正文窄列 .wrap 不动（T-01 守 660），
@@ -617,6 +616,17 @@ a.cat-chip:hover { filter: brightness(0.96); }
   margin: 1.5em 0;
 }
 .md table { border-collapse: collapse; width: 100%; font-size: 15px; }
+/* 横滚提示：只有真溢出才挂 .overflowing（见 app.js 的 bindTableScroll）。
+   mask 固定在容器框上（滚动时渐隐不动），滑到末尾由 .at-end 撤掉。 */
+.md .table-wrap.overflowing {
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 34px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 34px), transparent);
+}
+.md .table-wrap.overflowing.at-end {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
 .md th, .md td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; }
 .md th {
   position: sticky; top: 0; z-index: 2;
@@ -877,38 +887,6 @@ a.cat-chip:hover { filter: brightness(0.96); }
 .preview { flex: 1; overflow-y: auto; padding: 22px 26px; }
 
 /* 设置侧栏：常驻写作区右侧（点菜单直接显现，不再弹抽屉/遮罩） */
-.editor-side {
-  order: 0;
-  flex: 0 0 292px;
-  margin-left: 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--card);
-  padding: 16px 14px 16px;
-  overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
-  scrollbar-width: thin;
-  overscroll-behavior: contain;
-}
-.editor-side input[type="text"], .editor-side textarea, .editor-side select {
-  padding: 7px 10px; border-radius: 8px; font-size: 13px; background: var(--bg);
-}
-/* 侧栏内容不许被压扁：超长时整列滚动，而不是把站点设置卡片挤成半截 */
-.editor-side > * { flex: 0 0 auto; }
-.editor-side textarea { line-height: 1.6; }
-.editor-side .field { gap: 6px; }
-.editor-side .field label { font-size: 11.5px; letter-spacing: .01em; }
-.editor-side .btn.sm { padding: 6px 10px; }
-
-/* 分组小标题：细线拉到右边 */
-.side-sec {
-  display: flex; align-items: center; gap: 9px;
-  margin: 2px 0 -3px;
-  font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
-  color: var(--muted);
-}
-.side-sec::after { content: ''; flex: 1; height: 1px; background: var(--line); }
-.side-sec + .field, .side-sec + .site-box { margin-top: 0; }
-
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field label { font-size: 12px; color: var(--muted); font-weight: 500; }
 /* 就近表单报错：输入框红边 + 字段下方一行说明，复用 --red，暗色自适应。
@@ -934,28 +912,20 @@ input.invalid, textarea.invalid {
 .site-box > summary::-webkit-details-marker { display: none; }
 .site-box > summary:hover { background: var(--bg-soft); }
 .site-box > summary .ico { width: 14px; height: 14px; flex: 0 0 auto; color: var(--muted); }
-.site-box > summary .chev {
-  width: 13px; height: 13px; margin-left: auto; flex: 0 0 auto;
-  color: var(--muted); transition: transform .18s ease;
-}
 .site-box[open] > summary { background: var(--bg-soft); border-bottom: 1px solid var(--line); }
-.site-box[open] > summary .chev { transform: rotate(90deg); }
 .site-body { padding: 12px; display: flex; flex-direction: column; gap: 11px; }
 
 /* 发布自检已独立成一整个视图（见 .view-card），原先抽屉里的折叠块样式随之删除 */
 .site-box textarea, .site-box input, .site-box select { width: 100%; box-sizing: border-box; }
 .site-box textarea { resize: vertical; min-height: 62px; font: inherit; font-size: 13px; }
-.side-hint, .site-hint { font-size: 11.5px; line-height: 1.5; color: var(--muted); opacity: .85; }
+.site-hint { font-size: 11.5px; line-height: 1.5; color: var(--muted); opacity: .85; }
 .side-save { width: 100%; justify-content: center; margin-top: 1px; }
 
-/* 底部操作条 */
-.side-foot {
-  margin-top: auto; display: flex; gap: 8px; padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-.side-foot .side-view { flex: 1; justify-content: center; }
-/* 侧栏常驻右侧：抽屉按钮与遮罩不再需要，彻底隐藏 */
+/* 侧栏常驻右侧：抽屉按钮与遮罩不再需要，彻底隐藏。
+   这条被 test-admin-nav 当作「抽屉已下线」的契约断言守着（精确串匹配），
+   类名在 HTML 里搜不到不代表能删 —— 断言本身就是消费方。 */
 .side-toggle, .side-mask { display: none !important; }
+
 .switch { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; user-select: none; }
 .switch input { width: auto; margin: 0; accent-color: var(--accent); }
 .save-state { font-size: 12px; color: var(--muted); margin-left: auto; display: flex; align-items: center; gap: 6px; }
@@ -1252,7 +1222,6 @@ body.editor-page, body.stat-page {
    颜色一律走主题变量（含 color-mix 派生），亮暗自动适配；作用域限定 .stat-page。 */
 
 /* 审计日志表：窄屏横向滚动，时间 mono，详情单行截断，空态 */
-.stat-page .adm-audit-wrap { border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
 .stat-page .adm-audit-table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 13px; }
 .stat-page .adm-audit-table th {
   text-align: left; font-weight: 500; color: var(--muted); font-size: 12px;
@@ -1263,10 +1232,8 @@ body.editor-page, body.stat-page {
   text-align: left; vertical-align: top;
 }
 .stat-page .adm-audit-table tr:last-child td { border-bottom: 0; }
-.stat-page .adm-audit-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
 .stat-page .adm-audit-action { white-space: nowrap; color: var(--fg); }
 .stat-page .adm-audit-detail { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
-.stat-page .adm-audit-empty { color: var(--muted); font-size: 13px; padding: 18px 0; margin: 0; }
 
 /* 版本历史：版本行 + 预览展开（只读 mono textarea）+ 回滚危险按钮 */
 .stat-page .adm-hist-row {
@@ -1275,8 +1242,6 @@ body.editor-page, body.stat-page {
 }
 .stat-page .adm-hist-row:last-child { border-bottom: 0; }
 .stat-page .adm-hist-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.stat-page .adm-hist-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
-.stat-page .adm-hist-actor { font-size: 12.5px; color: var(--fg); }
 .stat-page .adm-hist-note { font-size: 12px; color: var(--muted); line-height: 1.6; }
 .stat-page .adm-hist-preview {
   box-sizing: border-box; width: 100%; max-height: 320px; overflow: auto;
@@ -1284,35 +1249,15 @@ body.editor-page, body.stat-page {
   padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--bg); color: var(--fg);
 }
-.stat-page .adm-hist-rollback {
-  font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap;
-  padding: 6px 14px; border-radius: 7px;
-  border: 1px solid var(--red); background: var(--card); color: var(--red);
-  transition: background .15s;
-}
-.stat-page .adm-hist-rollback:hover { background: color-mix(in srgb, var(--red) 12%, transparent); }
 .stat-page .adm-hist-ops { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
 
 /* 友链管理：新增表单两列（窄屏一列）+ 列表行 + 状态徽章 + HTTP 码/延迟 + 操作组 */
-.stat-page .adm-fr-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .stat-page .adm-fr-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
 }
 .stat-page .adm-fr-row:last-child { border-bottom: 0; }
 .stat-page .adm-fr-main { min-width: 0; flex: 1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.stat-page .adm-fr-badge {
-  display: inline-block; padding: 2px 9px; border-radius: 6px;
-  font-size: 11.5px; line-height: 1.6; border: 1px solid var(--line); color: var(--muted);
-}
-.stat-page .adm-fr-badge.ok {
-  color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent);
-  background: color-mix(in srgb, var(--green) 12%, transparent);
-}
-.stat-page .adm-fr-badge.bad {
-  color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent);
-  background: color-mix(in srgb, var(--red) 12%, transparent);
-}
 .stat-page .adm-fr-code, .stat-page .adm-fr-latency { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
 .stat-page .adm-fr-ops { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
 .stat-page .adm-fr-op {
@@ -1337,22 +1282,11 @@ body.editor-page, body.stat-page {
 .stat-page .adm-cmt-meta { font-size: 11.5px; color: var(--muted); }
 .stat-page .adm-cmt-content { font-size: 13px; line-height: 1.6; color: var(--fg); margin: 6px 0 0; word-break: break-word; }
 .stat-page .adm-cmt-ops { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
-.stat-page .adm-cmt-approve, .stat-page .adm-cmt-reject {
-  font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap;
-  padding: 6px 14px; border-radius: 7px; background: var(--card);
-  transition: background .15s;
-}
-.stat-page .adm-cmt-approve { color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 45%, var(--line)); }
-.stat-page .adm-cmt-reject { color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 45%, var(--line)); }
-.stat-page .adm-cmt-approve:hover { background: color-mix(in srgb, var(--green) 12%, transparent); }
-.stat-page .adm-cmt-reject:hover { background: color-mix(in srgb, var(--red) 12%, transparent); }
-.stat-page .adm-cmt-empty { color: var(--muted); font-size: 13px; padding: 18px 0; margin: 0; }
 
 /* 窄屏：表单单列、行改纵向堆叠、按钮左对齐不溢出；表格保持横滑 */
 @media (max-width: 620px) {
   .stat-page .adm-hist-row, .stat-page .adm-cmt-row { flex-direction: column; align-items: stretch; }
   .stat-page .adm-hist-ops, .stat-page .adm-cmt-ops, .stat-page .adm-fr-ops { justify-content: flex-start; }
-  .stat-page .adm-fr-form { grid-template-columns: 1fr; }
   .stat-page .adm-fr-row { flex-direction: column; align-items: stretch; }
 }
 
@@ -1546,11 +1480,6 @@ body.editor-page, body.stat-page {
   .admin-main { overflow-y: auto; }
   .editor-body { flex-direction: column; flex: 0 0 auto; height: auto; }
   .editor-card { flex: 0 0 auto; min-height: 62vh; }
-  .editor-side {
-    flex: 0 0 auto; width: auto; max-height: none; margin: 10px 0 0;
-    border: 1px solid var(--line); overflow-y: visible;
-    padding: 14px 12px;
-  }
 }
 @media (max-width: 640px) {
   body { font-size: 16px; }
@@ -1559,7 +1488,7 @@ body.editor-page, body.stat-page {
   .post-card .thumb { width: 74px; height: 60px; flex-basis: 74px; }
   .post-head h1 { font-size: 26px; }
   .post-body { font-size: 17px; }
-  .wrap, .wrap-wide { padding: 0 16px; }
+  .wrap { padding: 0 16px; }
 
   /* 顶栏：站名不再给导航让位，右侧只留汉堡。
      以前是「品牌名截到 30vw + 导航横向滚动」，390 上站名被切成 Exia Bl...，
@@ -1929,16 +1858,19 @@ html.theme-transition, html.theme-transition * {
   background: var(--card); border: 1px solid var(--line);
   margin-bottom: 16px;
 }
-.sk-thumb { width: 200px; height: 130px; flex: 0 0 200px; border-radius: 10px; }
 .sk-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .sk-body .sk { height: 12px; }
 .sk-body .sk:nth-child(1) { height: 17px; width: 62%; }
 .sk-body .sk:nth-child(2) { width: 92%; }
 .sk-body .sk:nth-child(3) { width: 44%; }
+/* 骨架卡左侧缩略图。首页的 SKELETON 常量用的是 .sk-cover，
+   但文章正文里演示骨架屏的那一段（种子数据 993 行）写的是 .sk-thumb ——
+   删了这段，那篇的演示图会变成 0 尺寸。它不是死类名。 */
+.sk-thumb { width: 200px; height: 130px; flex: 0 0 200px; border-radius: 10px; }
 
 @media (max-width: 640px) {
-  .sk-thumb { width: 96px; height: 76px; flex: 0 0 96px; }
   .sk-card { gap: 13px; padding: 12px; }
+  .sk-thumb { width: 96px; height: 76px; flex: 0 0 96px; }
 }
 
 /* ---------- 栏目页（四个固定栏目 + 一句说明） ---------- */
@@ -2358,7 +2290,7 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
     overflow: visible !important; height: auto !important; max-height: none !important;
   }
   .admin-shell { display: block !important; background: #fff !important; padding: 0 !important; }
-  .admin-rail, .pub-actions, .view-head .btn, .admin-view-actions { display: none !important; }
+  .admin-rail, .pub-actions, .view-head .btn { display: none !important; }
   .admin-main { border: 0 !important; border-radius: 0 !important; background: #fff !important; }
   /* 输入框去掉控件外观，标题与正文仍按文本印出来（打印草稿有人干） */
   .admin-main input, .admin-main textarea, .admin-main select {
@@ -2525,6 +2457,12 @@ nav.top a:active, .pagination .btn:active, .back-top:active { transform: scale(.
 :root[data-mode="dark"] .post-card:hover {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--shadow);
 }
+
+/* 深色压暗封面：浅色渐变图在 #1b1e27 上会变成发光灯箱。
+   只碰封面 —— 正文插图与头像各有各的明度关系，一刀切会糊。 */
+:root[data-mode="dark"] .post-card .thumb { filter: brightness(0.78) saturate(0.88); }
+/* 横幅是品牌块，压太狠会连「这是页头」都认不出来；卡片封面才是要收的那批。 */
+:root[data-mode="dark"] .hero-feature .hf-img { filter: brightness(0.86) saturate(0.92); }
 
 /* 触屏上的 :hover 会「粘住」：手指划过或点一下，样式会一直停在 hover 态，
    下一次滚动经过时再抖一下 —— 看着就像动画自己又放了一遍。
@@ -2921,6 +2859,16 @@ main.home .hero p#hero-sub { position: relative; margin: 0; color: color-mix(in 
 .hero-feature { position: relative; display: block; min-height: 292px; border-radius: 16px; overflow: hidden; background: var(--bg-soft); }
 .hf-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s ease; }
 .hero-feature:hover .hf-img { transform: scale(1.03); }
+/* 空栏目没有首篇：静态壳那张 1200×630 的 OG 图会被裁成「xia Blog」，折成 token 底色卡。 */
+.hero-feature.is-empty { background: var(--bg-soft); display: grid; place-items: center; }
+.hero-feature.is-empty .hf-img,
+.hero-feature.is-empty .hf-mask,
+.hero-feature.is-empty .hf-tag { display: none; }
+/* 没有图就没有「压在图上」这回事，hf-title 回文档流居中。 */
+.hero-feature.is-empty .hf-title {
+  position: static; left: auto; right: auto; bottom: auto;
+  color: var(--muted); font-weight: 600; text-align: center;
+}
 .hf-mask { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0) 32%, rgba(0, 0, 0, 0.66)); }
 .hf-tag { position: absolute; top: 14px; left: 14px; padding: 3px 10px; border-radius: 999px; background: var(--brand, var(--accent)); color: var(--on-brand, #fff); font-size: 12px; font-weight: 600; }
 .hf-title { position: absolute; left: 18px; right: 18px; bottom: 18px; color: #fff; font-size: 19px; font-weight: 700; line-height: 1.4; }
