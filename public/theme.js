@@ -1,4 +1,4 @@
-// 风格（主题）系统：7 套预设 × 浅/深/跟随系统
+// 风格（主题）系统：8 套预设 × 浅/深/跟随系统
 // 偏好在 localStorage，站点默认值由服务端注入 window.__THEME_DEFAULT__
 
 export const THEMES = [
@@ -9,6 +9,7 @@ export const THEMES = [
   { id: 'plum', name: '暮紫', desc: '淡紫 · 梅色', sw: ['#faf7fc', '#e9e0ef', '#7d3f91'] },
   { id: 'mono', name: '终端', desc: '灰阶 · 等宽字', sw: ['#f4f4f5', '#d9d9de', '#0a7d4b'] },
   { id: 'edge', name: '基建', desc: '纯白 · 锚橙发丝线', sw: ['#ffffff', '#e2e6ec', '#f6821f'] },
+  { id: 'editorial', name: '编辑部', desc: '深蓝灰 · 暖金衬线', sw: ['#111820', '#202B35', '#C6A77A'] },
 ];
 
 export const MODES = [

@@ -1,7 +1,7 @@
 // 主题样式表直出的边界：错一个字符就会让整站要么没样式、要么多一次阻塞请求。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { themeCssTag } from '../src/settings.js';
+import { THEME_IDS, themeCssTag } from '../src/settings.js';
 
 const cases = [];
 const t = (name, fn) => cases.push([name, fn]);
@@ -40,10 +40,11 @@ t('空值当作纸韵', () => {
   assert.equal(themeCssTag(undefined), '');
 });
 
-t('七套主题里只有纸韵不发 link', () => {
-  const all = ['paper', 'ink', 'forest', 'ocean', 'plum', 'mono', 'edge'];
-  const withLink = all.filter((id) => themeCssTag(id) !== '');
-  assert.deepEqual(withLink, ['ink', 'forest', 'ocean', 'plum', 'mono', 'edge']);
+t('所有主题里只有纸韵不发 link', () => {
+  /* 名单从资源清单派生：加主题时不该再来改这里（改了就等于把契约第七处写死） */
+  const withLink = THEME_IDS.filter((id) => themeCssTag(id) !== '');
+  assert.deepEqual(withLink, THEME_IDS.filter((id) => id !== 'paper'));
+  assert.ok(withLink.includes('editorial'), 'editorial 没有独立样式表');
 });
 
 const cssText = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');

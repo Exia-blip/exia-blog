@@ -7,7 +7,7 @@
  * 两边互补 —— 只有源码断言会漏掉「写了但被更高优先级压住」，
  * 只有浏览器断言则进不了 CI。
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { report } from './pitfall-check.mjs';
 
@@ -245,7 +245,7 @@ t('P3-19 打印：代码块浅灰底，token 洗白后仍划得出边界', () =>
   assert.ok(/--bg-soft:\s*#fff\s*!important/.test(pr), 'token 洗白段没了（浅灰底的前提）');
 }, 'P-122');
 
-t('P3-20 圆角分层：大容器 10 / 小元素 6 / 形状 999+50%，七套主题 token 同值', () => {
+t('P3-20 圆角分层：大容器 10 / 小元素 6 / 形状 999+50%，各主题 token 同值', () => {
   /* 独立计数：只数 border-radius 的数值，不数 padding/margin 里的 12px —— 后者不能动 */
   const nums = [...css.matchAll(/border-radius:\s*(\d+)px/g)].map((m) => Number(m[1]));
   const stray = nums.filter((n) => n !== 10 && n !== 6 && n !== 999);
@@ -256,7 +256,8 @@ t('P3-20 圆角分层：大容器 10 / 小元素 6 / 形状 999+50%，七套主�
   assert.ok((css.match(/border-radius:\s*50%/g) || []).length >= 24, '圆形 50% 被撤了');
   assert.ok(nums.filter((n) => n === 10).length >= 62, '大容器档没成为主值');
   /* 主题 token 若各自保留 5/16/18，走 var(--radius) 的那 10 处会和硬编码 10px 打架 —— 主题内两套大圆角 */
-  const files = ['public/style.css', ...['edge','forest','ink','mono','ocean','plum'].map((n) => `public/theme/${n}.css`)];
+  const files = ['public/style.css', ...readdirSync(join(ROOT, 'public/theme'))
+    .filter((n) => n.endsWith('.css')).sort().map((n) => `public/theme/${n}`)];
   for (const f of files) {
     const src = readFileSync(join(ROOT, f), 'utf8');
     assert.ok(/--radius:\s*10px/.test(src), `${f} 的 --radius 不是 10px（主题内会出现两套大容器圆角）`);

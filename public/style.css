@@ -2704,8 +2704,8 @@ mark {
 .sm-stat { display: flex; flex-direction: column; gap: 2px; }
 .sm-stat b { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--fg); }
 .sm-stat span { font-size: 11.5px; color: var(--muted); }
-/* 悬停只加深底色，不做「反白」：--on-brand 只有 edge 定义，
-   其余六套会退回 var(--accent) 自身，橙底橙字。 */
+/* 悬停只加深底色，不做「反白」：--on-brand 只有 edge / editorial 定义，
+   其余主题没有这个槽位，反白会变成同色底上的字。 */
 .sm-cta { margin-left: auto; padding: 8px 16px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .sm-cta:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 @media (max-width: 560px) { .sm-cta { margin-left: 0; } }
@@ -2894,7 +2894,7 @@ main.home .hero {
   padding: 42px 44px;
   border-radius: 10px;
   overflow: hidden;
-  /* 横幅跟着主题走：--brand 是填充位（只有 edge 定义），其余主题没有就落回 --accent。
+  /* 横幅跟着主题走：--brand 是填充位（只有 edge / editorial 定义），其余主题落回 --accent。
      写死一组紫色渐变的话，苔原/暮紫/终端这几套底部会顶着一块不相干的外来色 —— 
      和 P-107「同一个颜色同时说四件事」是反着的毛病：这次是「同一个位置换四套色」。 */
   color: var(--on-brand, #fff);

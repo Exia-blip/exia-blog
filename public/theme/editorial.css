@@ -1,0 +1,53 @@
+/* 编辑部：深蓝灰纸面 + 暖金强调。纯色分区，无渐变、无玻璃，标题吃衬线。 */
+:root[data-theme="editorial"] {
+  --bg: #F6F3ED;
+  --bg-soft: #EFEAE0;
+  --card: #FFFDF8;
+  --fg: #1C242B;
+  --fg-soft: #3B464F;
+  --muted: #5D6B79;
+  --line: #DCD6C9;
+  --accent: #8A5A28;
+  --accent-soft: #F1E6D5;
+  --brand: #C6A77A;
+  --on-brand: #1C242B;
+  --green: #2F6B4F;
+  --red: #A4382E;
+  --radius: 10px;
+  --shadow: 0 1px 0 rgba(28,36,43,.04);
+  --tok-k: #8A5A28;
+  --tok-s: #2F6B4F;
+  --tok-n: #9A5A20;
+  --tok-f: #345B7A;
+  --serif: "Iowan Old Style", Baskerville, "Songti SC", "Noto Serif SC", Georgia, serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+:root[data-theme="editorial"][data-mode="dark"] {
+  --bg: #111820;
+  --bg-soft: #1B2732;
+  --card: #202B35;
+  --fg: #E8EDF2;
+  --fg-soft: #A5B1BE;
+  --muted: #9EACBA;
+  --line: #35414D;
+  --accent: #C6A77A;
+  --accent-soft: #2D3A45;
+  --brand: #C6A77A;
+  --on-brand: #1C242B;
+  --green: #7FB894;
+  --red: #D98E83;
+  --shadow: 0 1px 0 rgba(0,0,0,.4);
+  --tok-k: #E0A98A;
+  --tok-s: #9CC5A1;
+  --tok-n: #D9B86B;
+  --tok-f: #8AB4E0;
+  color-scheme: dark;
+}
+/* 编辑部不要毛玻璃：导航与回到顶部都退回纯色，靠发丝线分区 */
+:root[data-theme="editorial"] header.site,
+:root[data-theme="editorial"] .back-top {
+  backdrop-filter: none;
+  background: var(--bg);
+}
+:root[data-theme="editorial"] .post-card { box-shadow: none; }
