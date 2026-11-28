@@ -1319,6 +1319,17 @@
 
 ---
 
+## P-125 页脚版本号：展示号不显示，真源留给 git tag
+
+- **现象**：页脚 `© 2026 Exia Blog · v1.2.6`，线上 tag 已到 v1.2.10 —— 一个把 CLS 量到 0.0176 的站，页脚挂着三个版本之前的号。这是全站唯一一处对外说谎的文字。
+- **根因**：`src/version.js` 的 `SITE_RELEASE` 手工维护，而 `package.json` 的 `version` 从 v1.2.6 起就没跟过 tag。`test-site-footer.mjs` 原来那条断言锁的是「页脚版本 = package.json 版本」—— 两边一起不动，断言永远绿，对外却一直是旧号。P-106 说的是「package.json 不是版本真源、别去对齐」，不是「页面上可以一直显示错的号」。两个解法选「不显示」：展示版本对读者没有信息量（版本号是给维护者看的，维护者要的是 git tag + Release），不引构建期 `git describe` —— 多一条构建链路，解决的却是读者根本不看的问题。
+- **复现**：发版前 `curl -s https://miu.sryze.cc/ | grep -o 'v[0-9]\+\.[0-9]\+\.[0-9]\+'` 得到 `v1.2.6`，而 `git tag --sort=-version:refname | head -1` 已是 `v1.2.10`；两者由 `SITE_RELEASE` 与 `package.json` 分别维护，旧断言只检查这两者相等，因此永远对不上 tag 也不会红。
+- **断言**：`scripts/test-site-footer.mjs` 那条从「必须显示且等于 package.json」翻转为「不显示 + 死代码清掉 + semver 不进资源版本号」。四次注入全红：页脚版本号加回 / `version.js` 复活 / 死 import 加回 / `assetVersion()` 改成读 semver；还原 9/9。判据落在 `siteFooter` 函数体切片、`existsSync` 与 `assetVersion` 函数体，不落在「字符串 `SITE_RELEASE` 不存在」这种自造符号上（假绿形态之一）。
+- **边界**：① 旧断言注释里的「CSS 预算只剩 27 B / 39000」是 P-124 已作废的旧取样，别再引用；预算只认本机 `npm run check:size`。② semver 不许进 `?v=` 这条纪律保留：`assetVersion()` 只从 `env.SITE_VERSION` / `env.CF_VERSION_METADATA.id` 取，内容哈希仍出自 `assets.gen.js`。③ 页脚去版本不碰 CSS，不触发 `build:sri`；但改了 SSR HTML，验收要抓真 SSR（本地实测 `© 2026 Exia Blog`，无版本号）。④ `package.json` 的 `1.2.6` 没动：它是 npm 包字段，既不是展示号也不是版本真源。
+- **出处**：`src/index.js`（删 `SITE_RELEASE` import + 版权行去版本号）、`src/version.js`（整文件删除）、`scripts/test-site-footer.mjs`（断言翻转，删 `ver` / `pkg` 读取）。
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：

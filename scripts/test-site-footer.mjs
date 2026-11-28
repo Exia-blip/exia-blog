@@ -2,14 +2,12 @@
 // 页脚是 Worker SSR 注入的，没有可单测的纯函数输出；这里用源码断言锁住
 // 「只在读者页注入 / 三按钮复用主题系统 / 打印隐藏」这些改坏了不会报错的约束。
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 
 const idx = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
 const boot = readFileSync(new URL('../public/boot.js', import.meta.url), 'utf8');
 const theme = readFileSync(new URL('../public/theme.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
-const ver = readFileSync(new URL('../src/version.js', import.meta.url), 'utf8');
-const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 const cases = [];
 const t = (name, fn) => cases.push([name, fn]);
@@ -74,22 +72,27 @@ t('样式：跟随主题变量、窄屏、reduced-motion、打印隐藏', () => 
   assert.ok(/\.site-foot[^}]*display: none !important/.test(css.slice(css.indexOf('@media print'))), '打印时隐藏页脚');
 });
 
-t('页脚版本号：与 package.json 同值，且不冒充资源版本号', () => {
-  // 行首锚定 + 唯一计数：注释里也写着这串名字，indexOf 会搜到自己。
-  const defs = ver.match(/^export const SITE_RELEASE = '([0-9]+\.[0-9]+\.[0-9]+)';$/gm) || [];
-  assert.equal(defs.length, 1, `SITE_RELEASE 定义应唯一且为 x.y.z，实际 ${defs.length} 处`);
-  const shown = defs[0].match(/'([^']+)'/)[1];
-  assert.equal(shown, pkg.version, `页脚版本 ${shown} 与 package.json ${pkg.version} 不一致`);
-  assert.ok(idx.includes("import { SITE_RELEASE } from './version.js';"), '页脚必须引用同一常量');
-  assert.ok(idx.includes('v${SITE_RELEASE}'), '页脚模板要真的渲染出版本号');
-  /* 并进版权那一行而不是另起一行：CSS 预算只剩 27 B，新增一条 .sf-ver 规则
-     就会把 style.css 顶出 39000（实测 +75 B）。宁可复用 sf-copy 的样式。 */
-  assert.ok(idx.includes('© ${year} ${name} · v${SITE_RELEASE}'), '版本应与版权同一行（挂在 sf-copy 里）');
-  assert.ok(!/\.sf-ver\b/.test(css), '别为版本号新增 CSS——预算只剩 27 B');
-  /* semver 一旦进了 ?v=，「发了新内容」和「版本没变」就同时成立，缓存永远不换。
-     资源版本只认内容哈希与部署号，这两条链不许接 semver。 */
+t('页脚不显示版本号；semver 不进资源版本号', () => {
+  /* P-125：页脚那行 v1.2.6 连着三个版本没动，是站上唯一对外说谎的文字。
+     展示版本对读者没有信息量，版本真源是 git tag + Release —— 所以这里守
+     「不显示」，不是「显示得对」。P-106 说的是 package.json 不是真源、
+     别去对齐，不是允许页面一直挂旧号。 */
+  const a = idx.indexOf('function siteFooter(site) {');
+  const b = idx.indexOf('\n}\n', a);
+  assert.ok(a >= 0 && b > a, '找不到 siteFooter 函数体');
+  const body = idx.slice(a, b);
+  assert.ok(body.includes('© ${year} ${name}'), '版权行应保留动态年份与站名');
+  assert.ok(!/SITE_RELEASE|v\$\{|\bv\d+\.\d+\.\d+/.test(body), '页脚不该渲染任何版本号');
+  assert.ok(!/from '\.\/version\.js'/.test(idx), '删掉死 import');
+  assert.ok(!existsSync(new URL('../src/version.js', import.meta.url)), 'version.js 已无人引用，应删除');
+
+  /* semver 进了 ?v= 会让「发了新内容」和「版本没变」同时成立，缓存永远不换。
+     资源版本只认内容哈希（assets.gen.js）与部署号（SITE_VERSION / CF 元数据）。 */
   const assets = readFileSync(new URL('../src/assets.js', import.meta.url), 'utf8');
-  assert.ok(!/SITE_RELEASE/.test(assets), '资源版本号不该取 SITE_RELEASE');
+  const av = assets.match(/export function assetVersion\(env\) \{([\s\S]*?)\n\}/);
+  assert.ok(av, '找不到 assetVersion 函数体');
+  assert.ok(/env\.SITE_VERSION/.test(av[1]) && /CF_VERSION_METADATA/.test(av[1]), '资源版本只认部署号兜底');
+  assert.ok(!/import|require|package\.json|\d+\.\d+\.\d+/.test(av[1]), '资源版本号不该取 semver');
 });
 
 let bad = 0;
