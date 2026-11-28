@@ -459,6 +459,149 @@ const ph = await phPg.evaluate(() => {
 check('评论邮箱 placeholder 放得下', !!ph && ph.text <= ph.box, ph ? `${Math.round(ph.text)} / ${Math.round(ph.box)}px 「${ph.ph}」` : '找不到 #cmt-email');
 await phPg.close();
 
+/* ⑨ 正文表头不折行（P2-11）：列宽是自动分的，表头一长就摊成三行。
+   判据落在两件事上：每个 th 只有一行高；没有格子被撑出内容框（nowrap 溢出时会 spill）。
+   1440 与 390 都测 —— 窄屏列更少，更早触发折行。 */
+const sitemapXml = await (await fetch(`${ORIGIN}/sitemap.xml`)).text();
+const tablePosts = [...new Set([...sitemapXml.matchAll(/<loc>[^<]*?(\/p\/[^<]+)<\/loc>/g)].map((m) => m[1]))].slice(0, 12);
+const thStats = async (path, width) => {
+  const pg = await browser.newPage();
+  await pg.setViewport({ width, height: 900, isMobile: width < 600, hasTouch: width < 600 });
+  await pg.goto(`${ORIGIN}${path}?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+  const d = await pg.evaluate(() => {
+    const ths = [...document.querySelectorAll('.md table thead th')];
+    if (!ths.length) return null;
+    return {
+      n: ths.length,
+      lines: ths.map((th) => Math.round((th.getBoundingClientRect().height - 16) / parseFloat(getComputedStyle(th).lineHeight))),
+      spill: ths.map((th) => th.scrollWidth - th.clientWidth),
+      multiLine: ths.filter((th) => Math.round((th.getBoundingClientRect().height - 16) / parseFloat(getComputedStyle(th).lineHeight)) > 1)
+        .map((th) => `${th.textContent.trim().slice(0, 18)}×${Math.round((th.getBoundingClientRect().height - 16) / parseFloat(getComputedStyle(th).lineHeight))}`).slice(0, 3),
+      over: ths.filter((th) => th.scrollWidth - th.clientWidth > 1).map((th) => th.textContent.trim().slice(0, 18)).slice(0, 3),
+    };
+  });
+  await pg.close();
+  return d;
+};
+let thWide = null;
+let thPath = '';
+for (const path of tablePosts) {
+  thWide = await thStats(path, 1440);
+  if (thWide) { thPath = path; break; }
+}
+check('找到带表头表的文章', !!thWide, thPath || `试了 ${tablePosts.length} 篇`);
+if (thWide) {
+  check('1440 表头都是一行', thWide.multiLine.length === 0, thWide.multiLine.join(' / ') || `${thWide.n} 个 th`);
+  check('1440 表头没被格子裁掉', thWide.over.length === 0, thWide.over.join(' / ') || '无溢出');
+  const thNarrow = await thStats(thPath, 390);
+  check('390 表头都是一行', !!thNarrow && thNarrow.multiLine.length === 0, thNarrow ? thNarrow.multiLine.join(' / ') || `${thNarrow.n} 个 th` : '窄屏没读到表');
+  check('390 表头没被格子裁掉', !!thNarrow && thNarrow.over.length === 0, thNarrow ? thNarrow.over.join(' / ') || '无溢出' : '');
+}
+
+/* ⑩ 404 最近更新左对齐（P2-12）：整页 text-align:center，链接是 block，
+   文字跟着居中 —— 看 li 的左边界是看不出问题的（它们本来就等宽），
+   得量每行文字的 Range 盒子。 */
+const nfPg = await browser.newPage();
+await nfPg.setViewport({ width: 1440, height: 900 });
+await nfPg.goto(`${ORIGIN}/no-such-page-audit?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+const nf = await nfPg.evaluate(() => {
+  const wrap = document.querySelector('.g404-recent');
+  if (!wrap) return null;
+  const links = [...wrap.querySelectorAll('li a')];
+  const lefts = links.map((a) => {
+    const r = document.createRange();
+    r.selectNodeContents(a);
+    return Math.round(r.getBoundingClientRect().left);
+  });
+  return { align: getComputedStyle(wrap).textAlign, lefts, spread: Math.max(...lefts) - Math.min(...lefts), n: links.length };
+});
+check('404 最近更新文字左对齐', !!nf && nf.align === 'left', nf ? nf.align : '找不到 .g404-recent');
+check('404 最近更新左边缘齐平', !!nf && nf.n > 1 && nf.spread <= 1, nf ? `${nf.n} 条，差 ${nf.spread}px` : '');
+await nfPg.close();
+
+/* ⑪ 归档抬头与主列共用右边界（P2-14）：hero 从 .arch-shell 外面搬进 grid 第 1 行，
+   判据是 hero 右边界 == #arch-body 右边界，且右栏从抬头那一行就开始。 */
+for (const width of [1440, 1920]) {
+  const archPg = await browser.newPage();
+  await archPg.setViewport({ width, height: 900 });
+  await archPg.goto(`${ORIGIN}/archive?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+  const a = await archPg.evaluate(() => {
+    const box = (s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom) };
+    };
+    return { hero: box('.arch-shell .hero'), body: box('#arch-body'), bar: box('.arch-bar'), rail: box('.arch-rail') };
+  });
+  check(`${width} 归档抬头在 arch-shell 里`, !!a.hero, a.hero ? 'hero 是 shell 的子节点' : 'hero 仍在 shell 外');
+  if (a.hero && a.body) {
+    check(`${width} 抬头右边界与主列齐平`, Math.abs(a.hero.r - a.body.r) <= 1, `${a.hero.r} vs ${a.body.r}`);
+    check(`${width} 抬头左边界与工具条齐平`, Math.abs(a.hero.l - a.bar.l) <= 1, `${a.hero.l} vs ${a.bar.l}`);
+  }
+  if (a.rail && a.hero) check(`${width} 右栏从抬头那一行开始`, a.rail.t <= a.hero.b, `rail.top ${a.rail.t} / hero.bottom ${a.hero.b}`);
+  await archPg.close();
+}
+
+/* ⑫ 系列页：抬头 + 摘要行 + 加宽（P2-13）。原来这一页只有标题和一列链接。 */
+const seriesIdx = await (await fetch(`${ORIGIN}/series`)).text();
+const seriesLinks = [...new Set([...seriesIdx.matchAll(/href="(\/series\/[^"]+)"/g)].map((m) => m[1]))].slice(0, 4);
+if (!seriesLinks.length) check('找到系列页入口', false, '/series 里没有链接');
+else {
+  /* 挑一个至少两篇的系列：单篇系列上「有摘要」是必然成立的，等于没验 */
+  const sp = await browser.newPage();
+  await sp.setViewport({ width: 1440, height: 900 });
+  let seriesHref = seriesLinks[0];
+  for (const href of seriesLinks) {
+    await sp.goto(`${ORIGIN}${href}?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+    const n = await sp.evaluate(() => document.querySelectorAll('.series-page li').length);
+    if (n >= 2) { seriesHref = href; break; }
+  }
+  await sp.goto(`${ORIGIN}${seriesHref}?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+  const sd = await sp.evaluate(() => {
+    const m = document.querySelector('main');
+    const mast = document.querySelector('.series-mast');
+    const cta = document.querySelector('.sm-cta');
+    return {
+      mainW: m ? Math.round(m.getBoundingClientRect().width) : 0,
+      mast: !!mast,
+      stats: mast ? mast.querySelectorAll('.sm-stat').length : 0,
+      ctaHref: cta ? cta.getAttribute('href') : '',
+      rows: document.querySelectorAll('.series-page li').length,
+      abstracts: document.querySelectorAll('.series-page .sp-x').length,
+      over: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  check('系列页主列收到 880', sd.mainW === 880, `${sd.mainW}px`);
+  check('系列页有抬头（篇数/跨度/更新）', sd.mast && sd.stats === 3, `${sd.stats} 个格子`);
+  check('系列页抬头有入口且指向文章', /^\/p\//.test(sd.ctaHref), sd.ctaHref || '无');
+  check('系列页行内带摘要', sd.rows > 0 && sd.abstracts > 0, `${sd.abstracts}/${sd.rows} 行有摘要`);
+  check('系列页无横向溢出', sd.over <= 1, `${sd.over}px`);
+  await sp.close();
+}
+
+/* ⑬ 作者卡：头图与头像都不再是渐变，头像是对比度足够的字母砖（P2-15） */
+const awPg = await browser.newPage();
+await awPg.setViewport({ width: 1440, height: 900 });
+await awPg.goto(`${ORIGIN}/?cb=${Date.now()}`, { waitUntil: 'networkidle2' });
+await new Promise((r) => setTimeout(r, 400));
+const aw = await awPg.evaluate(() => {
+  const cover = document.querySelector('.aw-cover');
+  const ava = document.querySelector('.aw-avatar');
+  if (!cover || !ava) return null;
+  return {
+    coverImg: getComputedStyle(cover).backgroundImage,
+    coverColor: getComputedStyle(cover).backgroundColor,
+    avaImg: getComputedStyle(ava).backgroundImage,
+    avaText: ava.textContent.trim(),
+    avaColor: getComputedStyle(ava).backgroundColor,
+  };
+});
+check('作者卡头图不是渐变', !!aw && aw.coverImg === 'none', aw ? aw.coverImg.slice(0, 40) : '找不到 .aw-cover');
+check('作者卡头像不是渐变图', !!aw && aw.avaImg === 'none', aw ? aw.avaImg.slice(0, 40) : '');
+check('作者卡头像是字母砖', !!aw && /^[A-Z0-9]$/.test(aw.avaText), aw ? `「${aw.avaText}」` : '');
+await awPg.close();
+
 await browser.close();
 console.log(fails ? `\n✗ ${fails} 项桌面框架断言失败` : '\n✓ 桌面框架断言全部通过');
 process.exit(fails ? 1 : 0);

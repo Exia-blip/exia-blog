@@ -753,7 +753,7 @@ ${ld ? ldJson(ld) : ''}
 </head><body>
 <a class="skip-link" href="#main">跳到正文</a>
 ${renderHeader(site, '/series')}
-<main class="wrap" id="main" tabindex="-1">
+<main class="wrap series-wrap" id="main" tabindex="-1">
   <div class="page-head">
     <p class="page-kicker">${esc(kicker)}</p>
     <h1>${esc(title)}</h1>
@@ -846,24 +846,37 @@ async function serveNumbersPage(env, request) {
 const fmtDay = (v) => localDay(v);
 
 // 序号优先用 series_order；没填过就按列表位置兜底，别让读者看见「00」
+/* 每行带一句摘要：只列标题的索引页读起来是一串没有上下文的链接，
+   读者要逐篇点进去才知道这条线在讲什么。摘要取 AI/手填那一栏（posts.summary），
+   空就只留标题 —— 不拿正文首段凑，那会把「摘要」变成另一种东西。 */
 function seriesRows(rows) {
   if (!rows.length) return '<p class="empty">这个系列还没有公开文章</p>';
   return `<ol class="series-page">${rows
     .map((p, i) => {
       const n = String(p.series_order > 0 ? p.series_order : i + 1).padStart(2, '0');
+      const sub = p.summary ? `<span class="sp-x">${esc(p.summary)}</span>` : '';
       return `<li><a href="/p/${encodeURIComponent(p.slug)}">
         <span class="sp-n">${n}</span>
-        <span class="sp-t">${esc(p.title)}</span>
+        <span class="sp-main"><span class="sp-t">${esc(p.title)}</span>${sub}</span>
         <span class="sp-d">${esc(fmtDay(p.published_at || p.created_at))}</span></a></li>`;
     })
     .join('')}</ol>`;
+}
+
+/* 「2026.10 — 2026.11」这种跨度写法。同月只写一个，缺日期就少一段，
+   不硬凑成 DD.MM 那种看起来精确其实没数据的格式。 */
+function monthSpan(first, last) {
+  const a = String(first || '').slice(0, 7).replace('-', '.');
+  const b = String(last || '').slice(0, 7).replace('-', '.');
+  if (!a) return '—';
+  return a === b ? a : `${a} — ${b}`;
 }
 
 async function serveSeriesPage(env, request, name) {
   const site = await getSite(env);
   const origin = siteOrigin(env, request);
   const { results } = await env.DB.prepare(
-    `SELECT slug, title, series_order, published_at, created_at FROM posts
+    `SELECT slug, title, series_order, published_at, created_at, summary FROM posts
      WHERE series = ? AND is_private = 0 AND hidden = 0 AND ${liveSql('posts')}
      ORDER BY series_order ASC, created_at ASC`
   )
@@ -875,6 +888,10 @@ async function serveSeriesPage(env, request, name) {
   const latest = results.reduce((a, p) => {
     const t = String(p.published_at || p.created_at || '');
     return t > a ? t : a;
+  }, '');
+  const earliest = results.reduce((a, p) => {
+    const t = String(p.published_at || p.created_at || '');
+    return !a || t < a ? t : a;
   }, '');
   const canonical = `${origin}/series/${encodeURIComponent(name)}`;
 
@@ -906,6 +923,17 @@ async function serveSeriesPage(env, request, name) {
     ],
   };
 
+  /* 抬头把「这是什么、多长、从哪开始」三件事一次说完。
+     以前这一页只有标题加一列链接，进来看先撞上半屏空白 —— 页头不是装饰，
+     它决定读者是往下走还是返回。入口指向系列里的第一篇（results 已按序号排）。 */
+  const firstN = String(results[0].series_order > 0 ? results[0].series_order : 1).padStart(2, '0');
+  const mast = `<div class="series-mast">
+    <div class="sm-stat"><b>${results.length}</b><span>篇连载</span></div>
+    <div class="sm-stat"><b>${esc(monthSpan(earliest, latest))}</b><span>时间跨度</span></div>
+    <div class="sm-stat"><b>${esc(fmtDay(latest))}</b><span>最近更新</span></div>
+    <a class="sm-cta" href="/p/${encodeURIComponent(results[0].slug)}">从第 ${firstN} 篇读起 →</a>
+  </div>`;
+
   return html(
     stampAssets(seriesShell({
       site,
@@ -916,7 +944,7 @@ async function serveSeriesPage(env, request, name) {
       canonical,
       ld,
       sub: `共 ${results.length} 篇 · 最近更新 ${esc(fmtDay(latest))}`,
-      list: seriesRows(results),
+      list: mast + seriesRows(results),
     }), env),
     200,
     { 'cache-control': pageCacheControl() }

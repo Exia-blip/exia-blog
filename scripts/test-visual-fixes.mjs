@@ -155,5 +155,56 @@ t('P1-10 手机浮层：目录与回顶合成一条，独立回顶不再叠在�
   assert.ok(!/btn\.addEventListener\('click', open\)/.test(post), '整条胶囊还是单一按钮');
 }, 'P-119');
 
+t('P2-11 表头不折行，且只管 .md 正文表', () => {
+  assert.ok(/white-space: *nowrap/.test(rule('.md th')), '.md th 没有 nowrap，长表头会被摊成三行');
+  /* 必须挂在 .md th 上：写全局 th 会把 /numbers 的四列索引表一起拉宽 */
+  assert.ok(!/(^|\})\s*th\s*\{[^}]*nowrap/m.test(css.replace(/\/\*[\s\S]*?\*\//g, '')), '有全局 th 被加了 nowrap');
+  assert.ok(!/\.num-table th[^{]*\{[^}]*nowrap/.test(rule('.num-table th') || ''), '/numbers 的表头被一起锁成一行');
+}, 'P-120');
+
+t('P2-12 404 最近更新左对齐', () => {
+  const wrap = rule('.g404-recent');
+  assert.ok(/text-align: *left/.test(wrap), `.g404-recent 还是居中：${wrap.slice(0, 40)}`);
+  /* 行线是「与归档同一套行」的落点：只有 li 有边框才看得出是清单 */
+  assert.ok(/border-top/.test(rule('.g404-recent li')), '404 列表没有行分隔线');
+  assert.ok(/border-bottom/.test(rule('.g404-recent li:last-child')), '最后一行没有收口线');
+  /* 居中来源是整页的 text-align:center —— 别再给它改回去 */
+  assert.ok(/text-align: *center/.test(rule('.g404')), '404 整页对齐方式变了（三段都要重看一遍）');
+}, 'P-120');
+
+t('P2-13 系列页：加宽 + 抬头 + 每行摘要', () => {
+  assert.ok(/max-width: *880px/.test(rule('.series-wrap')), '系列页没收到 880（还是 .wrap 的 704）');
+  assert.ok(/<main class="wrap series-wrap"/.test(indexSrc), 'seriesShell 的主容器没挂 series-wrap');
+  const mast = rule('.series-mast');
+  assert.ok(mast && /display: *flex/.test(mast), '.series-mast 不存在或没排版');
+  assert.ok(/SELECT slug, title, series_order, published_at, created_at, summary/.test(indexSrc), '系列页查询没带 summary，摘要行永远是空的');
+  assert.ok(/class="sp-x"/.test(indexSrc), 'seriesRows 没有渲染摘要行');
+  assert.ok(/class="sm-cta"/.test(indexSrc) && /class="sm-stat"/.test(indexSrc), '抬头缺入口或统计格');
+  /* 顶上加倍横线：列表自身那条 border-top 与第一行的 a 叠在一起 */
+  assert.ok(!/\.series-page\s*\{[^}]*border-top/.test(css), '.series-page 自己又画了一条顶线（会与首行叠成 2px）');
+}, 'P-120');
+
+t('P2-14 归档抬头进 arch-shell，与主列共用右边界', () => {
+  const arch = readFileSync(join(ROOT, 'public/archive.html'), 'utf8');
+  const shellAt = arch.indexOf('<div class="arch-shell">');
+  const heroAt = arch.indexOf('<section class="hero">');
+  assert.ok(shellAt >= 0 && heroAt > shellAt, 'hero 还在 arch-shell 外面（右边界会压到右栏上方）');
+  assert.ok(/\.arch-shell > \.hero\s*\{[^}]*grid-column: *1/.test(css), 'hero 没有进第 1 列');
+  const wide = css.match(/@media \(min-width: 1440px\) \{[\s\S]*?\.arch-shell > \.arch-rail \{[^}]*\}/)?.[0] || '';
+  assert.ok(/grid-row: *1 \/ span 3/.test(wide), '右栏没有跨 3 行（抬头那一行右侧会空）');
+  assert.ok(/\.arch-shell > \.hero\s*\{\s*padding-bottom: *0/.test(css), 'hero 的 padding-bottom 没撤，和 grid gap 叠成 50px');
+}, 'P-120');
+
+t('P2-15 作者卡：字母砖 + token 底色，渐变全部撤掉', () => {
+  assert.ok(!/linear-gradient/.test(rule('.aw-cover')), '.aw-cover 还有渐变');
+  assert.ok(/color-mix\(in srgb, var\(--accent\) 12%/.test(rule('.aw-cover')), '头图不是由 --accent 派生的浅色带（换主题会变外来色）');
+  /* 不用正则：这条路径上的反斜杠转义被上游吃过一次，字符串包含更稳 */
+  assert.ok(rule('.aw-avatar').includes('background: var(--accent-soft)'), '头像没有一个 token 底色');
+  /* 头像不再铺站点头像图：那张是模糊渐变，64px 里认不出东西 */
+  assert.ok(!/awAva\.style\.backgroundImage/.test(indexHtml), 'index.html 还在给作者卡头像铺图');
+  assert.ok(!/has-img/.test(indexHtml), '还在加一个 CSS 里从来没有的 .has-img');
+  assert.ok(/awAva\.textContent\s*=/.test(indexHtml), '作者卡头像没有回填字母');
+}, 'P-120');
+
 console.log(fails.length ? `\n✗ ${fails.length} 项视觉修复断言失败` : '');
 process.exit(fails.length ? 1 : 0);

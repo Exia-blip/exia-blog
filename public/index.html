@@ -67,7 +67,7 @@
         <summary class="side-fold-bar"><span>站点信息</span><i>作者 · 标签 · 最新</i></summary>
         <div class="side-fold-body">
           <section class="widget author-widget">
-            <div class="aw-cover"><span class="aw-dot"></span></div>
+            <div class="aw-cover"></div>
             <div class="aw-avatar" id="aw-avatar" aria-hidden="true">E</div>
             <b class="aw-name" id="aw-name">Exia Blog</b>
             <p class="aw-desc" id="aw-desc">写字的地方</p>
@@ -127,10 +127,13 @@ const awDesc = document.getElementById('aw-desc');
 const awAva = document.getElementById('aw-avatar');
 if (awName) awName.textContent = SITE.name || 'Exia Blog';
 if (awDesc) awDesc.textContent = SITE.desc || '记录思考、代码与生活。';
-if (awAva && SITE.avatar) {
-  awAva.classList.add('has-img');
-  awAva.style.backgroundImage = `url("${SITE.avatar.replace(/"/g, '%22')}")`;
-  awAva.textContent = '';
+/* 作者卡的头像是字母砖，不铺站点头像：上传的那张是张模糊渐变，
+   缩到 64px 读不出一件事，换到 ink（黑白）主题更是一块外来橙。
+   站点标识留给顶栏那枚 27px 的小图 —— 那里够小，只当色标记；
+   卡片里 64px 的位置要能被认出来，一个字母比一团光斑强。
+   原来这段还给头像挂过「有图」的类名，那个类在 CSS 里从来没有出现过。 */
+if (awAva) {
+  awAva.textContent = (SITE.name || 'E').trim().charAt(0).toUpperCase();
 }
 
 if (currentCat) {

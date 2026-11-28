@@ -61,6 +61,18 @@
 //      不是死类。这次没有可清的存货了。
 // 新增的五条全是真规则：代码块 mask（4 条）、行内代码两档（3 条 + 媒体查询）、
 // 卡片留两行（1 条 + 媒体查询）、评论表单窄屏单列、目录+回顶胶囊（8 条）。gzip +1.4 KB。
+//
+// 【第七次：2026-11-28 审计 P2 五条】上限 49000 → 50500（实测 49890）。
+// 同一天第二次抬，所以先按规矩清：
+//   ① 零引用类名再扫一遍：仍是 0 个（ava-t0..t9 是 avatar.js 拼出来的动态名）。
+//   ② 顺手清掉两处真空转：`.series-page li:first-child{border-top:none}` —— 行线画在
+//      `a` 上，li 根本没有边框，这条永远不命中，顶上于是叠了列表自身那条 border-top，
+//      两条 1px 并排；`.aw-dot` 的 span 在模板里留了两年，CSS 里从没有过对应规则。
+//   ③ 这次新增的五条：表头 nowrap（1 条）、404 列表左对齐（4 条）、作者卡头图
+//      与头像底色（2 条）、系列抬头 + 摘要行 + 加宽（9 条）、归档 hero 进 grid（grid-row 改写）。
+// 剩下的差额只能靠抬上限。**这是同一天第二次，下次再撞线必须先删功能或改结构，
+// 不许把这条当自动续期** —— 50 KB 的 gzip CSS 已经是这个站的上限，再涨就要拆成
+// 按页拆分的多份样式（会被 CSP 的 style-src 与 SRI 一起牵动，不是改个数字的事）。
 
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -71,7 +83,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const BASELINE = join(ROOT, 'scripts/.size-baseline.json');
 const GROWTH = 1.1;
 const LIMITS = {
-  mainGzip: 49000,   // public/style.css，gzip -9；2026-11-28 审计 P1 实测 48681
+  mainGzip: 50500,   // public/style.css，gzip -9；2026-11-28 审计 P2 实测 49890
   themeRaw: 2000,    // public/theme/*.css，每个文件的原始字节
 };
 

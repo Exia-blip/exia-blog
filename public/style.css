@@ -637,9 +637,14 @@ a.cat-chip:hover { filter: brightness(0.96); }
   mask-image: none;
 }
 .md th, .md td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; }
+/* 表头不折行：列宽按内容自动分，表头一长就被摊成三行（
+   「/cat/tools 的 Worker 执行时间」在 136px 的列里摞三层），比数据行还高。
+   代价是表变宽 —— 横向本来就有 mask + 横滚，不新增机制。
+   只管 .md 正文表；/numbers 的 .num-table 有自己的列宽口径。 */
 .md th {
   position: sticky; top: 0; z-index: 2;
   background: var(--bg-soft); font-weight: 600; color: var(--fg);
+  white-space: nowrap;
 }
 .md tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-soft) 45%, transparent); }
 
@@ -2660,13 +2665,40 @@ mark {
 .page-kicker { margin: 0 0 8px; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .page-head h1 { font-family: var(--serif); font-size: 30px; line-height: 1.25; margin: 0 0 10px; letter-spacing: var(--hero-space); }
 .page-sub { margin: 0; color: var(--muted); font-size: 13.5px; }
-.series-page { list-style: none; margin: 0; padding: 0 0 60px; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
-.series-page li:first-child { border-top: none; }
-.series-page a { display: flex; gap: 14px; align-items: baseline; padding: 13px 0; border-top: 1px solid var(--line); color: var(--fg); text-decoration: none; }
+/* 行线由每个 a 自己画（含第一行）。原来列表本身也画一条 border-top，
+   又写了条 `li:first-child{border-top:none}` —— 但 li 根本没有边框，
+   那条规则是空转，顶上于是叠了两条 1px，看着比行间的线粗一倍。 */
+.series-page { list-style: none; margin: 0; padding: 0 0 60px; display: flex; flex-direction: column; }
+.series-page a { display: flex; gap: 14px; align-items: baseline; padding: 12px 0; border-top: 1px solid var(--line); color: var(--fg); text-decoration: none; }
 .series-page a:hover .sp-t { color: var(--accent); }
 .sp-n { flex: 0 0 auto; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.sp-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .sp-t { flex: 1 1 auto; font-size: 15px; line-height: 1.55; }
+.sp-x { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
 .sp-d { flex: 0 0 auto; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+
+/* 系列页与 /numbers 共用 .wrap 的 704 阅读宽，但它们是索引页：
+   1440 下 704 只占中间一条，左右各 340 空白，整页像没加载完。
+   收到 880 —— 标题不会被拉成长线，也不跨到右栏去。 */
+.series-wrap { max-width: 880px; }
+
+/* 系列抬头：篇数 / 跨度 / 最近更新 + 一个入口。
+   以前这页只有「标题 + 一列链接」，读者进来先撞半屏空白。
+   数字走等宽：三个格子里的数字宽度不同，不对齐看得出来。 */
+.series-mast {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 14px 26px;
+  padding: 15px 18px; margin: 0 0 24px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card); box-shadow: var(--shadow);
+}
+.sm-stat { display: flex; flex-direction: column; gap: 2px; }
+.sm-stat b { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--fg); }
+.sm-stat span { font-size: 11.5px; color: var(--muted); }
+/* 悬停只加深底色，不做「反白」：--on-brand 只有 edge 定义，
+   其余六套会退回 var(--accent) 自身，橙底橙字。 */
+.sm-cta { margin-left: auto; padding: 8px 16px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.sm-cta:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+@media (max-width: 560px) { .sm-cta { margin-left: 0; } }
 .series-foot { max-width: 760px; margin: 0 auto; padding: 26px 22px 60px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
 .series-foot a { color: var(--muted); text-decoration: none; }
 .series-foot a:hover { color: var(--accent); }
@@ -2746,12 +2778,17 @@ mark {
 .g404 button { padding: 10px 18px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--fg); font-size: 14px; font-family: inherit; cursor: pointer; }
 .g404 button:hover { border-color: var(--fg); }
 .g404-hint { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
-.g404-recent ul { list-style: none; padding: 0; margin: 0 0 22px; display: flex; flex-direction: column; gap: 7px; max-width: 100%; }
-.g404-recent li { min-width: 0; }
+/* 列表必须左对齐：.g404 整页 text-align:center，链接是 block，文字跟着居中 ——
+   五条长短不一的标题各据中间，左边缘参差。居中适合「一句话 + 一个按钮」，
+   不适合「五行可以扫读的清单」。 */
+.g404-recent { text-align: left; }
+.g404-recent ul { list-style: none; padding: 0; margin: 0 0 22px; display: flex; flex-direction: column; max-width: 100%; }
+.g404-recent li { min-width: 0; border-top: 1px solid var(--line); }
+.g404-recent li:last-child { border-bottom: 1px solid var(--line); }
 /* 省略号挂在 a 上：li 是 block，内部 a 是 inline，宽度由文字撑开，
    text-overflow 作用在 li 上时截断位置跟着 inline 盒子走，经常不出现省略号。 */
 .g404-recent li a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.g404-recent a { background: transparent; color: var(--accent); padding: 0; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
+.g404-recent a { background: transparent; color: var(--accent); padding: 7px 0; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
 .g404-foot a { display: inline-block; margin: 0 6px; padding: 0; background: none; font-size: 13px; color: var(--muted); text-decoration: underline; }
 .g404-foot a:hover { color: var(--fg); }
 
@@ -2989,7 +3026,13 @@ main.home .sk-card { overflow: hidden; border-radius: 12px; }
 /* 右栏 */
 .widget { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
 .author-widget { padding: 0 0 16px; overflow: hidden; text-align: center; }
-.aw-cover { height: 84px; background: linear-gradient(132deg, var(--brand, var(--accent)), color-mix(in srgb, var(--brand, var(--accent)) 74%, #fff)); }
+/* 头图不再是品牌色大渐变：一块高饱和色夹在导航与头像之间抢戏；
+   ink（黑白）主题下 --accent 近黑，渐变读起来像一条压在纸上的墨条。
+   改成 token 派生的浅色带（accent 12% 混 bg-soft），七套主题下都只是
+   「比卡片深一点」的一层，不再是外来色块。 */
+.aw-cover { height: 84px; background: color-mix(in srgb, var(--accent) 12%, var(--bg-soft)); border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+/* 字母砖：站点名首字母 + --accent-soft 底。以前这里是站点上传的头像，
+   那张图是团模糊渐变，64px 里认不出东西，黑白主题下还是一块外来橙。 */
 .aw-avatar {
   display: grid;
   place-items: center;
@@ -2998,9 +3041,7 @@ main.home .sk-card { overflow: hidden; border-radius: 12px; }
   margin: -32px auto 9px;
   border: 3px solid var(--card);
   border-radius: 50%;
-  background: var(--bg-soft);
-  background-size: cover;
-  background-position: center;
+  background: var(--accent-soft);
   color: var(--accent);
   font-size: 22px;
   font-weight: 700;
@@ -3119,12 +3160,19 @@ main.desk .arch-shell .arch-bar { margin-bottom: 0; }
   .arch-rail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 }
 
+/* 抬头也进 grid：原来 .hero 在 .arch-shell 外面，主列收进 1040 之后页头还是
+   整宽 1236，右边多出来的一条正好压在 300 右栏上方。让 hero 占第 1 行第 1 列、
+   右栏跨 1–3 行，页头、工具条、时间线共用同一条右边界。
+   行间距交给 gap，hero 自己的 padding-bottom 撤掉，否则两段叠成 50px。 */
+.arch-shell > .hero { padding-bottom: 0; }
+
 @media (min-width: 1440px) {
   .arch-shell { grid-template-columns: minmax(0, 1fr) 300px; align-items: start; }
   .arch-rail { display: flex; flex-direction: column; gap: 16px; }
-  .arch-shell > .arch-bar { grid-column: 1; grid-row: 1; }
-  .arch-shell > #arch-body { grid-column: 1; grid-row: 2; min-width: 0; }
-  .arch-shell > .arch-rail { grid-column: 2; grid-row: 1 / span 2; align-self: start; position: sticky; top: 84px; }
+  .arch-shell > .hero { grid-column: 1; grid-row: 1; }
+  .arch-shell > .arch-bar { grid-column: 1; grid-row: 2; }
+  .arch-shell > #arch-body { grid-column: 1; grid-row: 3; min-width: 0; }
+  .arch-shell > .arch-rail { grid-column: 2; grid-row: 1 / span 3; align-self: start; position: sticky; top: 84px; }
 }
 
 /* 归档概览：dt 走弱色、dd 走等宽数字，右边一律右对齐 —— 四行数字才对得齐 */

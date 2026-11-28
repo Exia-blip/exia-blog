@@ -1263,6 +1263,17 @@
 
 ---
 
+## P-120 看着像内容问题，其实是容器问题：五处「版式不像坏，但读不下去」
+
+- **现象**：11-28 审计 P2 五条。① 三列表的表头在同一张表里摞到三行（136px 的列塞「/cat/tools 的 Worker 执行时间」），比数据行还高；② 404 的「最近更新」五条标题各据中间，左边缘参差；③ `/series/…` 在 1440 下只有中间 704 一条，抬头只有标题和一行「共 N 篇」，往下半屏空白；④ 归档页主列已收进 1040，抬头仍是整宽 1236，右边多出来的一条正压在 300 右栏上方；⑤ 作者卡头像是一团橙色渐变，在 ink（黑白）主题里像块外来色。
+- **根因**：五条都不是「某条样式写错」，是容器选错 + 判据看错层。① 列宽由浏览器按内容自动分，`th` 默认允许折行，长表头于是被摊平；② `.g404` 整页 `text-align:center`，链接是 `display:block`，文字跟着继承居中 —— **li 盒子全是等宽的，量盒子看不出问题，得量文字**；③ `seriesShell` 用的是 `.wrap`（704 = 正文阅读宽），索引页套正文宽度必然留白；④ `.hero` 在 `.arch-shell` 外面，grid 只重排了它下面的三块；⑤ 那团橙**根本不在 CSS 里** —— 是 settings 里的站点头像（一张 14KB 的模糊渐变 PNG），`style.css` 里所有渐变都是 mask 或骨架屏。
+- **复现**：`th.getBoundingClientRect().height / lineHeight > 1`；把 `Range.selectNodeContents(a)` 的 `getBoundingClientRect().left` 逐条比，差值就是「参差」的量（量 `li` 全是 0）；`main.clientWidth` 在 1440 下等于 704；`.arch-shell .hero` 与 `#arch-body` 的 `right` 差 300+24 时就是没进 grid；`getComputedStyle('.aw-avatar').backgroundImage` 非 `none` 说明铺的是图不是字母。
+- **断言**：`scripts/test-visual-fixes.mjs` 五条源码守卫（P-120）：`.md th` 有 nowrap 且没有全局 `th` 被锁、`.g404-recent` 左对齐 + 首尾行线、`series-wrap` 880 + 查询带 `summary` + `.sp-x`/`.sm-cta`/`.sm-stat` 在模板里、`archive.html` 里 shell 在 hero 之前 + `.arch-rail` 跨 3 行、`.aw-cover` 无渐变且 `.aw-avatar` 用 `--accent-soft` 且不再铺图。`scripts/check-desktop.mjs` 十四条真浏览器判据（表头两档各一行且不溢出、404 文字左缘差 0px、归档 1440/1920 抬头与主列右边界相等且右栏从抬头那行开始、系列页 880 + 3 个统计格 + 每行有摘要、作者卡两张背景都是 `none`）。注入六次全红：撤 nowrap（源码 + 浏览器两条）、404 回居中、查询丢 summary、hero 搬回 shell 外、头像又铺图。
+- **边界**：① **`nowrap` 只是把「挤」换成「滑」**，前提是这条链路已经有横向滚动与右缘渐隐；没有的话它会把表撑出容器。而且必须挂在 `.md th` 上 —— 全局 `th` 会连 `/numbers` 的四列索引表一起拉宽，那张表的列宽是另一套口径。② **`.series-page li:first-child{border-top:none}` 这类规则特别难查**：选择器打得中元素，但边框画在 `a` 上，li 从来没边框，于是列表自身那条 `border-top` 与首行的线叠成 2px。类名扫描（P-119 用过的那套）只找「零引用类名」，抓不到「规则在、选择器不命中」。③ **先找真正的来源再改 CSS**：作者卡那团橙是上传的图，改 `.aw-cover` 的渐变只是顺带；反过来如果只改 CSS，症状会一直在。④ 审计里写的修法不一定就是最小改动 —— 「换成首字母 + token 底色」意味着作者卡不再显示站点头像（顶栏那枚 27px 保留），这是产品取舍，记在这里免得下一个人当成 bug 改回去。
+- **出处**：`public/style.css`（`.md th` nowrap、`.g404-recent` 左对齐、`.aw-cover`/`.aw-avatar`、`.series-wrap`/`.series-mast`/`.sm-*`/`.sp-main`/`.sp-x`、`.arch-shell > .hero` 与 1440 档 grid-row 改写）、`public/archive.html`（hero 进 shell）、`public/index.html`（作者卡字母砖，去掉 `.has-img` 与 `.aw-dot`）、`src/index.js`（`seriesRows` 摘要行、`monthSpan`、抬头、`seriesShell` 主容器类、系列查询带 summary）、`scripts/test-visual-fixes.mjs`、`scripts/check-desktop.mjs`、`scripts/check-size.mjs`（第七次上限 49000 → 50500）、`src/theme-contract.js`（TC-44 影响面 150 → 152）
+
+---
+
 ## 每篇长文末尾的「复现条件 + 断言代码」模板
 
 新写工程实录 / teardown 时，正文末尾附一段（可折叠或直接列）：
